@@ -136,7 +136,7 @@ jobs:
             --notes "Circuit artifacts staged from PR #$PR at $HEAD_SHA. circuitReleaseId \`$id\`. DEVELOPMENT phase-2 (one contribution + beacon): not for production."
 
       - name: Store the re-pinned files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: council-circuits-pins
           if-no-files-found: error
