@@ -9,8 +9,11 @@
  * ceremony; the dev stack settles a known tally and requests its decryption
  * (as the e2e DAVINCI round-trip does); two members unlock it in the browser,
  * the relayer combines, davinci-test finalizes, and the organizer dashboard
- * and davinci-test show the tally. Then a member clears the browser, restores
- * from the twelve words plus the committee link, and unlocks a second vote.
+ * and davinci-test show the tally. Then about six months pass (700,000 blocks),
+ * every device's RPC behaves like a public provider (eth_getLogs refused above
+ * 10,000 blocks), a member clears the browser, restores from the twelve words
+ * plus the committee link, and unlocks a vote created after the gap without a
+ * single log read.
  *
  * Every step is captured full-page into e2e/screenshots/<project>/ (copied to
  * /tmp/council-screens with an index); in-browser proving times are printed
@@ -21,20 +24,27 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import {
+  alignClock,
   davinciCli,
   inviteLink,
+  mineGap,
   newDevice,
   passKitStep,
+  publicProviderLimits,
   readStack,
   settleTally,
   Shots,
   type DevStack,
+  type RpcRecord,
 } from './helpers';
 
 const N = 3;
 const T = 2;
 const NAMES = ['Alice', 'Bob', 'Carol'];
 const COMMITTEE = 'Board election 2026';
+/** The gap before the second vote: 700,000 blocks of 22 s, about six months. */
+const GAP_BLOCKS = 700_000;
+const GAP_BLOCK_TIME = 22;
 /** The known final tallies of the two DAVINCI processes (one value per ballot field). */
 const TALLY_A = [7, 0, 3, 12];
 const TALLY_B = [42, 1_000_000, 5];
@@ -293,9 +303,22 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     expect(results.values).toEqual(TALLY_A.map(String));
   });
 
-  test('a member who cleared the browser restores from twelve words and the committee link, then unlocks', async () => {
+  test('six months later, through public-provider RPC limits, a member who cleared the browser restores from twelve words and the committee link, then unlocks', async () => {
     const carol = members[2] as Member;
     const alice = members[0] as Member;
+
+    // About six months pass. Every device lives through them (its clock moves with the chain's)
+    // and from now on reaches the chain through an RPC with public-provider limits.
+    await mineGap(stack, GAP_BLOCKS, GAP_BLOCK_TIME);
+    const rpc = new Map<string, RpcRecord[]>();
+    for (const [name, context] of [
+      ['organizer', organizer],
+      ['alice', alice.device],
+      ['carol', carol.device],
+    ] as const) {
+      await alignClock(context, stack);
+      rpc.set(name, await publicProviderLimits(context, stack));
+    }
 
     // Clear everything this origin stored (root, records, cached circuit files) with no app page open.
     await carol.page.close();
@@ -318,7 +341,7 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Shared keys for elections' })).toBeVisible();
     await expect(page.getByText('Your committees')).toHaveCount(0);
-    await shot(page, 'm3-cleared', 'Carol: browser storage cleared, the app knows nothing about her');
+    await shot(page, 'm3-cleared', 'Carol, about six months later: browser storage cleared, the app knows nothing about her');
 
     // Restore from the twelve words + the committee link.
     await page.getByRole('button', { name: 'Restore from a recovery kit' }).click();
@@ -374,5 +397,14 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     const results = await davinciCli<ResultsReport>(stack, ['results', '--process', created.processId, '--finalize']);
     expect(results.state).toBe('results');
     expect(results.values).toEqual(TALLY_B.map(String));
+
+    // The restored member and the other unlocker never asked for a log; the organizer's labels
+    // were read in ranges a public provider serves; nothing was refused.
+    const carolCalls = rpc.get('carol') ?? [];
+    expect(carolCalls.length).toBeGreaterThan(0);
+    for (const who of ['carol', 'alice']) expect((rpc.get(who) ?? []).filter((c) => c.method === 'eth_getLogs')).toEqual([]);
+    for (const calls of rpc.values()) expect(calls.filter((c) => c.refused)).toEqual([]);
+    const orgLogs = (rpc.get('organizer') ?? []).filter((c) => c.method === 'eth_getLogs');
+    expect(orgLogs.every((c) => c.range !== undefined && c.range[1] - c.range[0] < 10_000n)).toBe(true);
   });
 });

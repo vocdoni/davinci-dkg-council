@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { createCommittee, inviteLink } from './helpers';
+import { alignClock, createCommittee, inviteLink } from './helpers';
+
+// The journey moves the chain months ahead: this device follows the chain's clock.
+test.beforeEach(({ context }) => alignClock(context));
 
 test('organizer creates a committee and gets working invite links', async ({ page }) => {
   await createCommittee(page, { members: 3, threshold: 2 });

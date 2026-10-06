@@ -46,10 +46,115 @@ export function settleTally(processId: string, tally: number[]): Promise<{ reque
   return runJson('bash', ['scripts/dev-stack.sh', 'settle', '--process', processId, '--tally', tally.join(','), '--json']);
 }
 
-/** A fresh browser profile (a person's own device) with this project's viewport. */
-export function newDevice(browser: Browser, testInfo: TestInfo): Promise<BrowserContext> {
+/** A fresh browser profile (a person's own device) with this project's viewport, on the chain's clock. */
+export async function newDevice(browser: Browser, testInfo: TestInfo): Promise<BrowserContext> {
   const { viewport, isMobile, hasTouch, deviceScaleFactor, baseURL } = testInfo.project.use;
-  return browser.newContext({ viewport, isMobile, hasTouch, deviceScaleFactor, baseURL, acceptDownloads: true });
+  const context = await browser.newContext({ viewport, isMobile, hasTouch, deviceScaleFactor, baseURL, acceptDownloads: true });
+  await alignClock(context);
+  return context;
+}
+
+/** One JSON-RPC call to the dev stack's Anvil (no timeout: anvil_mine of many blocks takes a while). */
+async function anvilRpc<T>(stack: DevStack, method: string, params: unknown[] = []): Promise<T> {
+  const res = await fetch(stack.rpcUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  const body = (await res.json()) as { result?: T; error?: { message: string } };
+  if (body.error) throw new Error(`${method}: ${body.error.message}`);
+  return body.result as T;
+}
+
+/** The timestamp of the chain's latest block, in milliseconds. */
+export async function chainTimeMs(stack: DevStack): Promise<number> {
+  const block = await anvilRpc<{ timestamp: string }>(stack, 'eth_getBlockByNumber', ['latest', false]);
+  return Number(BigInt(block.timestamp)) * 1000;
+}
+
+/**
+ * Put this device on the chain's clock when the two differ by more than a few minutes. The app
+ * dates what it signs and its deadlines from the device clock; a journey that moves the chain
+ * months ahead stands for months a real device lives through in real time.
+ */
+export async function alignClock(context: BrowserContext, stack: DevStack | null = readStack()): Promise<void> {
+  if (!stack) return;
+  const chainMs = await chainTimeMs(stack);
+  if (Math.abs(chainMs - Date.now()) > 5 * 60_000) await context.clock.setSystemTime(chainMs);
+}
+
+/** Let `blocks` blocks of `interval` seconds pass on the dev chain (anvil_mine). */
+export async function mineGap(stack: DevStack, blocks: number, interval: number): Promise<void> {
+  await anvilRpc(stack, 'anvil_mine', [`0x${blocks.toString(16)}`, `0x${interval.toString(16)}`]);
+}
+
+export interface RpcRecord {
+  method: string;
+  /** eth_getLogs: the block range asked for. */
+  range?: [bigint, bigint];
+  refused?: string;
+}
+
+/**
+ * Make the dev chain's RPC behave like a public provider for this device: an eth_getLogs over
+ * more than 10,000 blocks, or one answering more than 10,000 logs, is refused. Returns the
+ * record of every call the device made from now on.
+ */
+export async function publicProviderLimits(context: BrowserContext, stack: DevStack): Promise<RpcRecord[]> {
+  const MAX_RANGE = 10_000n;
+  const MAX_RESULTS = 10_000;
+  const calls: RpcRecord[] = [];
+  const base = stack.rpcUrl.replace(/\/+$/, '');
+  const blockOf = async (tag: unknown): Promise<bigint> => {
+    if (typeof tag === 'string' && /^0x[0-9a-f]+$/i.test(tag)) return BigInt(tag);
+    if (tag === 'earliest') return 0n;
+    const b = await anvilRpc<{ number: string }>(stack, 'eth_getBlockByNumber', [typeof tag === 'string' ? tag : 'latest', false]);
+    return BigInt(b.number);
+  };
+  await context.route(
+    (url) => url.href.replace(/\/+$/, '') === base,
+    async (route) => {
+      const req = route.request();
+      const body = req.method() === 'POST' ? (req.postDataJSON() as unknown) : undefined;
+      const list = (Array.isArray(body) ? body : body ? [body] : []) as { id: unknown; method: string; params?: unknown[] }[];
+      let refusal: { id: unknown; message: string } | undefined;
+      for (const r of list) {
+        const rec: RpcRecord = { method: r.method };
+        calls.push(rec);
+        if (r.method !== 'eth_getLogs') continue;
+        const filter = (r.params?.[0] ?? {}) as { blockHash?: string; fromBlock?: unknown; toBlock?: unknown };
+        if (filter.blockHash) continue;
+        rec.range = [await blockOf(filter.fromBlock ?? 'latest'), await blockOf(filter.toBlock ?? 'latest')];
+        if (rec.range[1] - rec.range[0] + 1n > MAX_RANGE) {
+          rec.refused = 'eth_getLogs is limited to a 10,000 range';
+          refusal ??= { id: r.id, message: rec.refused };
+        }
+      }
+      if (refusal && !Array.isArray(body)) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ jsonrpc: '2.0', id: refusal.id, error: { code: -32005, message: refusal.message } }),
+        });
+        return;
+      }
+      const response = await route.fetch();
+      const text = await response.text();
+      if (list.length === 1 && list[0]?.method === 'eth_getLogs') {
+        const parsed = JSON.parse(text) as { result?: unknown[] };
+        if (Array.isArray(parsed.result) && parsed.result.length > MAX_RESULTS) {
+          const message = `query returned more than ${MAX_RESULTS} results`;
+          (calls[calls.length - 1] as RpcRecord).refused = message;
+          await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ jsonrpc: '2.0', id: list[0].id, error: { code: -32005, message } }),
+          });
+          return;
+        }
+      }
+      await route.fulfill({ response, body: text });
+    },
+  );
+  return calls;
 }
 
 /** Full-page screenshots, numbered in journey order, with a one-line description each. */

@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { createCommittee, inviteLink, newDevice, passKitStep } from './helpers';
+import { alignClock, createCommittee, inviteLink, newDevice, passKitStep } from './helpers';
+
+// The journey moves the chain months ahead: this device follows the chain's clock.
+test.beforeEach(({ context }) => alignClock(context));
 
 test('a participant joins through an invite link on a fresh device', async ({ browser, page }, testInfo) => {
   await createCommittee(page, { members: 2, threshold: 2 });
