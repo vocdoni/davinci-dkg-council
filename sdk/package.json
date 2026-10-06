@@ -1,0 +1,47 @@
+{
+  "name": "@vocdoni/davinci-dkg-council-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Council, the invite-only threshold DKG for DAVINCI",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./prover-worker": {
+      "source": "./src/prover-worker.ts",
+      "import": "./dist/prover-worker.js",
+      "types": "./dist/prover-worker.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench:bsgs": "BSGS_BENCH=1 vitest run --testTimeout 600000 tests/bsgs-bench.test.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.9.0",
+    "@noble/hashes": "^1.8.0",
+    "@scure/bip39": "^1.6.0",
+    "poseidon-lite": "^0.3.0",
+    "snarkjs": "0.7.6",
+    "viem": "^2.21.55"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@zk-kit/baby-jubjub": "^1.0.3",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  },
+  "packageManager": "pnpm@10.0.0"
+}
