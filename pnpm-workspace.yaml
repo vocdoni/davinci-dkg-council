@@ -1,0 +1,7 @@
+packages:
+  - circuits
+  - sdk
+  - relayer
+  - ui
+  - tests
+  - tools/davinci-test

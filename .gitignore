@@ -1,0 +1,46 @@
+# ---- Node / pnpm ------------------------------------------------------------
+node_modules/
+dist/
+.vite/
+coverage/
+*.log
+# Created at the repository root when pnpm runs in a container whose $HOME lives on another
+# filesystem.
+/.pnpm-store/
+
+# ---- Circuits ---------------------------------------------------------------
+# Compiled artifacts and keys are released (circuits-vN), not committed.
+circuits/build/
+
+# ---- Foundry ----------------------------------------------------------------
+solidity/out/
+solidity/cache/
+solidity/cache_forge/
+solidity/broadcast/
+
+# ---- Local dev stack (make dev) and test output -----------------------------
+.dev/
+tests/.logs/
+tests/.gas/
+ui/e2e/screenshots/
+ui/playwright-report/
+ui/test-results/
+
+# ---- Editor / OS ------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---- Secrets ----------------------------------------------------------------
+.env
+.env.local
+*.pem
+*.key
+
+# ---- Local notes ------------------------------------------------------------
+CLAUDE.md
+.claude/
