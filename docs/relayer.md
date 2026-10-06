@@ -48,6 +48,10 @@ COUNCIL_RPC_URL=… COUNCIL_MANAGER_ADDRESS=0x… COUNCIL_PRIVATE_KEY=0x… node
 `make relayer-docker` builds the image locally. Put a TLS-terminating proxy in front of either
 and list it in `COUNCIL_TRUSTED_PROXIES`.
 
+**Railway.** `scripts/railway-deploy-relayer.sh` builds the image on Railway and sets up the
+service, its volume, domain and variables; the public Sepolia relayer runs this way
+([Hosting on Railway](deployments.md#hosting-on-railway)).
+
 ## What it pays for
 
 Every action is simulated with `eth_call` first; a reverting one is refused with

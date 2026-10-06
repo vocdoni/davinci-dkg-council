@@ -122,6 +122,9 @@ more RPC providers, the relayer and a mirror of the circuit files. `ui/Dockerfil
 (`ghcr.io/vocdoni/davinci-dkg-council-ui`, nginx with a single-page-app fallback) and
 `ui/.do/davinci-dkg-council-ui.yaml` deploys it to DigitalOcean App Platform; both render the
 config from build arguments ([docs/deployments.md](docs/deployments.md#app-and-relayer)).
+`scripts/railway-deploy-ui.sh` and `scripts/railway-deploy-relayer.sh` host both on Railway, with
+the circuit files served by the app's own origin
+([Hosting on Railway](docs/deployments.md#hosting-on-railway)).
 
 ### Binding DAVINCI processes
 
@@ -152,7 +155,8 @@ app, the relayer combines, and anyone calls `finalizeResultsFromDKG`.
 |---|---|---|---|
 | Sepolia | `circuits-v1` (development setup) | [`0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070`](https://sepolia.etherscan.io/address/0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070) | rehearsals only |
 
-`circuits-v1` is a development phase 2, so it is not for real elections.
+`circuits-v1` is a development phase 2, so it is not for real elections. The Sepolia app runs at
+https://council-ui-production.up.railway.app, with a public relayer.
 [docs/deployments.md](docs/deployments.md) has every address, the release pins, the first live
 ceremony (gas, cost and timings) and how to deploy.
 

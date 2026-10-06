@@ -8,6 +8,14 @@ There is no production deployment: `circuits-v1` is a development phase 2 (see
 [Circuit release](#circuit-release)). `scripts/sepolia/deployment.json` is the machine-readable
 record of the Sepolia deployment, which `scripts/sepolia/run.sh` reads.
 
+The Sepolia deployment has a public app and relayer on Railway
+([Hosting on Railway](#hosting-on-railway)):
+
+| Service | URL |
+|---|---|
+| App | https://council-ui-production.up.railway.app |
+| Relayer | https://council-relayer-production.up.railway.app (`/v1/health`) |
+
 ## Sepolia
 
 Deployed on 2026-10-06 from `0x951163cefc22ce67f6d8b95b00a0074c4656df42` with
@@ -193,7 +201,8 @@ Both scripts also run against a local Anvil (`EXPECTED_CHAIN_ID=31337`,
 ## App and relayer
 
 The app reads its deployment from `/config.json` (architecture §6). The committed Sepolia
-configurations point at the deployment above, but two URLs are still placeholders:
+configurations point at the deployment above, but two URLs are still placeholders (the Railway
+app below renders its own):
 
 | File | Deployment | Placeholders |
 |---|---|---|
@@ -221,3 +230,88 @@ timed out from the deployment host on 2026-10-06, so the rehearsal read through 
 Tenderly only.
 
 Running the relayer for a deployment is covered in [relayer.md](relayer.md).
+
+## Hosting on Railway
+
+The Sepolia app and a public relayer run on [Railway](https://railway.com), in the project
+`davinci-dkg-council-sepolia` (one `production` environment), since 2026-10-06:
+
+| Service | URL | Configuration |
+|---|---|---|
+| `council-ui` | https://council-ui-production.up.railway.app | `config.sepolia.json` with the relayer below; publicnode, Tenderly and 1rpc.io for the authenticated reads; the six `circuits-v1` files served by the same origin under `/circuits-v1/` |
+| `council-relayer` | https://council-relayer-production.up.railway.app | open admission, combine worker from block 11,856,029, a 0.02 ETH rolling 24 h budget, CORS for the app's origin only, state on a volume at `/data` |
+
+The relayer's hot key is
+[`0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c`](https://sepolia.etherscan.io/address/0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c),
+funded with 0.03 ETH from the deployer and used by nothing else. Sends go to publicnode, then
+Tenderly; 1rpc.io only serves reads. In open mode anyone's ceremony is sponsored within the quotas
+and the budget. At 1 gwei the budget covers about two `n = 3, t = 2` ceremonies with one 4-field
+decryption a day (9.1M gas each, [Sizing the budget](relayer.md#sizing-the-budget)); a 16-member
+ceremony does not fit, and the relayer answers `BUDGET_EXHAUSTED` once the window is spent. Watch
+`balanceWei` in `/v1/health` and top the key up before it runs dry.
+
+### Deploying
+
+`scripts/railway-deploy-relayer.sh` and `scripts/railway-deploy-ui.sh` create or update one
+service each through Railway's GraphQL API, then build its image on Railway from the committed
+tree with `railway up`. Nothing is pulled from a registry, so the private repository and its
+private GHCR images need no credentials on Railway. `scripts/railway-status.sh` shows each
+service's latest deployment, its log tail and the relayer's health. The scripts need `curl`,
+`python3`, `git` and Node 22 (`npx` fetches the Railway CLI).
+
+1. Create a Railway token and store it in a file outside the repository (`/railway-api-key` is
+   git-ignored). A workspace token works; the scripts never print it.
+2. Create a project in the dashboard, or with the `projectCreate` mutation, and note its id and
+   the id of its `production` environment.
+3. Generate a hot key for the relayer, store it as `0x` plus 64 hex digits in a file with mode
+   `0600`, and fund it.
+4. Deploy the relayer, then the app:
+
+```bash
+export RAILWAY_TOKEN_FILE=railway-api-key
+export RAILWAY_PROJECT_ID=<project id> RAILWAY_ENVIRONMENT_ID=<environment id>
+COUNCIL_KEY_FILE=~/.davinci-dkg-council/sepolia-relayer.key scripts/railway-deploy-relayer.sh
+scripts/railway-deploy-ui.sh
+scripts/railway-status.sh
+```
+
+The first relayer run also creates the app's service and domain, so that `COUNCIL_CORS_ORIGINS`
+can name it; the app's build reads the relayer's domain into `relayerUrl`. Both scripts take the
+manager and the deployment block from `scripts/sepolia/deployment.json`. Running either again
+deploys the current `HEAD` (`GIT_REF` picks another commit; uncommitted changes are not deployed)
+with the variables it sets. Each script documents its overrides at the top: `RPC_URLS`,
+`DAILY_BUDGET_WEI`, `CORS_ORIGINS` and `EXTRA_VARS` (any other `COUNCIL_*` setting) for the
+relayer; `UI_CONFIG`, `RPC_URLS`, `RELAYER_URL` and `COUNCIL_ARTIFACTS_DIR` for the app. The key
+reaches Railway only inside a request body, as the `COUNCIL_PRIVATE_KEY` service variable; `railway
+up` runs with a project token created for the upload and deleted afterwards.
+
+### What the scripts adapt
+
+- **Build context.** Each upload is a `git archive` of the packages its image needs, with the
+  Dockerfile at its root. Railway refuses the `VOLUME` instruction and cache mounts outside its own
+  id scheme, so the relayer's `VOLUME /data` and the app's pnpm cache mount are dropped from those
+  copies; the relayer gets a Railway volume at `/data` instead.
+- **Port and health check.** Railway's edge and health check connect to `$PORT`: 8080 for the
+  relayer, whose health check is `/v1/health` (it reads the chain, so a deployment whose RPCs do
+  not answer never takes traffic), and 80 for nginx.
+- **Volume ownership.** Railway mounts volumes as root, so the relayer runs with
+  `RAILWAY_RUN_UID=0`.
+- **One replica.** The relayer allocates its key's nonces locally; never scale it out.
+- **Client addresses.** Railway's edge drops any `X-Forwarded-For` a client sends and forwards
+  `<client>, <edge>` from `100.64.0.0/10`. `COUNCIL_TRUSTED_PROXIES=0.0.0.0/0,::/0` makes the
+  relayer charge the left-most hop, the real client; with `100.64.0.0/10` alone it would charge
+  every client to the edge's address and share one rate limit among them.
+- **Circuit files.** `railway-deploy-ui.sh` copies the six files from `COUNCIL_ARTIFACTS_DIR`
+  into the image after checking each against its pin in `sdk/src/artifacts.ts`, and sets
+  `artifactsBaseUrl` to `/circuits-v1`. The browser downloads them from the app's own origin, so
+  the CSP needs no new origin and no CORS mirror is involved; the SDK still checks every byte
+  against the same pins. `ui/nginx.conf` answers a missing circuit file with 404 instead of the
+  app's index page.
+
+### Cost
+
+On 2026-10-06 the relayer used about 160 MB of memory and 0.003 vCPU at rest, the app about 40 MB
+and no measurable CPU. At Railway's usage prices that is about $2 a month for both, within the
+Hobby plan's included usage, plus egress: a new browser downloads about 78 MB of circuit files
+once (then they come from its cache), about $0.004 per participant. The relayer's state file is a
+few hundred KB on its volume.
