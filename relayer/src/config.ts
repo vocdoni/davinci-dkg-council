@@ -14,7 +14,10 @@ export interface RelayerConfig {
   dataDir: string;
   combinerEnabled: boolean;
   maxFeeWei: bigint;
-  maxTxGas: bigint;
+  /** Undefined: no per-transaction cap below the block gas limit (state-gas chains). */
+  maxTxGas: bigint | undefined;
+  /** The chain prices state growth separately (EIP-8037): see COUNCIL_STATE_GAS. */
+  stateGas: boolean;
   dailyBudgetWei: bigint;
   corsOrigins: string[];
   rateLimitPerIp: number;
@@ -99,8 +102,12 @@ export function loadConfig(env: Env): RelayerConfig {
     if (!ADDRESS_RE.test(a)) throw new Error(`config: COUNCIL_ORGANIZER_ALLOWLIST entry is not an address: ${a}`);
     return a.toLowerCase();
   });
-  const maxTxGas = big(env, 'COUNCIL_MAX_TX_GAS', 16_777_216n);
-  if (maxTxGas < 21_000n) throw new Error('config: COUNCIL_MAX_TX_GAS must be at least 21000');
+  // EIP-7825 (Osaka) rejects a gas limit above 2^24. With EIP-8037 (Glamsterdam) that bounds
+  // execution gas only: state gas comes on top, so by default only the block gas limit caps.
+  const stateGas = bool(env, 'COUNCIL_STATE_GAS');
+  const maxTxGasSet = (env.COUNCIL_MAX_TX_GAS ?? '').trim() !== '';
+  const maxTxGas = maxTxGasSet ? big(env, 'COUNCIL_MAX_TX_GAS', 0n) : stateGas ? undefined : 16_777_216n;
+  if (maxTxGas !== undefined && maxTxGas < 21_000n) throw new Error('config: COUNCIL_MAX_TX_GAS must be at least 21000');
   const apiTokens = list(env.COUNCIL_API_TOKENS);
   for (const t of apiTokens) {
     if (t.length < 16) throw new Error('config: COUNCIL_API_TOKENS entries must be at least 16 characters');
@@ -116,6 +123,7 @@ export function loadConfig(env: Env): RelayerConfig {
     combinerEnabled: bool(env, 'COUNCIL_COMBINER_ENABLED'),
     maxFeeWei: big(env, 'COUNCIL_MAX_FEE_WEI', 100_000_000_000n),
     maxTxGas,
+    stateGas,
     dailyBudgetWei: big(env, 'COUNCIL_DAILY_BUDGET_WEI', 1_000_000_000_000_000_000n),
     corsOrigins: list(env.COUNCIL_CORS_ORIGINS),
     rateLimitPerIp: int(env, 'COUNCIL_RATE_LIMIT', 60, 1),

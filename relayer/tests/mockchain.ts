@@ -255,6 +255,8 @@ export class MockChain {
   tip = 1_000_000_000n;
   gasLimit = 30_000_000n;
   gasEstimate = 100_000n;
+  /** The relayer key's balance (eth_getBalance). */
+  balance = 10n ** 21n;
   blockNumber = 1n;
   /** Throw this (once) from the next eth_sendRawTransaction. */
   failNextSend: RpcRequestError | undefined;
@@ -605,7 +607,7 @@ export class MockChain {
       case 'eth_maxPriorityFeePerGas':
         return hex(this.tip);
       case 'eth_getBalance':
-        return hex(10n ** 21n);
+        return hex(this.balance);
       case 'eth_getCode':
         return (params[0] as string).toLowerCase() === MANAGER ? '0x6080' : '0x';
       case 'eth_getTransactionCount': {

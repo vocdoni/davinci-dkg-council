@@ -14,7 +14,10 @@
 #   DEPLOYMENT           deployment record, default scripts/sepolia/deployment.json: the manager
 #                        and the start block of the combine worker
 #   RPC_URLS             default publicnode, then Tenderly's gateway
-#   DAILY_BUDGET_WEI     default 20000000000000000 (0.02 ETH per rolling 24 h)
+#   DAILY_BUDGET_WEI     default 60000000000000000 (0.06 ETH per rolling 24 h)
+#   STATE_GAS            default true: Sepolia prices state gas separately since Glamsterdam
+#                        (EIP-8037), so gas limits may exceed 2^24 (COUNCIL_STATE_GAS); set false
+#                        for an Osaka chain such as Gnosis
 #   CORS_ORIGINS         default https://<the UI service's Railway domain>
 #   TRUSTED_PROXIES      default 0.0.0.0/0,::/0: every hop is Railway's. Its edge drops any
 #                        client-supplied X-Forwarded-For and sends "<client>, <edge>" from
@@ -30,7 +33,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/railway-lib.sh"
 : "${COUNCIL_KEY_FILE:?file holding the relayer hot key}"
 : "${DEPLOYMENT:=$root/scripts/sepolia/deployment.json}"
 : "${RPC_URLS:=https://ethereum-sepolia-rpc.publicnode.com,https://sepolia.gateway.tenderly.co}"
-: "${DAILY_BUDGET_WEI:=20000000000000000}"
+: "${DAILY_BUDGET_WEI:=60000000000000000}"
+: "${STATE_GAS:=true}"
 : "${TRUSTED_PROXIES:=0.0.0.0/0,::/0}"
 : "${SERVICE_NAME:=council-relayer}"
 : "${UI_SERVICE_NAME:=council-ui}"
@@ -62,6 +66,7 @@ v = {
     "COUNCIL_START_BLOCK": "$start_block",
     "COUNCIL_COMBINER_ENABLED": "true",
     "COUNCIL_DAILY_BUDGET_WEI": "$DAILY_BUDGET_WEI",
+    "COUNCIL_STATE_GAS": "$STATE_GAS",
     "COUNCIL_CORS_ORIGINS": "$CORS_ORIGINS",
     "COUNCIL_TRUSTED_PROXIES": "$TRUSTED_PROXIES",
     "COUNCIL_DATA_DIR": "/data",

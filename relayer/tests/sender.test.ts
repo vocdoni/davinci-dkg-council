@@ -152,6 +152,60 @@ describe('TxSender', () => {
     expect(parseTransaction(chain.sentRaw[2] as Hex).gas).toBe(30_000_000n);
   });
 
+  it('with state gas (EIP-8037), only the block gas limit caps the gas limit', async () => {
+    const chain = new MockChain();
+    dealing(chain, 3);
+    const sender = new TxSender({ client: chain.client, account, chainId: 31337n, maxFeeWei: 10n ** 11n, bumpAfterMs: 1000, stateGas: true });
+    // A 16-member finalize after Glamsterdam: 10.97M execution + 6.27M state gas.
+    chain.gasLimit = 60_000_000n;
+    chain.gasEstimate = 17_240_000n;
+    await sender.send(MANAGER, finalizeData(1));
+    expect(parseTransaction(chain.sentRaw[0] as Hex).gas).toBe(20_688_000n); // + 20%, above 2^24
+    chain.gasEstimate = 55_000_000n; // the block still bounds it
+    await sender.send(MANAGER, finalizeData(2));
+    expect(parseTransaction(chain.sentRaw[1] as Hex).gas).toBe(60_000_000n);
+    // An explicit COUNCIL_MAX_TX_GAS still applies.
+    const capped = new TxSender({
+      client: chain.client,
+      account,
+      chainId: 31337n,
+      maxFeeWei: 10n ** 11n,
+      bumpAfterMs: 1000,
+      stateGas: true,
+      maxTxGas: 25_000_000n,
+    });
+    await capped.send(MANAGER, finalizeData(3));
+    expect(parseTransaction(chain.sentRaw[2] as Hex).gas).toBe(25_000_000n);
+  });
+
+  it('refuses plainly, before broadcasting, when the key cannot cover the worst case', async () => {
+    const logs: { msg: string; fields?: Record<string, unknown> }[] = [];
+    const log = { info: () => {}, warn: () => {}, error: (msg: string, fields?: Record<string, unknown>) => logs.push({ msg, fields }) };
+    const chain = new MockChain();
+    dealing(chain, 2);
+    const sender = new TxSender({ client: chain.client, account, chainId: 31337n, maxFeeWei: 10n ** 11n, bumpAfterMs: 1000, log });
+    chain.balance = WORST - 1n;
+    const err = await errorOf(sender.send(MANAGER, finalizeData(1)));
+    expect(err.code).toBe('BUDGET_EXHAUSTED');
+    expect(err.detail).toBe(`sponsorship paused: the relayer key holds ${WORST - 1n} wei, and this action may cost up to ${WORST} wei; the operator must top it up`);
+    expect(chain.sentRaw).toHaveLength(0);
+    expect(logs.map((l) => l.msg)).toEqual(['hot key balance too low: top it up']);
+    // What is already in flight counts too: the node checks the key's pending total.
+    chain.automine = false;
+    chain.balance = 2n * WORST - 1n;
+    await sender.send(MANAGER, finalizeData(1));
+    expect((await errorOf(sender.send(MANAGER, finalizeData(2)))).detail).toMatch(/plus 360000000000000 wei in flight/);
+  });
+
+  it('says plainly why a node refused the broadcast for insufficient funds', async () => {
+    const { chain, sender } = stack();
+    dealing(chain, 1);
+    chain.failNextSend = rpcError(-32000, 'insufficient funds for gas * price + value: balance 1, tx cost 360000000000000');
+    const err = await errorOf(sender.send(MANAGER, finalizeData(1)));
+    expect(err.code).toBe('TX_FAILED');
+    expect(err.detail).toMatch(/^the relayer key cannot pay for this action; the operator must top it up \(insufficient funds/);
+  });
+
   it('refuses to send when the base fee reaches the cap', async () => {
     const { chain, sender } = stack({ maxFeeWei: 1_000_000_000n });
     dealing(chain, 1);

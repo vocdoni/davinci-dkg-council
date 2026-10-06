@@ -241,14 +241,15 @@ The Sepolia app and a public relayer run on [Railway](https://railway.com), in t
 | Service | URL | Configuration |
 |---|---|---|
 | `council-ui` | https://council-ui-production.up.railway.app | `config.sepolia.json` with the relayer below; publicnode and Tenderly for the authenticated reads; the six `circuits-v1` files served by the same origin under `/circuits-v1/` |
-| `council-relayer` | https://council-relayer-production.up.railway.app | open admission, combine worker from block 11,856,029, a 0.02 ETH rolling 24 h budget, CORS for the app's origin only, state on a volume at `/data` |
+| `council-relayer` | https://council-relayer-production.up.railway.app | open admission, combine worker from block 11,856,029, a 0.06 ETH rolling 24 h budget, state gas on (`COUNCIL_STATE_GAS=true`), CORS for the app's origin only, state on a volume at `/data` |
 
 The relayer's hot key is
 [`0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c`](https://sepolia.etherscan.io/address/0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c),
 funded with 0.03 ETH from the deployer and used by nothing else. Reads and sends go to
 publicnode, then Tenderly. In open mode anyone's ceremony is sponsored within the quotas
-and the budget, and the relayer answers `BUDGET_EXHAUSTED` once the window is spent. Watch
-`balanceWei` in `/v1/health` and top the key up before it runs dry.
+and the budget, and the relayer answers `BUDGET_EXHAUSTED` once the window is spent, or when
+the key cannot cover an action's worst case ("… the operator must top it up", logged as `hot key
+balance too low`). Watch `balanceWei` in `/v1/health` and top the key up before it runs dry.
 
 Since Sepolia's hard fork of 2026-10-06 13:53 UTC (block 11,856,337) the Council actions cost two
 to three times the gas of the [rehearsal](#rehearsal-ceremony-2026-10-06) and of `tests/GAS.md`: a
@@ -263,8 +264,12 @@ plain transfer to a new account went from 21,000 to 204,600 gas. Through the hos
 | deal | 1,759,442 | 1,080,566 to 1,080,606 |
 | finalize | 1,005,715 | 395,138 |
 
-So at 1 gwei the 0.02 ETH budget sponsors about two small committees a day, fewer with
-decryptions, and no 16-member one; `DAILY_BUDGET_WEI` raises it.
+The fork is Glamsterdam, whose separate state gas (EIP-8037, about 97,920 gas per new storage
+slot) comes on top of the EIP-7825 2^24 execution cap: a 16-member finalize needs 17.24M gas
+(10.97M execution + 6.27M state). The relayer runs with `COUNCIL_STATE_GAS=true`, so it caps gas
+limits at the block gas limit instead of 2^24 ([relayer.md](relayer.md#sizing-the-budget)). At
+1 gwei the 0.06 ETH budget sponsors about six small committees a day, fewer with decryptions;
+`DAILY_BUDGET_WEI` changes it, and the key must hold what the budget allows.
 
 ### Deploying
 
@@ -296,7 +301,7 @@ can name it; the app's build reads the relayer's domain into `relayerUrl`. Both 
 manager and the deployment block from `scripts/sepolia/deployment.json`. Running either again
 deploys the current `HEAD` (`GIT_REF` picks another commit; uncommitted changes are not deployed)
 with the variables it sets. Each script documents its overrides at the top: `RPC_URLS`,
-`DAILY_BUDGET_WEI`, `CORS_ORIGINS` and `EXTRA_VARS` (any other `COUNCIL_*` setting) for the
+`DAILY_BUDGET_WEI`, `STATE_GAS`, `CORS_ORIGINS` and `EXTRA_VARS` (any other `COUNCIL_*` setting) for the
 relayer; `UI_CONFIG`, `RPC_URLS`, `RELAYER_URL` and `COUNCIL_ARTIFACTS_DIR` for the app. The key
 reaches Railway only inside a request body, as the `COUNCIL_PRIVATE_KEY` service variable; `railway
 up` runs with a project token created for the upload and deleted afterwards.

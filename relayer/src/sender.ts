@@ -52,9 +52,15 @@ export interface SenderOptions {
   gasHeadroomPercent?: number;
   /**
    * Cap on one transaction's gas limit, below the block gas limit (COUNCIL_MAX_TX_GAS);
-   * defaults to the EIP-7825 (Osaka) per-transaction maximum.
+   * defaults to the EIP-7825 (Osaka) per-transaction maximum, or to none with `stateGas`.
    */
   maxTxGas?: bigint;
+  /**
+   * The chain prices state growth separately (EIP-8037, Glamsterdam; COUNCIL_STATE_GAS): the
+   * EIP-7825 maximum then bounds execution gas only, and a transaction sets a larger gas limit to
+   * cover its state gas, so without an explicit `maxTxGas` only the block gas limit caps it.
+   */
+  stateGas?: boolean;
   /** Fallback priority fee when the node has no eth_maxPriorityFeePerGas. */
   defaultTipWei?: bigint;
   log?: Logger;
@@ -106,6 +112,7 @@ export interface TxStatus {
 }
 
 const MAX_HISTORY = 5000;
+const INSUFFICIENT_FUNDS = /insufficient funds/i;
 /** EIP-7825 (Osaka): a transaction whose gas limit exceeds 2^24 is invalid. */
 export const MAX_TX_GAS = 16_777_216n;
 const DAY_MS = 24 * 3_600_000;
@@ -133,7 +140,8 @@ export class TxSender {
   private readonly maxFeeWei: bigint;
   private readonly bumpAfterMs: number;
   private readonly headroom: bigint;
-  private readonly maxTxGas: bigint;
+  /** Undefined: only the block gas limit caps a transaction (EIP-8037 chains). */
+  private readonly maxTxGas: bigint | undefined;
   private readonly defaultTip: bigint;
   private readonly store: StateStore;
   private readonly log: Logger;
@@ -163,7 +171,7 @@ export class TxSender {
     this.maxFeeWei = opts.maxFeeWei;
     this.bumpAfterMs = opts.bumpAfterMs;
     this.headroom = BigInt(opts.gasHeadroomPercent ?? 20);
-    this.maxTxGas = opts.maxTxGas ?? MAX_TX_GAS;
+    this.maxTxGas = opts.maxTxGas ?? (opts.stateGas ? undefined : MAX_TX_GAS);
     this.defaultTip = opts.defaultTipWei ?? 1_000_000_000n;
     this.store = opts.store ?? new StateStore();
     this.endpoints = opts.endpoints && opts.endpoints.length > 0 ? opts.endpoints : [{ name: 'rpc', client: opts.client }];
@@ -392,6 +400,28 @@ export class TxSender {
     this.nonceFreshAt = this.now();
   }
 
+  /**
+   * A node refuses a transaction whose worst case (gas limit × max fee), with what the key
+   * already has in flight, exceeds the key's balance. Refuse it here with a plain answer
+   * instead of a broadcast error.
+   */
+  private async checkBalance(cost: bigint): Promise<void> {
+    const balance = await this.balance().catch(() => undefined);
+    if (balance === undefined) return; // the broadcast will tell
+    if (balance < cost + this.budget.inFlight()) throw this.underfunded(balance, cost);
+  }
+
+  private underfunded(balance: bigint | undefined, cost: bigint): RelayError {
+    const inFlight = this.budget.inFlight();
+    this.log.error('hot key balance too low: top it up', { balanceWei: balance, needsWei: cost + inFlight, address: this.address });
+    return new RelayError(
+      'BUDGET_EXHAUSTED',
+      `sponsorship paused: the relayer key holds ${balance ?? 'too little'} wei, and this action may cost up to ${cost} wei` +
+        (inFlight > 0n ? ` (plus ${inFlight} wei in flight)` : '') +
+        '; the operator must top it up',
+    );
+  }
+
   private async known(hash: Hex): Promise<boolean> {
     try {
       return Boolean(await this.client.getTransaction({ hash }));
@@ -430,11 +460,12 @@ export class TxSender {
           const estimate = await this.estimateGas(to, data);
           let gas = (estimate * (100n + this.headroom)) / 100n;
           const block = await this.client.getBlock({ blockTag: 'latest' });
-          const cap = block.gasLimit < this.maxTxGas ? block.gasLimit : this.maxTxGas;
+          const cap = this.maxTxGas !== undefined && this.maxTxGas < block.gasLimit ? this.maxTxGas : block.gasLimit;
           if (gas > cap) gas = cap;
           const fees = await this.suggestFees();
           const cost = worstCase(gas, fees);
           this.budget.check(cost);
+          await this.checkBalance(cost);
           if (!reserved) {
             undo = opts.reserve?.(cost) ?? undefined;
             reserved = true;
@@ -468,6 +499,10 @@ export class TxSender {
             if (attempt === 0 && (kind === 'nonce' || (chain !== undefined && chain > nonce))) {
               this.log.warn('nonce resync', { tried: nonce, next: this.nextNonce, refusal: kind });
               continue; // simulated again against the fresh state
+            }
+            if (INSUFFICIENT_FUNDS.test(shortMessage(err))) {
+              this.log.error('hot key balance too low: top it up', { address: this.address, err: shortMessage(err) });
+              throw new RelayError('TX_FAILED', `the relayer key cannot pay for this action; the operator must top it up (${shortMessage(err)})`);
             }
             throw new RelayError('TX_FAILED', shortMessage(err));
           }

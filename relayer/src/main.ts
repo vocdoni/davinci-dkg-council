@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     chainId,
     maxFeeWei: config.maxFeeWei,
     maxTxGas: config.maxTxGas,
+    stateGas: config.stateGas,
     bumpAfterMs: config.bumpAfterMs,
     budgetWei: config.dailyBudgetWei,
     store,
@@ -107,6 +108,8 @@ async function main(): Promise<void> {
     combiner: config.combinerEnabled,
     restricted: policy.restricted,
     dailyBudgetWei: config.dailyBudgetWei,
+    stateGas: config.stateGas,
+    maxTxGas: config.maxTxGas ?? 'block gas limit',
     state: store.file,
   });
 

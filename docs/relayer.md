@@ -106,6 +106,22 @@ A gas limit is capped at the lower of the block gas limit and `COUNCIL_MAX_TX_GA
 16,777,216 (2^24): Osaka (EIP-7825) rejects any transaction above that, whatever the block limit,
 so the 20% headroom never pushes a large estimate into an invalid transaction.
 
+On a chain with Glamsterdam's separate state gas (EIP-8037; Sepolia since 2026-10-06) the 2^24
+maximum bounds a transaction's execution gas only: each new storage slot costs about 97,920 gas
+of state gas on top, and the gas limit must cover both. A 16-member finalize there needs 17.24M
+gas (10.97M execution + 6.27M state), above 2^24. Set `COUNCIL_STATE_GAS=true` on such a chain:
+the gas limit is then capped by the block gas limit alone (unless `COUNCIL_MAX_TX_GAS` is set
+explicitly). Leave it unset on an Osaka chain such as Gnosis, where a limit above 2^24 is
+invalid. The flag is explicit rather than probed: no RPC method says whether a chain prices state
+gas, and a wrong guess either reverts large actions out of gas or makes them invalid.
+
+The hot key must hold every transaction's worst case (gas limit × max fee) on top of what it
+already has in flight, or the node refuses the broadcast. The relayer checks the key's balance
+before it signs, and refuses an action it cannot cover with `BUDGET_EXHAUSTED` ("the relayer key
+holds … wei, and this action may cost up to … wei; the operator must top it up"), logging
+`hot key balance too low: top it up` as an error. A node's own `insufficient funds` refusal says
+the same in plain words, as `TX_FAILED`.
+
 ## Configuration
 
 Configuration is environment-only.
@@ -119,7 +135,8 @@ Configuration is environment-only.
 | `COUNCIL_DATA_DIR` | `./data` (`/data` in Docker) | State file directory |
 | `COUNCIL_COMBINER_ENABLED` | `false` | Run the combine worker |
 | `COUNCIL_MAX_FEE_WEI` | `100000000000` (100 gwei) | Cap on maxFeePerGas, bumps included |
-| `COUNCIL_MAX_TX_GAS` | `16777216` (2^24, EIP-7825) | Cap on a transaction's gas limit, below the block gas limit |
+| `COUNCIL_MAX_TX_GAS` | `16777216` (2^24, EIP-7825); none with `COUNCIL_STATE_GAS` | Cap on a transaction's gas limit, below the block gas limit |
+| `COUNCIL_STATE_GAS` | `false` | The chain prices state gas separately (EIP-8037, Glamsterdam): cap gas limits at the block gas limit only (see "Sizing the budget") |
 | `COUNCIL_DAILY_BUDGET_WEI` | `1000000000000000000` (1 native unit) | Rolling 24 h spend limit; `0` disables |
 | `COUNCIL_ORGANIZER_ALLOWLIST` | empty | Organizers whose ceremonies are sponsored (restricted mode) |
 | `COUNCIL_API_TOKENS` | empty | Bearer tokens admitting `createCeremony`, at least 16 characters each (restricted mode) |

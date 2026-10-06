@@ -21,7 +21,13 @@ describe('config', () => {
     expect(c.trustedProxies).toEqual([]);
     expect(c.nonceRefreshMs).toBe(15_000);
     expect(c.maxTxGas).toBe(16_777_216n);
+    expect(c.stateGas).toBe(false);
     expect(loadConfig({ ...BASE, COUNCIL_MAX_TX_GAS: '30000000' }).maxTxGas).toBe(30_000_000n);
+    // EIP-8037 chains: the 2^24 cap bounds execution gas only, so no default per-transaction cap.
+    const glamsterdam = loadConfig({ ...BASE, COUNCIL_STATE_GAS: 'true' });
+    expect(glamsterdam.stateGas).toBe(true);
+    expect(glamsterdam.maxTxGas).toBeUndefined();
+    expect(loadConfig({ ...BASE, COUNCIL_STATE_GAS: 'true', COUNCIL_MAX_TX_GAS: '40000000' }).maxTxGas).toBe(40_000_000n);
     expect(loadConfig({ ...BASE, COUNCIL_NONCE_REFRESH_MS: '0' }).nonceRefreshMs).toBe(0);
   });
 
@@ -46,6 +52,7 @@ describe('config', () => {
     ['an allow-list entry that is not an address', { COUNCIL_ORGANIZER_ALLOWLIST: '0x1234' }, /ALLOWLIST/],
     ['a missing manager', { COUNCIL_MANAGER_ADDRESS: '' }, /required/],
     ['a per-transaction gas cap below 21000', { COUNCIL_MAX_TX_GAS: '20999' }, /MAX_TX_GAS/],
+    ['a state-gas flag that is not a boolean', { COUNCIL_STATE_GAS: 'maybe' }, /STATE_GAS/],
   ])('refuses %s', (_name, env, message) => {
     expect(() => loadConfig({ ...BASE, ...env })).toThrow(message);
   });
