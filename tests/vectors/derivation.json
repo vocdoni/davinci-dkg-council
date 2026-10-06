@@ -1,0 +1,534 @@
+{
+  "description": "HashToScalar (§3.1) and DeriveScalar (§5.1) vectors, and every §5.2 derivation from the pinned mnemonic",
+  "hashToScalar": {
+    "examples": [
+      {
+        "tag": "davinci-dkg-council/v1/test-vector/hash-to-scalar",
+        "fields": [
+          {
+            "type": "uint256",
+            "value": "0"
+          }
+        ],
+        "attempts": [
+          {
+            "counter": 0,
+            "u": "0xd0eb38f91d660cf6f7daf6736fbff98f96f68d5b080e3c86444df683a698fadb",
+            "accepted": true
+          }
+        ],
+        "counter": 0,
+        "value": "1471642574143587454738483052110555466471920082976231117078960210166192131801"
+      },
+      {
+        "tag": "davinci-dkg-council/v1/test-vector/hash-to-scalar",
+        "fields": [
+          {
+            "type": "uint256",
+            "value": "1"
+          }
+        ],
+        "attempts": [
+          {
+            "counter": 0,
+            "u": "0x95eac82dbfb5976c2c1bafac576b6074e8448488982ade436b555e253d1537f1",
+            "accepted": true
+          }
+        ],
+        "counter": 0,
+        "value": "2144709619203316385111258395076528597648137063435279643057346037238667514201"
+      },
+      {
+        "tag": "davinci-dkg-council/v1/test-vector/hash-to-scalar",
+        "fields": [
+          {
+            "type": "uint256",
+            "value": "2"
+          }
+        ],
+        "attempts": [
+          {
+            "counter": 0,
+            "u": "0x8379152af3aad6b92987a170ee98273301271012002e6e31989909db49297104",
+            "accepted": true
+          }
+        ],
+        "counter": 0,
+        "value": "2010280215320192410723784410168256630193540911389194414705024428581292425023"
+      }
+    ],
+    "rejection": {
+      "tag": "davinci-dkg-council/v1/test-vector/hash-to-scalar",
+      "fields": [
+        {
+          "type": "uint256",
+          "value": "5"
+        }
+      ],
+      "attempts": [
+        {
+          "counter": 0,
+          "u": "0xfe2c077b6b7d484746cf74fbeede1a9156c5b95998bb859797b85f4ecfe47369",
+          "accepted": false
+        },
+        {
+          "counter": 1,
+          "u": "0xb20e7cf6a9f2c117ffdb331b8d0a23e679cb9aa8db9b4ba3d4d60291e3be6013",
+          "accepted": true
+        }
+      ],
+      "counter": 1,
+      "value": "1192404962902464586783233627713626260746723840349879142149107330860843857606"
+    }
+  },
+  "deriveScalar": {
+    "note": "share-encryption-bjj from the pinned mnemonic with an account index chosen so counter 0 is rejected (u >= LIMIT_R); secp256k1n rejections (prob ~2^-128) cannot be exhibited",
+    "rejection": {
+      "purpose": "davinci-dkg-council/v1/derive/share-encryption-bjj",
+      "modulus": "2736030358979909402780800718157159386076813972158567259200215660948447373041",
+      "allowZero": false,
+      "context": [
+        {
+          "type": "uint256",
+          "value": "31337"
+        },
+        {
+          "type": "address",
+          "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        {
+          "type": "bytes12",
+          "value": "0x6bec1da64dbcaf30b3c64004"
+        },
+        {
+          "type": "uint32",
+          "value": "2"
+        },
+        {
+          "type": "uint32",
+          "value": "1"
+        }
+      ],
+      "counter": 1,
+      "info0": "0x586db6deba6479489a4c1812ae315919e069e1fa4aa51825186e30df55247a174dd0bd4efada1cc5b287398a3d18d97535ea1046917b9347bace35fd225af1530000000000000000000000000000000000000000000000000000000000000000",
+      "attempts": [
+        {
+          "counter": 0,
+          "u": "0xfff344beb3c0ca45b89482b2f43313ad0bd67347d88758f25fe0ecd08f8aab91",
+          "rejected": "limit"
+        },
+        {
+          "counter": 1,
+          "u": "0xdff0d91b48e4d7079438c5d9e14cef6aee5ffa00e3acf63e5f8ed2b3e621281b"
+        }
+      ],
+      "value": "58183661911006808027841566121718196691808847046949550716228459454782670662"
+    }
+  },
+  "pinnedMnemonic": {
+    "mnemonic": "test test test test test test test test test test test junk",
+    "passphrase": "",
+    "seed": "0x9dfc3c64c2f8bede1533b6a79f8570e5943e0b8fd1cf77107adf7b72cef42185d564a3aee24cab43f80e3c4538087d70fc824eabbad596a23c97b6ee8322ccc0",
+    "hkdfSalt": "davinci-dkg-council/seed/v1",
+    "prk": "0xf536b5cb8269a7a44438259c354a656e1036e934d3f5367ffbada8698029c566",
+    "chainId": "31337",
+    "manager": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+    "accountIndex": 0,
+    "derivationVersion": 1,
+    "organizerAuth": {
+      "purpose": "davinci-dkg-council/v1/derive/organizer-auth-secp256k1",
+      "context": [
+        {
+          "type": "uint256",
+          "value": "31337"
+        },
+        {
+          "type": "address",
+          "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        {
+          "type": "uint32",
+          "value": "0"
+        },
+        {
+          "type": "uint32",
+          "value": "1"
+        }
+      ],
+      "counter": 0,
+      "info0": "0xe62e140f92a773c160b23282e04af8291126038e7e482fe6b043c4d58f22e481155af45bbddea9d19bc4f47534a4fabe151752dd8e528b89d4473b5be1eab90c0000000000000000000000000000000000000000000000000000000000000000",
+      "attempts": [
+        {
+          "counter": 0,
+          "u": "0x89a9ef618c44ab5178ae9ebd2b2c00e837c9371f01ba270e76c20b48459488bf"
+        }
+      ],
+      "value": "62267109557118721526084636425874084244536122510730324538944720349012906248383",
+      "secret": "0x89a9ef618c44ab5178ae9ebd2b2c00e837c9371f01ba270e76c20b48459488bf",
+      "address": "0xfd1ab56861b55576073f43573fef490247167585"
+    },
+    "auth": {
+      "purpose": "davinci-dkg-council/v1/derive/auth-secp256k1",
+      "context": [
+        {
+          "type": "uint256",
+          "value": "31337"
+        },
+        {
+          "type": "address",
+          "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        {
+          "type": "bytes12",
+          "value": "0x6bec1da64dbcaf30b3c64004"
+        },
+        {
+          "type": "uint32",
+          "value": "0"
+        },
+        {
+          "type": "uint32",
+          "value": "1"
+        }
+      ],
+      "counter": 0,
+      "info0": "0xbf18ae7107b4fc6d08436a600e69334aab42f6e7f91bbb1fb6013a4915aea7d0ae6b228425bf936ecd1151e1667620eaa1439cdd3741d1ff1bb42cbeda3fbef60000000000000000000000000000000000000000000000000000000000000000",
+      "attempts": [
+        {
+          "counter": 0,
+          "u": "0xf5da41ddf70ba77363b0627787fbb8b47e57e3be94f99a0d3ea5f8053b933eb4"
+        }
+      ],
+      "value": "111202275160699638024881872462674362399383652594066520676399656588418632335028",
+      "secret": "0xf5da41ddf70ba77363b0627787fbb8b47e57e3be94f99a0d3ea5f8053b933eb4",
+      "address": "0xef26d66066baea30a938cd8819395935459a3c56"
+    },
+    "shareEncryption": {
+      "purpose": "davinci-dkg-council/v1/derive/share-encryption-bjj",
+      "context": [
+        {
+          "type": "uint256",
+          "value": "31337"
+        },
+        {
+          "type": "address",
+          "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        {
+          "type": "bytes12",
+          "value": "0x6bec1da64dbcaf30b3c64004"
+        },
+        {
+          "type": "uint32",
+          "value": "0"
+        },
+        {
+          "type": "uint32",
+          "value": "1"
+        }
+      ],
+      "counter": 0,
+      "info0": "0x586db6deba6479489a4c1812ae315919e069e1fa4aa51825186e30df55247a17ae6b228425bf936ecd1151e1667620eaa1439cdd3741d1ff1bb42cbeda3fbef60000000000000000000000000000000000000000000000000000000000000000",
+      "attempts": [
+        {
+          "counter": 0,
+          "u": "0x911137d71db4cc97e796d7c42844f712965210988d8ada7b353485264958a526"
+        }
+      ],
+      "value": "2687086583702982434521922488467650446510713304581496642627734108288860431743",
+      "secret": "2687086583702982434521922488467650446510713304581496642627734108288860431743",
+      "publicKey": [
+        "16006699471963596106703671610102746347377659556743262037976712717845098350380",
+        "16748953092388438748188933039329081153922614419823589128995711980844303450567"
+      ]
+    },
+    "inviteCapability": [
+      {
+        "purpose": "davinci-dkg-council/v1/derive/invite-capability-secp256k1",
+        "inviteId": 0,
+        "context": [
+          {
+            "type": "uint256",
+            "value": "31337"
+          },
+          {
+            "type": "address",
+            "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+          },
+          {
+            "type": "bytes12",
+            "value": "0x6bec1da64dbcaf30b3c64004"
+          },
+          {
+            "type": "uint32",
+            "value": "0"
+          },
+          {
+            "type": "uint32",
+            "value": "1"
+          }
+        ],
+        "counter": 0,
+        "info0": "0x617cc420e948aaa0b8889d3cf182157bda7403bdc537c9020ff1434b3e147edaae6b228425bf936ecd1151e1667620eaa1439cdd3741d1ff1bb42cbeda3fbef60000000000000000000000000000000000000000000000000000000000000000",
+        "attempts": [
+          {
+            "counter": 0,
+            "u": "0x61d77ba7cef97e810b86c15415f54d07400ef11cd5b069380db20aed905bf55f"
+          }
+        ],
+        "value": "44255071870412908983213904917133799267011867946550977066350290925137138808159",
+        "secret": "0x61d77ba7cef97e810b86c15415f54d07400ef11cd5b069380db20aed905bf55f",
+        "address": "0x7b744495182ed50dbcd934710620e9bd6db8a6e0"
+      },
+      {
+        "purpose": "davinci-dkg-council/v1/derive/invite-capability-secp256k1",
+        "inviteId": 1,
+        "context": [
+          {
+            "type": "uint256",
+            "value": "31337"
+          },
+          {
+            "type": "address",
+            "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+          },
+          {
+            "type": "bytes12",
+            "value": "0x6bec1da64dbcaf30b3c64004"
+          },
+          {
+            "type": "uint32",
+            "value": "1"
+          },
+          {
+            "type": "uint32",
+            "value": "1"
+          }
+        ],
+        "counter": 0,
+        "info0": "0x617cc420e948aaa0b8889d3cf182157bda7403bdc537c9020ff1434b3e147edae47b61f63cee887a7e7b04ef4d27d72739e992b6e9db16aa6be2f5d856f4358c0000000000000000000000000000000000000000000000000000000000000000",
+        "attempts": [
+          {
+            "counter": 0,
+            "u": "0x70e413699d1326596a7e2b789f9367b3f6f4681c7bbaf08aad3e6444bf93eaa5"
+          }
+        ],
+        "value": "51062014152612203760016124907380840906589705407925096845473317037856645180069",
+        "secret": "0x70e413699d1326596a7e2b789f9367b3f6f4681c7bbaf08aad3e6444bf93eaa5",
+        "address": "0x094112b2cc1d2b489a560b75fa0aa759a55f989b"
+      },
+      {
+        "purpose": "davinci-dkg-council/v1/derive/invite-capability-secp256k1",
+        "inviteId": 2,
+        "context": [
+          {
+            "type": "uint256",
+            "value": "31337"
+          },
+          {
+            "type": "address",
+            "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+          },
+          {
+            "type": "bytes12",
+            "value": "0x6bec1da64dbcaf30b3c64004"
+          },
+          {
+            "type": "uint32",
+            "value": "2"
+          },
+          {
+            "type": "uint32",
+            "value": "1"
+          }
+        ],
+        "counter": 0,
+        "info0": "0x617cc420e948aaa0b8889d3cf182157bda7403bdc537c9020ff1434b3e147eda4dd0bd4efada1cc5b287398a3d18d97535ea1046917b9347bace35fd225af1530000000000000000000000000000000000000000000000000000000000000000",
+        "attempts": [
+          {
+            "counter": 0,
+            "u": "0x6f303b894d101f0050b41ecdd2b6f51ffb4bffbb2b27de216fca877e78313eb0"
+          }
+        ],
+        "value": "50291945756514763893926497202016681203319015811224152018984526867864726093488",
+        "secret": "0x6f303b894d101f0050b41ecdd2b6f51ffb4bffbb2b27de216fca877e78313eb0",
+        "address": "0x4aa998901faba03902a4487c21dd645872661ff8"
+      }
+    ],
+    "dealer": {
+      "frozen": {
+        "chainId": "31337",
+        "manager": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "accountIndex": 0,
+        "rosterHash": "0x6ede2ee34e62db10133c46825a2dd59be307b1b196db151a2f7e9b34687664d8",
+        "dealerIndex": 1,
+        "t": 2,
+        "circuitReleaseId": "0xe7561fc861548402ef3be7636860f2f3222d56434400696037fca59f7e85e8b0"
+      },
+      "dealerCoefficient": [
+        {
+          "purpose": "davinci-dkg-council/v1/derive/dealer-coefficient",
+          "k": 0,
+          "context": [
+            {
+              "type": "uint256",
+              "value": "31337"
+            },
+            {
+              "type": "address",
+              "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+            },
+            {
+              "type": "bytes12",
+              "value": "0x6bec1da64dbcaf30b3c64004"
+            },
+            {
+              "type": "uint32",
+              "value": "0"
+            },
+            {
+              "type": "uint32",
+              "value": "1"
+            },
+            {
+              "type": "bytes32",
+              "value": "0x6ede2ee34e62db10133c46825a2dd59be307b1b196db151a2f7e9b34687664d8"
+            },
+            {
+              "type": "uint8",
+              "value": "1"
+            },
+            {
+              "type": "uint8",
+              "value": "2"
+            },
+            {
+              "type": "bytes32",
+              "value": "0xe7561fc861548402ef3be7636860f2f3222d56434400696037fca59f7e85e8b0"
+            },
+            {
+              "type": "uint8",
+              "value": "0"
+            }
+          ],
+          "counter": 0,
+          "info0": "0x3a9070a17d4323e2dd64ca5198dc97d2ab5d72c7c096502627673234658e67a546a45460f815f4da96922799ead413be13eccde304590755e281cdf07c9de3840000000000000000000000000000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "counter": 0,
+              "u": "0x8b680c858f432ca34cb9bef9cc0e3520fa36b6f9226a3f2189bce57275eccfb6"
+            }
+          ],
+          "value": "126626212989423548272490269194107173194189738670748078787356241818046058511"
+        },
+        {
+          "purpose": "davinci-dkg-council/v1/derive/dealer-coefficient",
+          "k": 1,
+          "context": [
+            {
+              "type": "uint256",
+              "value": "31337"
+            },
+            {
+              "type": "address",
+              "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+            },
+            {
+              "type": "bytes12",
+              "value": "0x6bec1da64dbcaf30b3c64004"
+            },
+            {
+              "type": "uint32",
+              "value": "0"
+            },
+            {
+              "type": "uint32",
+              "value": "1"
+            },
+            {
+              "type": "bytes32",
+              "value": "0x6ede2ee34e62db10133c46825a2dd59be307b1b196db151a2f7e9b34687664d8"
+            },
+            {
+              "type": "uint8",
+              "value": "1"
+            },
+            {
+              "type": "uint8",
+              "value": "2"
+            },
+            {
+              "type": "bytes32",
+              "value": "0xe7561fc861548402ef3be7636860f2f3222d56434400696037fca59f7e85e8b0"
+            },
+            {
+              "type": "uint8",
+              "value": "1"
+            }
+          ],
+          "counter": 0,
+          "info0": "0x3a9070a17d4323e2dd64ca5198dc97d2ab5d72c7c096502627673234658e67a5620bc6a974c9f389c44b0ad9a6b3aeedafa86ca47e5d54e64319dac0cb7e30940000000000000000000000000000000000000000000000000000000000000000",
+          "attempts": [
+            {
+              "counter": 0,
+              "u": "0x8511abfd064449c0e600bc77da765607e0bd4eae0e82c88a7bab570013826919"
+            }
+          ],
+          "value": "2732194743249338549183955503654568656421014788526634288688975084246203512660"
+        }
+      ],
+      "dealerEphemeral": {
+        "purpose": "davinci-dkg-council/v1/derive/dealer-ephemeral",
+        "context": [
+          {
+            "type": "uint256",
+            "value": "31337"
+          },
+          {
+            "type": "address",
+            "value": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+          },
+          {
+            "type": "bytes12",
+            "value": "0x6bec1da64dbcaf30b3c64004"
+          },
+          {
+            "type": "uint32",
+            "value": "0"
+          },
+          {
+            "type": "uint32",
+            "value": "1"
+          },
+          {
+            "type": "bytes32",
+            "value": "0x6ede2ee34e62db10133c46825a2dd59be307b1b196db151a2f7e9b34687664d8"
+          },
+          {
+            "type": "uint8",
+            "value": "1"
+          },
+          {
+            "type": "uint8",
+            "value": "2"
+          },
+          {
+            "type": "bytes32",
+            "value": "0xe7561fc861548402ef3be7636860f2f3222d56434400696037fca59f7e85e8b0"
+          }
+        ],
+        "counter": 0,
+        "info0": "0x71f114a6fe598eff080f1dfc9e099f72051b86cc0de8edefd99769f160a91743b0304d944735eedfa89dc27a3974fa043b6596cb7225526729472a987f103b250000000000000000000000000000000000000000000000000000000000000000",
+        "attempts": [
+          {
+            "counter": 0,
+            "u": "0xa7c476559ba8530a86e86f4ec006d01db08424fa9f2850b84ec69b755e02c080"
+          }
+        ],
+        "value": "2010544759701534148163620231642026066646586357555658807229900257047297107221"
+      }
+    }
+  }
+}

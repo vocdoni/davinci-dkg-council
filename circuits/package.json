@@ -1,0 +1,30 @@
+{
+  "name": "@vocdoni/davinci-dkg-council-circuits",
+  "private": true,
+  "type": "module",
+  "description": "Council circom circuits, dev setup, generated verifiers and cross-implementation vectors",
+  "scripts": {
+    "vectors": "tsx scripts/gen-vectors.ts",
+    "vectors-check": "tsx scripts/gen-vectors.ts && git diff --exit-code -- ../tests/vectors",
+    "build": "bash build.sh",
+    "restore": "bash scripts/restore-build.sh",
+    "pin": "tsx scripts/pin.ts",
+    "fixtures": "tsx scripts/gen-fixtures.ts",
+    "bench": "tsx scripts/bench.ts",
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "test:vectors": "node --import tsx --test test/vectors.test.ts"
+  },
+  "dependencies": {
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@scure/bip39": "2.4.0",
+    "@zk-kit/baby-jubjub": "1.0.3",
+    "circomlib": "2.0.5",
+    "poseidon-lite": "0.3.0",
+    "snarkjs": "0.7.6",
+    "viem": "2.57.3"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15"
+  }
+}

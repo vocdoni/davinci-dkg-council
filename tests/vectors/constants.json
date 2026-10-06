@@ -1,0 +1,210 @@
+{
+  "description": "Council v1 constants (protocol §2); every pinned value of §2 plus circuit constants",
+  "curve": {
+    "p": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    "a": "168700",
+    "d": "168696",
+    "r": "2736030358979909402780800718157159386076813972158567259200215660948447373041",
+    "cofactor": "8",
+    "curveOrder": "21888242871839275222246405745257275088614511777268538073601725287587578984328",
+    "identity": [
+      "0",
+      "1"
+    ],
+    "G": [
+      "5299619240641551281634865583518297030282874472190772894086521144482721001553",
+      "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+    ],
+    "G246": [
+      "8448361671856611094368094893873528300213448016874278049008935486981108396466",
+      "3719130040286663224590128240427185068966755285258175280098621282171226423213"
+    ],
+    "rMinus1G": [
+      "16588623631197723940611540161738978058265489928225261449611683042093087494064",
+      "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+    ]
+  },
+  "teToReduced": {
+    "K": "15527681003928902128179717624703512672403908117992798440346960750464748824729",
+    "K_INV": "1911982854305225074381251344103329931637610209014896889891168275855466657090",
+    "KSquaredEqualsMinusA": "21888242871839275222246405745257275088548364400416034343698204186575808326917",
+    "reducedG": [
+      "9671717474070082183213120605117400219616337014328744928644933853176787189663",
+      "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+    ]
+  },
+  "secp256k1n": "115792089237316195423570985008687907852837564279074904382605163141518161494337",
+  "qBN": "21888242871839275222246405745257275088696311157297823662689037894645226208583",
+  "sizes": {
+    "MAX_N": 16,
+    "MAX_T": 16,
+    "MAX_FIELDS": 16,
+    "RESULT_BOUND": "1099511627776",
+    "MAX_COMBINE_FIELDS": 4,
+    "MAX_INVITES": 64,
+    "MIN_DEALING_DURATION": 600
+  },
+  "tags": [
+    {
+      "tag": "davinci-dkg-council/v1/ceremony",
+      "keccak256": "0xecb738c07e6a59197a7fd9e2f5e6116948f75ddf4ac1167be6d353868161465f"
+    },
+    {
+      "tag": "davinci-dkg-council/v1/roster",
+      "keccak256": "0x2c9d4948616c1a88c354348793d30f18ea38d1f04ad5854da9e32746a3b11ac9"
+    },
+    {
+      "tag": "davinci-dkg-council/v1/deal-context",
+      "keccak256": "0xdbb35e5b108ffc795df6963925b9215f480adc307c37d7301c3e91d8e2b7bb7c"
+    },
+    {
+      "tag": "davinci-dkg-council/v1/deal-payload",
+      "keccak256": "0x1326b87fc239e1401c315964035b32e39ac95374aecd1472e03710d68890394e"
+    },
+    {
+      "tag": "davinci-dkg-council/v1/join-pop",
+      "keccak256": "0xf82c8d4d3410e2766e553a29e47765d8dca7d7bb5d3c8d1226c3736cb39bbb19"
+    },
+    {
+      "tag": "davinci-dkg-council/v1/request",
+      "keccak256": "0x2044a532478c345d057d687f1827a3c194b5c92d1c7471f6aa59fe10fe010ba7"
+    },
+    {
+      "tag": "davinci-dkg-council/v1/partial-payload",
+      "keccak256": "0x790ea2a939d8ccdf25ac8c84f7bffca5476a976d584b89ca4a7f365b8e85c589"
+    },
+    {
+      "tag": "davinci-dkg-council/v1/circuit-release",
+      "keccak256": "0x9e489062d0e615d54b9cf250918652a1541571f981e4892e70d382d1536fdf5c"
+    },
+    {
+      "tag": "davinci-dkg-council/v1/share-mask-poseidon",
+      "keccak256": "0xd8262d0eb7248e9458410cb71d8ace07c8eabd235f11ed9fb71812260a9dc8f2"
+    }
+  ],
+  "MASK_CONST": "10214054970402064552395134490408265161209242095674905809605444618984955431150",
+  "LIMIT_R": "114913275077156194916793630162600694215226186830659824886409057759834789667722",
+  "LIMIT_R_multiple": 42,
+  "LIMIT_SECP256K1N": "115792089237316195423570985008687907852837564279074904382605163141518161494337",
+  "derivation": {
+    "hkdfHash": "SHA-256",
+    "hkdfSalt": "davinci-dkg-council/seed/v1",
+    "bip39Passphrase": "",
+    "derivationVersion": 1,
+    "purposes": [
+      {
+        "purpose": "davinci-dkg-council/v1/derive/auth-secp256k1",
+        "keccak256": "0xbf18ae7107b4fc6d08436a600e69334aab42f6e7f91bbb1fb6013a4915aea7d0"
+      },
+      {
+        "purpose": "davinci-dkg-council/v1/derive/share-encryption-bjj",
+        "keccak256": "0x586db6deba6479489a4c1812ae315919e069e1fa4aa51825186e30df55247a17"
+      },
+      {
+        "purpose": "davinci-dkg-council/v1/derive/organizer-auth-secp256k1",
+        "keccak256": "0xe62e140f92a773c160b23282e04af8291126038e7e482fe6b043c4d58f22e481"
+      },
+      {
+        "purpose": "davinci-dkg-council/v1/derive/invite-capability-secp256k1",
+        "keccak256": "0x617cc420e948aaa0b8889d3cf182157bda7403bdc537c9020ff1434b3e147eda"
+      },
+      {
+        "purpose": "davinci-dkg-council/v1/derive/dealer-coefficient",
+        "keccak256": "0x3a9070a17d4323e2dd64ca5198dc97d2ab5d72c7c096502627673234658e67a5"
+      },
+      {
+        "purpose": "davinci-dkg-council/v1/derive/dealer-ephemeral",
+        "keccak256": "0x71f114a6fe598eff080f1dfc9e099f72051b86cc0de8edefd99769f160a91743"
+      }
+    ]
+  },
+  "eip712": {
+    "domainType": "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
+    "domainTypeHash": "0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f",
+    "name": "DAVINCI DKG Council",
+    "version": "1",
+    "encodeTypes": [
+      {
+        "name": "CreateCeremony",
+        "encodeType": "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint64 registrationDeadline,uint64 dealingDuration,address[] inviteKeys,uint64 validUntil)",
+        "typeHash": "0xab84d72e8dd1ac8228bb315c83347851790090033d565e87588ff828d2c6aee3"
+      },
+      {
+        "name": "AddInvites",
+        "encodeType": "AddInvites(bytes12 ceremonyId,uint32 firstInviteId,address[] inviteKeys,uint64 validUntil)",
+        "typeHash": "0x4092b8a4a3b249c61ffdf72f352a9e3be7568297e208703d3bae8d220baf4164"
+      },
+      {
+        "name": "CloseRegistration",
+        "encodeType": "CloseRegistration(bytes12 ceremonyId,uint8 participantCount,uint64 validUntil)",
+        "typeHash": "0x45072f83eae17b98a2435e85b8e6ab056740d19fdd7c5e4daba34a3201302027"
+      },
+      {
+        "name": "AllowAdapter",
+        "encodeType": "AllowAdapter(bytes12 ceremonyId,address adapter,uint64 validUntil)",
+        "typeHash": "0x25c1047593143716124dfab0a37c85c7cd013665725984874854600f328b8bcf"
+      },
+      {
+        "name": "AuthorizeCreator",
+        "encodeType": "AuthorizeCreator(bytes12 ceremonyId,address creator,uint64 validUntil)",
+        "typeHash": "0xd05885f2a0f405d758467fdcff4f379b460dc911676e3aba5a558374b9749714"
+      },
+      {
+        "name": "Invite",
+        "encodeType": "Invite(bytes12 ceremonyId,uint32 inviteId,address participant,uint256 pkX,uint256 pkY,uint64 validUntil)",
+        "typeHash": "0x5a4df9f1ba6e14a54a7eb7f1b67dc9b670ebe74b38e6552cefcb19556dfeeb01"
+      },
+      {
+        "name": "Join",
+        "encodeType": "Join(bytes12 ceremonyId,address participant,uint32 inviteId,uint256 pkX,uint256 pkY,uint256 popAx,uint256 popAy,uint256 popZ,uint64 validUntil)",
+        "typeHash": "0x0b91116bb740e0b2b560e20978d5c7f5bbd0ca0d127b45cb5d2edf8458256d49"
+      },
+      {
+        "name": "Deal",
+        "encodeType": "Deal(bytes12 ceremonyId,uint8 dealerIndex,bytes32 payloadHash,uint64 validUntil)",
+        "typeHash": "0x4fbd09ae633367f4de334f37dee0fd72659d6ed9fd741caa2a5065e2de229849"
+      },
+      {
+        "name": "Partial",
+        "encodeType": "Partial(bytes12 ceremonyId,bytes32 requestId,uint8 participantIndex,bytes32 payloadHash,uint64 validUntil)",
+        "typeHash": "0xafa315fd07a3ee4aa498c6610a7263b72c46cdfff6d7ef028c1d25007a0c525a"
+      }
+    ]
+  },
+  "poseidon7": {
+    "inputs": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ],
+    "output": "12748163991115452309045839028154629052133952896122405799815156419278439301912"
+  },
+  "fixedBaseExceptional": {
+    "note": "EscalarMulFix(251, Base8) fails witness generation for these canonical scalars; circuits use the 246+5 split",
+    "compensationQ": "1938483636785427378742817829386516314507868046857821942624847946561045697097",
+    "sStar": "797546722194482024037982888770643071568945925300745316575367714387401675944",
+    "scalars": [
+      "797546722194482024037982888770643071568945925300745316575367714387401675944",
+      "1702172419361014800784631209151017351672617680501062223133630089449223001256",
+      "2606798116527547577531279529531391631776289435701379129691892464511044326568"
+    ],
+    "products": [
+      [
+        "2411783621251455678995312454105140949840937073562318447415611206235375301799",
+        "8784955527302218521212493070885863089869803967429191629453308223921904115600"
+      ],
+      [
+        "8029542860419476801939006879658132219755886752787478428622602555689906418482",
+        "6538429778339624623316984125045240238880286633685776443383242784833746503359"
+      ],
+      [
+        "11449866639179195973083192170282492022779378097726764104318231995474112936206",
+        "15540229869331457310339429061163076133880724310887223372292726366618543502247"
+      ]
+    ]
+  }
+}

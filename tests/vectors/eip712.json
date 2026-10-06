@@ -1,0 +1,162 @@
+{
+  "description": "EIP-712 (§7): domain separator and one digest + deterministic (RFC 6979, low-s) signature per §7.2 struct, scenario A. Deal/Partial payload hashes use the placeholder proof words of dealing.json/combine.json",
+  "domain": {
+    "name": "DAVINCI DKG Council",
+    "version": "1",
+    "chainId": "31337",
+    "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "domainSeparator": "0x800c5eceb6ae1ddc1429a6d6ad904bb76dca9e6949924161b8e3629f520ff7bf"
+  },
+  "actions": [
+    {
+      "struct": "CreateCeremony",
+      "encodeType": "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint64 registrationDeadline,uint64 dealingDuration,address[] inviteKeys,uint64 validUntil)",
+      "typeHash": "0xab84d72e8dd1ac8228bb315c83347851790090033d565e87588ff828d2c6aee3",
+      "message": {
+        "organizer": "0xfd1ab56861b55576073f43573fef490247167585",
+        "nonce": "1",
+        "threshold": 2,
+        "registrationDeadline": "1900000000",
+        "dealingDuration": "86400",
+        "inviteKeys": [
+          "0x7b744495182ed50dbcd934710620e9bd6db8a6e0",
+          "0x094112b2cc1d2b489a560b75fa0aa759a55f989b",
+          "0x4aa998901faba03902a4487c21dd645872661ff8"
+        ],
+        "validUntil": "2000000000"
+      },
+      "structHash": "0x19dfe02b8b0b25e7416d64718eea1607a3e91f91f610eaa39196f892c9c88cef",
+      "digest": "0x039055ebb9a1f96e5ab4b824c3b4d46517b5bdb87037ea02a00c844a64637d99",
+      "signer": "0xfd1ab56861b55576073f43573fef490247167585",
+      "signature": "0xb5c20d478a278ee53dfc291c836b16eff7b4176c5e00f9f830c56d771a9ea00b509d098ed31af99ab48e6927d77c532929b6c88b716f2b20747bd22bcc626b071c"
+    },
+    {
+      "struct": "AddInvites",
+      "encodeType": "AddInvites(bytes12 ceremonyId,uint32 firstInviteId,address[] inviteKeys,uint64 validUntil)",
+      "typeHash": "0x4092b8a4a3b249c61ffdf72f352a9e3be7568297e208703d3bae8d220baf4164",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "firstInviteId": 3,
+        "inviteKeys": [
+          "0xff68bf78ec1b14f5b0497246571ba8b0167c3a28",
+          "0xa6ec0c02af440124a0eb963573685e69557f164a"
+        ],
+        "validUntil": "2000000000"
+      },
+      "structHash": "0xb1ab4b8a190b2c9fecda51ed02f4a5fcf9bdacd9a47b6980d8bd3846a4983b78",
+      "digest": "0x94d948324c1435f96c5cece9ee4420d1a33a641e9bce1b3c357096c77b6a2639",
+      "signer": "0xfd1ab56861b55576073f43573fef490247167585",
+      "signature": "0xd1a1dd33980999482ac1415cfb56ddee72d62d0980d038c59cb20c624dfad5ac1cb39cb9683208a496ae69bd0fee2d27cfbe85dc864a64c5be853c0e3e276a2b1b"
+    },
+    {
+      "struct": "Invite",
+      "encodeType": "Invite(bytes12 ceremonyId,uint32 inviteId,address participant,uint256 pkX,uint256 pkY,uint64 validUntil)",
+      "typeHash": "0x5a4df9f1ba6e14a54a7eb7f1b67dc9b670ebe74b38e6552cefcb19556dfeeb01",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "inviteId": 0,
+        "participant": "0x974a3a0f5d18478bd7ce08c5bf316831426d719c",
+        "pkX": "9744365275092774467388859629484132378844125093484216535755626421153235233533",
+        "pkY": "3788734824865854575957281286463807598761655645758207690402543059198616844733",
+        "validUntil": "2000000000"
+      },
+      "structHash": "0xadcd1e786e7e391d2db13313379196d21647707d8bc27a73a6df3d0690ba2ffa",
+      "digest": "0x9e5e15d16530934835e29cf790812bb3d31502367ba07deb024f784ab6d0a2a7",
+      "signer": "0x7b744495182ed50dbcd934710620e9bd6db8a6e0",
+      "signature": "0x5d5b9c156b5bdeda2a87e0924d922208afc0c81036b27af3f6f0129df2751be650cd02da4b28a5a17dd7dadb246fa1d3ec38dae5b28a7e232c4ffc52d47a3bab1b"
+    },
+    {
+      "struct": "Join",
+      "encodeType": "Join(bytes12 ceremonyId,address participant,uint32 inviteId,uint256 pkX,uint256 pkY,uint256 popAx,uint256 popAy,uint256 popZ,uint64 validUntil)",
+      "typeHash": "0x0b91116bb740e0b2b560e20978d5c7f5bbd0ca0d127b45cb5d2edf8458256d49",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "participant": "0x974a3a0f5d18478bd7ce08c5bf316831426d719c",
+        "inviteId": 0,
+        "pkX": "9744365275092774467388859629484132378844125093484216535755626421153235233533",
+        "pkY": "3788734824865854575957281286463807598761655645758207690402543059198616844733",
+        "popAx": "4833551174705064992857204909981728869182428962992051609836647896501230919812",
+        "popAy": "21479337284203326971441783406580593595136819058843934886343056465445476473543",
+        "popZ": "633017475162647062576769405794480530233322025787639782193591778167101028257",
+        "validUntil": "2000000000"
+      },
+      "structHash": "0x878a2e9f5e856a930c6c341986ada50f895e08162bc3a25989698f0d44889451",
+      "digest": "0x8d279d14382b625e037ffa8fdeb02fa5c009b7ddfff765bbfe6e9eb5059db3b4",
+      "signer": "0x974a3a0f5d18478bd7ce08c5bf316831426d719c",
+      "signature": "0x008f2ce8e01851117a20f753e01eb6ccc3546db9de3d5ce6a4f6ef2e3b7b924c472d335a9d81400e8058d67996702abae46b5a3c5d874dbb45d51e5afab80fa21c"
+    },
+    {
+      "struct": "CloseRegistration",
+      "encodeType": "CloseRegistration(bytes12 ceremonyId,uint8 participantCount,uint64 validUntil)",
+      "typeHash": "0x45072f83eae17b98a2435e85b8e6ab056740d19fdd7c5e4daba34a3201302027",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "participantCount": 3,
+        "validUntil": "2000000000"
+      },
+      "structHash": "0xa676bfec8b9671854ea0d100d644d87b87af2bd7c3e918a7b5c1bc0bbd4947a3",
+      "digest": "0x9eeef76fd0cc765d59cfe70b3b07ddfa667bfe73d7737e7298e504f839418549",
+      "signer": "0xfd1ab56861b55576073f43573fef490247167585",
+      "signature": "0x0c1ed426f436622f35262e43fefcb257508081bb5fd2fd983eaf99bd9c618d4a659cc48dbe35fbc850a1897987bd0feef607b43a82f9a63cfe1714a6b135c0931c"
+    },
+    {
+      "struct": "AllowAdapter",
+      "encodeType": "AllowAdapter(bytes12 ceremonyId,address adapter,uint64 validUntil)",
+      "typeHash": "0x25c1047593143716124dfab0a37c85c7cd013665725984874854600f328b8bcf",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "adapter": "0xada0000000000000000000000000000000000001",
+        "validUntil": "2000000000"
+      },
+      "structHash": "0x0cb92c1b394bd364a395ce68202499c9a14611af11f5e5d0feaa57f5f3b82610",
+      "digest": "0x064f3d3f674d68e5c5010b3ba4eab073a2ccdfca76af10a79cd2453b09f48639",
+      "signer": "0xfd1ab56861b55576073f43573fef490247167585",
+      "signature": "0xbff720f3639e6897641605f393baa7788a2babd3b2cf7ecb6976b5f7936304f34749a271a6cb44bb21c6d7040ed42490dde44d69c9d786eb6f2d3cdb0a581a741b"
+    },
+    {
+      "struct": "AuthorizeCreator",
+      "encodeType": "AuthorizeCreator(bytes12 ceremonyId,address creator,uint64 validUntil)",
+      "typeHash": "0xd05885f2a0f405d758467fdcff4f379b460dc911676e3aba5a558374b9749714",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "creator": "0xc0ea000000000000000000000000000000000001",
+        "validUntil": "2000000000"
+      },
+      "structHash": "0xd3bc960506e82f6556d52b0f62ab42c36795df7cb0e1b93d7a007760a2903ade",
+      "digest": "0xae1902c50b426859d362421e4cfd3c9026044ca219a9f540c8b0d48e1b303ca3",
+      "signer": "0xfd1ab56861b55576073f43573fef490247167585",
+      "signature": "0x9999dd99dada98ff1e0ba6c82677f03e30f978ef07d3ee98c9e4343ebdbe226e7213e78125fa741bd7f0fb4545fed8bdd2ba4049df7e83da1840b6366dc86abf1c"
+    },
+    {
+      "struct": "Deal",
+      "encodeType": "Deal(bytes12 ceremonyId,uint8 dealerIndex,bytes32 payloadHash,uint64 validUntil)",
+      "typeHash": "0x4fbd09ae633367f4de334f37dee0fd72659d6ed9fd741caa2a5065e2de229849",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "dealerIndex": 1,
+        "payloadHash": "0x79b4c233e81d96e2bf8c91413c99f283379ebe43becafae30294bef48a7cd6de",
+        "validUntil": "2000000000"
+      },
+      "structHash": "0xb1d35a1d6c36dcaeac625b39eee8f5266465d47bb19b55811550df4869a48f3b",
+      "digest": "0xb5aeb308b9fd6f07eb0f919dfdfcbd8889b16e6f8f580751f792243658de99fc",
+      "signer": "0x974a3a0f5d18478bd7ce08c5bf316831426d719c",
+      "signature": "0x89e4f6451498b838c2c11d6873441ae1eca607a60ac772c52c2d9e81719d3c712b3db1c2d9a7e71f3cf55f5ef39d61c2e6d8a7f9cfb631f57497938e98d983801b"
+    },
+    {
+      "struct": "Partial",
+      "encodeType": "Partial(bytes12 ceremonyId,bytes32 requestId,uint8 participantIndex,bytes32 payloadHash,uint64 validUntil)",
+      "typeHash": "0xafa315fd07a3ee4aa498c6610a7263b72c46cdfff6d7ef028c1d25007a0c525a",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "requestId": "0xae7cddcf39aff6a13d1e29def17ae8f02590a9e99f42c1d7f5cfe1b6abbb5d77",
+        "participantIndex": 1,
+        "payloadHash": "0x000c4ded5b2eaa86213c7e8edf41d2eae039db222248544f17fc57c91d940c2b",
+        "validUntil": "2000000000"
+      },
+      "structHash": "0xcf6b42a2112c985794613ae9bfc9256a2f825108316ef1613ea6f21b95a73565",
+      "digest": "0x2cb4792b9028a0f242afecb36912c4e7bb0e9e7cae002d0c08e4effb2075c23c",
+      "signer": "0x974a3a0f5d18478bd7ce08c5bf316831426d719c",
+      "signature": "0xe507903dceece5d92eac6e74ac74893d3e1614edc658d1f90819b1769d64490a061f006e63afaab2efb7a9fafd8071156b66619ac4efff2b710ded6e367816111c"
+    }
+  ]
+}

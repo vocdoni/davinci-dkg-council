@@ -1,0 +1,66 @@
+{
+  "tag": "circuits-v1",
+  "setup": "DEVELOPMENT: phase 1 from a locally generated 2^18 ptau (toolchain.ptauSha256 below, not the Hermez/PPoT file) and phase 2 one local snarkjs contribution + beacon. NOT FOR PRODUCTION: production releases must start from the Hermez/PPoT powersOfTau28_hez_final_18.ptau and run a multi-party phase 2.",
+  "toolchain": {
+    "circom": "2.2.3",
+    "circomlib": "2.0.5",
+    "snarkjs": "0.7.6",
+    "ptauPower": 18,
+    "ptauSha256": "0x9693220206afab749e3d88d4ab5fdf5d36120ea102e7e587ccea0e7a5208e711"
+  },
+  "circuitReleaseId": "0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301",
+  "deal": {
+    "constraints": 83395,
+    "publicInputs": 87,
+    "publicOutputs": 0,
+    "privateInputs": 33,
+    "wires": 83244,
+    "wasm": {
+      "file": "deal.wasm",
+      "sha256": "0x1956a88d40344b23f039e0f20957d0bd9ad08fe4448997b29a15ce7ae68ca089",
+      "bytes": 2981826
+    },
+    "zkey": {
+      "file": "deal_final.zkey",
+      "sha256": "0x2f500df2886c17f91cbc7332518f4d501cfaee732d9577fb692962fc1a342e4b",
+      "bytes": 53784148
+    },
+    "vkey": {
+      "file": "deal_vkey.json",
+      "sha256": "0x329f3456ac194bf8f7e07974b7f782a8bcc797e2ce37e46dc357dd3dbd442444",
+      "bytes": 18663
+    },
+    "r1cs": {
+      "file": "deal.r1cs",
+      "sha256": "0xd3d428ef47d0a778e3864ebf7dd9369cdcd3e547d891aaadfea7a93bfcc24d76",
+      "bytes": 23957212
+    }
+  },
+  "partial": {
+    "constraints": 37712,
+    "publicInputs": 67,
+    "publicOutputs": 0,
+    "privateInputs": 1,
+    "wires": 37700,
+    "wasm": {
+      "file": "partial.wasm",
+      "sha256": "0x55aa433c9c3d472f01573323c2c1599bbd4874f8f0ae863ed3a4ace4dcf3d795",
+      "bytes": 232983
+    },
+    "zkey": {
+      "file": "partial_final.zkey",
+      "sha256": "0x10567ac3b0b642f58cbc6785212d0cb4ddb7f22c3dd29aaa90ba1a6244756d52",
+      "bytes": 20962032
+    },
+    "vkey": {
+      "file": "partial_vkey.json",
+      "sha256": "0xae15a6c0ab9dfe26756aef8af8d7766c8d462bbeefae0847f513a2d317ad1991",
+      "bytes": 15013
+    },
+    "r1cs": {
+      "file": "partial.r1cs",
+      "sha256": "0x53ec0bd5cb45158551c9ff5cc9db1b7453237208e9cdcc613fed81d90ff247a4",
+      "bytes": 7743224
+    }
+  }
+}
