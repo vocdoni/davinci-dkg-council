@@ -4,7 +4,7 @@
  * progress, access control and results.
  */
 
-import { MAX_N, Phase, type CeremonyView, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
+import { MAX_N, Phase, type Action, type CeremonyView, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
 import { useState } from 'react';
 import { useApp } from '../App';
 import { KitCard } from '../components/KitCard';
@@ -18,9 +18,18 @@ import {
   prepareCloseRegistration,
 } from '../flows/organizer';
 import { listRequests, type RequestSummary } from '../flows/participant';
-import { getJoinedParticipants, inviteLinkage } from '../lib/chain';
+import { getJoinedParticipants, inviteLinkage, readCeremony } from '../lib/chain';
 import { bitCount, formatDate, identityCode, shortId, thresholdSentence, timeLeft, voteName } from '../lib/format';
 import { usePoll } from '../lib/hooks';
+import {
+  failedText,
+  findPending,
+  pendingKey,
+  sendTracked,
+  settlePending,
+  type FailedAction,
+  type PendingDraft,
+} from '../lib/pending';
 import {
   getLabels,
   getVoteLabels,
@@ -136,7 +145,7 @@ interface Review {
 
 function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: CeremonyView; joined: Joined[] }) {
   const services = useServices();
-  const { mnemonic } = useApp();
+  const { mnemonic, refreshRecords } = useApp();
   const [labels, setLabels] = useState<LabelMap>({});
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
@@ -158,12 +167,15 @@ function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: Ce
   // participantCount, so signing the frozen count binds the frozen list).
   const reviewStale = review !== null && Number(view.joinedCount) !== review.count;
 
-  const run = async (make: () => Promise<Parameters<typeof services.submit>[0]>) => {
+  // Sent from this device, not yet in the finalized view the card shows.
+  const locking = findPending(record, { kind: 'close' });
+  const adding = findPending(record, { kind: 'addInvites' });
+
+  const run = async (make: () => Promise<Action>, draft: PendingDraft) => {
     setBusy(true);
     setError(null);
     try {
-      const tx = await services.submit(await make());
-      await services.waitTx(tx);
+      await sendTracked(services, record, await make(), draft, refreshRecords);
       setReview(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -225,8 +237,14 @@ function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: Ce
         ))}
       </ul>
 
-      {view.phase === (Phase.Registration as number) && mnemonic && (
+      {view.phase === (Phase.Registration as number) && mnemonic && locking && (
+        <div className="mt-4">
+          <ConfirmingNote lead="You locked the member list." />
+        </div>
+      )}
+      {view.phase === (Phase.Registration as number) && mnemonic && !locking && (
         <div className="mt-4 space-y-4">
+          {adding && <ConfirmingNote lead="You added invitations; their links appear here once confirmed." />}
           <div className="flex flex-wrap items-end gap-2">
             <Field
               label="Add more invitations"
@@ -238,10 +256,17 @@ function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: Ce
             />
             <Button
               variant="secondary"
-              disabled={busy || view.inviteCount >= MAX_N || addCount < 1 || view.inviteCount + addCount > MAX_N}
+              disabled={
+                busy ||
+                adding !== undefined ||
+                view.inviteCount >= MAX_N ||
+                addCount < 1 ||
+                view.inviteCount + addCount > MAX_N
+              }
               onClick={() =>
-                void run(() =>
-                  prepareAddInvites(mnemonic, services.config, record.cid, view.inviteCount, addCount),
+                void run(
+                  () => prepareAddInvites(mnemonic, services.config, record.cid, view.inviteCount, addCount),
+                  { kind: 'addInvites', inviteCount: view.inviteCount + addCount },
                 )
               }
             >
@@ -294,8 +319,9 @@ function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: Ce
                   <Button
                     disabled={busy}
                     onClick={() =>
-                      void run(() =>
-                        prepareCloseRegistration(mnemonic, services.config, record.cid, review.count),
+                      void run(
+                        () => prepareCloseRegistration(mnemonic, services.config, record.cid, review.count),
+                        { kind: 'close' },
                       )
                     }
                   >
@@ -371,38 +397,48 @@ interface PendingGrant {
   address: Hex;
 }
 
-function AccessCard({ record }: { record: CeremonyRecord }) {
+const grantDraft = (which: 'adapter' | 'creator', address: string): PendingDraft => ({
+  kind: 'grant',
+  grant: which,
+  address: address as Hex,
+});
+
+function AccessCard({ record, failed }: { record: CeremonyRecord; failed: FailedAction[] }) {
   const services = useServices();
-  const { mnemonic } = useApp();
+  const { mnemonic, refreshRecords } = useApp();
   const [adapter, setAdapter] = useState('');
   const [creator, setCreator] = useState('');
   const [pending, setPending] = useState<PendingGrant | null>(null);
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  /** The last grant sent from this page: "Done" once the finalized state shows it. */
+  const [lastSent, setLastSent] = useState<PendingDraft | null>(null);
 
   if (!mnemonic) return null;
   const tail = pending ? pending.address.slice(-6) : '';
   const typedOk = typed.trim().toLowerCase() === tail.toLowerCase();
+  const sentGrants = (record.pending ?? []).filter((p) => p.kind === 'grant');
+  const grantPending = (which: 'adapter' | 'creator', address: string) =>
+    findPending(record, grantDraft(which, address)) !== undefined;
+  const lastDone =
+    lastSent !== null &&
+    findPending(record, lastSent) === undefined &&
+    !failed.some((f) => pendingKey(f.action) === pendingKey(lastSent));
 
   const confirm = async () => {
     if (!pending || !typedOk) return;
     setBusy(true);
     setNote(null);
+    setLastSent(null);
     try {
       const make =
         pending.which === 'adapter'
           ? () => prepareAllowAdapter(mnemonic, services.config, record.cid, pending.address)
           : () => prepareAuthorizeCreator(mnemonic, services.config, record.cid, pending.address);
-      const tx = await services.submit(await make());
-      await services.waitTx(tx);
-      setNote({
-        tone: 'ok',
-        text:
-          pending.which === 'adapter'
-            ? 'Done — this voting system can now ask the committee to open results.'
-            : 'Done — this election organizer can now use the key.',
-      });
+      const draft = grantDraft(pending.which, pending.address);
+      await sendTracked(services, record, await make(), draft, refreshRecords);
+      setLastSent(draft);
       setPending(null);
       setTyped('');
     } catch (err) {
@@ -432,7 +468,7 @@ function AccessCard({ record }: { record: CeremonyRecord }) {
           </div>
           <Button
             variant="secondary"
-            disabled={!isAddress(adapter) || busy || pending !== null}
+            disabled={!isAddress(adapter) || busy || pending !== null || grantPending('adapter', adapter)}
             onClick={() => startGrant('adapter', adapter)}
           >
             Approve…
@@ -444,7 +480,7 @@ function AccessCard({ record }: { record: CeremonyRecord }) {
           </div>
           <Button
             variant="secondary"
-            disabled={!isAddress(creator) || busy || pending !== null}
+            disabled={!isAddress(creator) || busy || pending !== null || grantPending('creator', creator)}
             onClick={() => startGrant('creator', creator)}
           >
             Allow…
@@ -484,6 +520,26 @@ function AccessCard({ record }: { record: CeremonyRecord }) {
                 Cancel
               </Button>
             </div>
+          </Note>
+        </div>
+      )}
+      {sentGrants.map((p) => (
+        <div key={pendingKey(p)} className="mt-3">
+          <ConfirmingNote
+            lead={
+              p.grant === 'adapter'
+                ? `You approved the voting system connection ${shortId(p.address ?? '')}.`
+                : `You allowed the election organizer ${shortId(p.address ?? '')}.`
+            }
+          />
+        </div>
+      ))}
+      {lastDone && (
+        <div className="mt-3">
+          <Note tone="ok">
+            {lastSent.grant === 'adapter'
+              ? 'Done — this voting system can now ask the committee to open results.'
+              : 'Done — this election organizer can now use the key.'}
           </Note>
         </div>
       )}
@@ -562,14 +618,19 @@ function ResultsCard({ record, view }: { record: CeremonyRecord; view: CeremonyV
 
 export function OrganizerView({ record }: { record: CeremonyRecord }) {
   const services = useServices();
-  const { mnemonic } = useApp();
-  const [view, setView] = useState<CeremonyView | null>(null);
+  const { mnemonic, refreshRecords } = useApp();
+  /** Undefined before the first read; null while the finalized block does not hold the committee. */
+  const [view, setView] = useState<CeremonyView | null | undefined>(undefined);
   const [joined, setJoined] = useState<Joined[]>([]);
+  const [failed, setFailed] = useState<FailedAction[]>([]);
   const poll = usePoll(
     async () => {
-      const v = await services.client.getCeremony(record.cid);
+      const v = await readCeremony(services.client, record.cid);
       setView(v);
-      if (v.joinedCount > 0) {
+      const settled = await settlePending(services, record, v);
+      if (settled.failed.length > 0) setFailed((f) => [...f, ...settled.failed]);
+      if (settled.changed) await refreshRecords();
+      if (v && v.joinedCount > 0) {
         const people = await getJoinedParticipants(services.client, record.cid, Number(v.joinedCount));
         const linkage = await services
           .getEvents(BigInt(services.config.deploymentBlock))
@@ -582,7 +643,13 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
     [record.cid],
   );
 
-  if (!view) {
+  const failures = failed.map((f) => (
+    <Note key={`${pendingKey(f.action)}:${f.action.sentAt}`} tone="bad">
+      {failedText(f)}
+    </Note>
+  ));
+
+  if (view === undefined) {
     if (poll.confirming) return <ConfirmingNote />;
     return poll.error ? (
       <Note tone="bad">We could not reach the public record: {poll.error}</Note>
@@ -590,12 +657,24 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
       <Spinner label="Opening your committee…" />
     );
   }
-  // We hold the organizer record, but the committee is not visible at the
-  // network's confirmed height yet (fresh create): a wait, not an error.
-  if (view.phase === (Phase.None as number)) return <ConfirmingNote />;
+  // We hold the organizer record, but the committee is not at the network's
+  // confirmed height yet (fresh create; the views revert UnknownCeremony()):
+  // a wait, not an error — unless the network rejected the creation.
+  if (view === null) {
+    const created = findPending(record, { kind: 'create' }) !== undefined;
+    return (
+      <div className="space-y-4">
+        {failures}
+        {!failed.some((f) => f.action.kind === 'create') && (
+          <ConfirmingNote lead={created ? 'Your committee was created.' : undefined} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
+      {failures}
       <Card title={record.name || 'Your committee'}>
         <p className="text-sm leading-relaxed">{phaseSentence(view)}</p>
         {view.phase === (Phase.Registration as number) && (
@@ -613,7 +692,7 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
       <PeopleCard record={record} view={view} joined={joined} />
       <KeyCard record={record} view={view} joined={joined} />
       <FinishCard record={record} view={view} />
-      {view.phase === (Phase.Live as number) && <AccessCard record={record} />}
+      {view.phase === (Phase.Live as number) && <AccessCard record={record} failed={failed} />}
       {view.phase === (Phase.Live as number) && <ResultsCard record={record} view={view} />}
       {view.phase === (Phase.Aborted as number) && (
         <Note tone="warn">This committee was called off. Start a new one when your group is ready.</Note>

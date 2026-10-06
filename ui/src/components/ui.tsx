@@ -67,15 +67,19 @@ export function Spinner({ label }: { label?: string }) {
   );
 }
 
+export const CONFIRMING_TEXT =
+  'Waiting for the network to confirm — about 15–20 minutes on Sepolia, 1–2 minutes on Gnosis. You can close this page and come back.';
+
 /**
  * A just-sent step (or a fresh deployment) is not confirmed by the network
  * yet. A transient wait, never a failure — whoever renders this keeps
  * polling and the page moves on by itself once the network catches up.
+ * `lead` says what was sent ("Your committee was created.").
  */
-export function ConfirmingNote() {
+export function ConfirmingNote({ lead }: { lead?: string }) {
   return (
     <Note tone="info">
-      <Spinner label="Waiting for the network to confirm — usually about 15 minutes on Sepolia, 1–2 minutes on Gnosis. This page updates by itself; keep it open or come back later." />
+      <Spinner label={lead ? `${lead} ${CONFIRMING_TEXT}` : CONFIRMING_TEXT} />
     </Note>
   );
 }

@@ -1,6 +1,6 @@
 /** Organizer: create-ceremony wizard (architecture §6.3 screen 1). */
 
-import { generateMnemonic } from '@vocdoni/davinci-dkg-council-sdk';
+import { generateMnemonic, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../App';
@@ -9,6 +9,7 @@ import { Button, Card, Disclosure, Field, Note, Spinner } from '../components/ui
 import { buildKitForRecords, manifestFingerprint } from '../flows/kit';
 import { ceremonyIdFor, prepareCreateCeremony } from '../flows/organizer';
 import { formatDate, thresholdSentence } from '../lib/format';
+import { alreadyAtHead } from '../lib/pending';
 import { recordKey, putRecord, type CeremonyRecord } from '../lib/records';
 import { useServices } from '../services';
 
@@ -76,9 +77,20 @@ export function CreateCeremony() {
         dealingDuration: BigInt(dealingHours * 3600),
         nonce,
       });
-      const tx = await services.submit(prepared.action);
-      await services.waitTx(tx);
-      await putRecord({ ...draftRecord, kitExportFingerprint: manifestFingerprint(kit.manifest) });
+      let txHash: Hex | undefined;
+      try {
+        txHash = await services.submit(prepared.action);
+      } catch (err) {
+        // The id is this organizer's key + nonce: it exists at the head only if an earlier try landed.
+        if (!alreadyAtHead('create', err)) throw err;
+      }
+      if (txHash !== undefined) await services.waitTx(txHash);
+      // The dashboard shows "waiting for the network to confirm" until the finalized block has it.
+      await putRecord({
+        ...draftRecord,
+        kitExportFingerprint: manifestFingerprint(kit.manifest),
+        pending: [{ kind: 'create', txHash, sentAt: Date.now() }],
+      });
       await refreshRecords();
       navigate(`/c/${prepared.cid}`);
     } catch (err) {

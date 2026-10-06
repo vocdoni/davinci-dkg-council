@@ -8,6 +8,7 @@
  */
 
 import type { Hex } from '@vocdoni/davinci-dkg-council-sdk';
+import type { PendingAction } from './pending';
 import { idbGet, idbGetAll, idbPut, STORE_CEREMONIES, STORE_LABELS } from './db';
 
 export type Role = 'organizer' | 'participant';
@@ -40,6 +41,11 @@ export interface CeremonyRecord {
   kitJoinNudge?: boolean;
   /** Set when the record's root was switched away from (restore-switch); hidden from the UI. */
   archived?: boolean;
+  /**
+   * Actions sent from this device that the finalized state does not show yet (lib/pending.ts).
+   * Display only; never part of a kit.
+   */
+  pending?: PendingAction[];
   createdAt: number;
 }
 

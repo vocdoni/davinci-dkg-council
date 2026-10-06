@@ -4,6 +4,14 @@
  * fragment that says what happened and what the person can do about it.
  */
 
+/** The network refused a submitted action (as opposed to a slow or unreachable relayer). */
+export class TxRejectedError extends Error {
+  constructor(readonly reason?: string) {
+    super(reason ? `the update was rejected: ${reason}` : 'the update was rejected');
+    this.name = 'TxRejectedError';
+  }
+}
+
 /** The relayer's error codes (relayer/README.md), as the SDK's RelayerError carries them. */
 const PLAIN: Record<string, string> = {
   INVALID_ACTION: 'our service could not read this request — reload the page and try again',
@@ -59,6 +67,21 @@ const REVERTS: Record<string, string> = {
   WrongPhase: 'this step is no longer open — reload the page to see where things stand',
   Expired: 'this request took too long to arrive — try the step again',
 };
+
+/**
+ * The contract refusal behind a submission error (`WrongPhase` for a SIMULATION_REVERTED
+ * `WrongPhase()`), plain-language wrapper or not; undefined for anything else.
+ */
+export function submitRevertName(err: unknown): string | undefined {
+  const seen = new Set<unknown>();
+  let cur: unknown = err;
+  while (cur instanceof Error && !seen.has(cur)) {
+    seen.add(cur);
+    if (isRelayerError(cur)) return cur.code === 'SIMULATION_REVERTED' ? revertName(cur.detail) : undefined;
+    cur = cur.cause;
+  }
+  return undefined;
+}
 
 /**
  * An Error whose message is safe to show as-is. Relayer refusals become plain

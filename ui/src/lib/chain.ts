@@ -8,15 +8,16 @@
  * app acts on authenticated state, never on logs.
  */
 
-import type {
-  CeremonyView,
-  Dealing,
-  FinalizedAnchor,
-  Hex,
-  PartialRequestSnapshot,
-  Point,
-  RequestView,
-  Roster,
+import {
+  Phase,
+  type CeremonyView,
+  type Dealing,
+  type FinalizedAnchor,
+  type Hex,
+  type PartialRequestSnapshot,
+  type Point,
+  type RequestView,
+  type Roster,
 } from '@vocdoni/davinci-dkg-council-sdk';
 
 interface ViewCall {
@@ -56,6 +57,37 @@ export interface ChainReader {
     identity: { role: 'participant' | 'organizer'; ceremonyId: Hex; authAddress: Hex; sharePublicKey?: Point },
     anchor?: FinalizedAnchor,
   ): Promise<{ ok: boolean; mismatches: string[]; phase: number; rosterHash: Hex; participantIndex?: number }>;
+}
+
+/**
+ * Did a read revert with `UnknownCeremony()`? The views revert for a committee the finalized
+ * block does not hold yet (or never will), rather than returning Phase.None.
+ */
+export function isUnknownCeremony(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let cur: unknown = err;
+  while (cur && typeof cur === 'object' && !seen.has(cur)) {
+    seen.add(cur);
+    const e = cur as { errorName?: unknown; data?: { errorName?: unknown }; message?: unknown; details?: unknown };
+    if (e.errorName === 'UnknownCeremony' || e.data?.errorName === 'UnknownCeremony') return true;
+    if (/\bUnknownCeremony\(\)/.test(`${String(e.message ?? '')} ${String(e.details ?? '')}`)) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
+ * The committee at the finalized block, or null while that block does not hold it: right after
+ * it was created that is a wait, not an error (lib/pending.ts). Any other failure throws.
+ */
+export async function readCeremony(client: ChainReader, cid: Hex, anchor?: FinalizedAnchor): Promise<CeremonyView | null> {
+  try {
+    const view = await client.getCeremony(cid, anchor);
+    return view.phase === (Phase.None as number) ? null : view;
+  } catch (err) {
+    if (isUnknownCeremony(err)) return null;
+    throw err;
+  }
 }
 
 /** A decoded manager event (discovery only). */
@@ -155,4 +187,31 @@ export async function isAdapterAllowed(
     anchor,
   );
   return results[0] as boolean;
+}
+
+export async function isCreatorAuthorized(
+  client: ChainReader,
+  cid: Hex,
+  creator: Hex,
+  anchor?: FinalizedAnchor,
+): Promise<boolean> {
+  const { results } = await client.authenticatedRead(
+    [{ functionName: 'isCreatorAuthorized', args: [cid, creator] }],
+    anchor,
+  );
+  return results[0] as boolean;
+}
+
+/** This auth address's 1-based member index, 0 if it has not joined (authenticated). */
+export async function participantIndexOf(
+  client: ChainReader,
+  cid: Hex,
+  auth: Hex,
+  anchor?: FinalizedAnchor,
+): Promise<number> {
+  const { results } = await client.authenticatedRead(
+    [{ functionName: 'participantIndexOf', args: [cid, auth] }],
+    anchor,
+  );
+  return Number(results[0]);
 }

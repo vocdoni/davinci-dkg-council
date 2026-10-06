@@ -25,9 +25,18 @@ import {
   type CeremonySnapshot,
   type RequestSummary,
 } from '../flows/participant';
-import { getJoinedParticipants } from '../lib/chain';
+import { participantIndexOf, readCeremony } from '../lib/chain';
 import { bitCount, formatDate, identityCode, shortId, thresholdSentence, timeLeft, voteName } from '../lib/format';
 import { usePoll } from '../lib/hooks';
+import {
+  alreadyAtHead,
+  failedText,
+  findPending,
+  pendingKey,
+  sendTracked,
+  settlePending,
+  type FailedAction,
+} from '../lib/pending';
 import { getVoteLabels, putRecord, recordKey, updateRecord, type CeremonyRecord } from '../lib/records';
 import { useServices, type ProveProgress } from '../services';
 import { phaseSentence } from './ViewerView';
@@ -66,7 +75,8 @@ function ProveProgressView({ progress }: { progress: ProveProgress | null }) {
 export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number; secret: bigint } }) {
   const services = useServices();
   const { mnemonic, saveMnemonic, refreshRecords } = useApp();
-  const [view, setView] = useState<CeremonyView | null>(null);
+  /** Undefined before the first read; null while the finalized block does not hold the committee. */
+  const [view, setView] = useState<CeremonyView | null | undefined>(undefined);
   const [inviteState, setInviteState] = useState<'checking' | 'ok' | 'used' | 'invalid'>('checking');
   const [step, setStep] = useState<'explain' | 'kit' | 'joining'>('explain');
   const [error, setError] = useState<string | null>(null);
@@ -74,26 +84,24 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
 
   const poll = usePoll(
     async () => {
-      setView(await services.client.getCeremony(cid));
+      const v = await readCeremony(services.client, cid);
+      setView(v);
+      // The invitation is checked once the committee is visible: before that its views revert.
+      if (v !== null && inviteState === 'checking') {
+        try {
+          const info = await services.client.getInvite(cid, invite.inviteId);
+          const capAddress = accountFromSecret(invite.secret).address;
+          if (info.key.toLowerCase() !== capAddress.toLowerCase()) setInviteState('invalid');
+          else if (info.consumed) setInviteState('used');
+          else setInviteState('ok');
+        } catch {
+          setInviteState('invalid');
+        }
+      }
     },
     8000,
-    [cid],
+    [cid, invite.inviteId],
   );
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const info = await services.client.getInvite(cid, invite.inviteId);
-        const capAddress = accountFromSecret(invite.secret).address;
-        if (info.key.toLowerCase() !== capAddress.toLowerCase()) setInviteState('invalid');
-        else if (info.consumed) setInviteState('used');
-        else setInviteState('ok');
-      } catch {
-        setInviteState('invalid');
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cid, invite.inviteId]);
 
   const draftRecord: CeremonyRecord = useMemo(
     () => ({
@@ -114,18 +122,28 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
     setError(null);
     try {
       const action = await prepareJoin(draftMnemonic, services.config, cid, invite);
-      const tx = await services.submit(action);
-      await services.waitTx(tx);
-      const fresh = await services.client.getCeremony(cid);
-      const joined = await getJoinedParticipants(services.client, cid, fresh.joinedCount);
-      const mine = participantKeys(draftMnemonic, services.config, cid).auth.address.toLowerCase();
-      const index = joined.findIndex((p) => p.auth.toLowerCase() === mine) + 1;
+      let txHash: Hex | undefined;
+      try {
+        txHash = await services.submit(action);
+      } catch (err) {
+        // This key is already on the list at the head (an earlier try whose answer was lost).
+        if (!alreadyAtHead('join', err)) throw err;
+      }
+      if (txHash !== undefined) await services.waitTx(txHash);
+      // The member index is filled in by ParticipantView once the finalized state shows the join.
       await putRecord({
         ...draftRecord,
-        participantIndex: index > 0 ? index : undefined,
         kitExportFingerprint: manifestFingerprint(kit.manifest),
         // One-time prompt: the kit saved a minute ago predates this new role.
         kitJoinNudge: true,
+        pending: [
+          {
+            kind: 'join',
+            txHash,
+            sentAt: Date.now(),
+            address: participantKeys(draftMnemonic, services.config, cid).auth.address,
+          },
+        ],
       });
       await refreshRecords(); // re-renders into ParticipantView
     } catch (err) {
@@ -133,7 +151,7 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
     }
   };
 
-  if (!view) {
+  if (view === undefined) {
     if (poll.confirming) return <ConfirmingNote />;
     return poll.error ? (
       <Note tone="bad">We could not reach the public record: {poll.error}</Note>
@@ -142,7 +160,7 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
     );
   }
   // The invite link can arrive before the network confirmed the committee.
-  if (view.phase === Phase.None) return <ConfirmingNote />;
+  if (view === null) return <ConfirmingNote lead="This committee was created moments ago." />;
   if (inviteState === 'invalid') {
     return <Note tone="bad">This invitation is not valid for this committee. Ask for a fresh link.</Note>;
   }
@@ -217,6 +235,8 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
 function ContributeCard({ record, view }: { record: CeremonyRecord; view: CeremonyView }) {
   const services = useServices();
   const { mnemonic, refreshRecords } = useApp();
+  /** Sent from this device, not in the finalized view yet. */
+  const sent = findPending(record, { kind: 'deal' }) !== undefined;
   const [snapshot, setSnapshot] = useState<CeremonySnapshot | null>(null);
   const [refusal, setRefusal] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -266,8 +286,13 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
     try {
       const prepared = await prepareDealing(mnemonic, services, record.cid, record.approvedRosterHash, setProgress);
       setProgress(null);
-      const tx = await services.submit(prepared.action);
-      await services.waitTx(tx);
+      await sendTracked(
+        services,
+        record,
+        prepared.action,
+        { kind: 'deal', memberIndex: prepared.dealerIndex },
+        refreshRecords,
+      );
     } catch (err) {
       if (err instanceof FlowRefusal) setRefusal(err.reasons);
       else setError(errText(err));
@@ -280,9 +305,9 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
 
   // Live mode: auto-contribute ONLY for a roster hash already approved on this device.
   useEffect(() => {
-    if (record.liveMode && approved && !dealt && !busyRef.current && !refusal && !error) void contribute();
+    if (record.liveMode && approved && !dealt && !sent && !busyRef.current && !refusal && !error) void contribute();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record.liveMode, approved, dealt]);
+  }, [record.liveMode, approved, dealt, sent]);
 
   if (!mnemonic) {
     return (
@@ -295,6 +320,13 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
     return (
       <Card title="Add your part of the key">
         <RefusalNote reasons={refusal} />
+      </Card>
+    );
+  }
+  if (sent && !dealt) {
+    return (
+      <Card title="Your contribution was sent">
+        <ConfirmingNote lead="Your part of the key is on its way." />
       </Card>
     );
   }
@@ -375,18 +407,26 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
 
 export function FinishCard({ record, view }: { record: CeremonyRecord; view: CeremonyView }) {
   const services = useServices();
+  const { refreshRecords } = useApp();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
   const triedRef = useRef(false);
   const canFinalize = finalizeEligible(view, nowSec());
   const canAbort = abortEligible(view, nowSec());
+  /** Sent from this device, or already done at the head by someone else: waiting for finality. */
+  const finishing = findPending(record, { kind: 'finish' });
 
   const run = async (abort: boolean) => {
     setBusy(true);
     setNote(null);
     try {
-      const tx = await services.submit(abort ? abortAction(record.cid) : finalizeAction(record.cid));
-      await services.waitTx(tx);
+      await sendTracked(
+        services,
+        record,
+        abort ? abortAction(record.cid) : finalizeAction(record.cid),
+        { kind: 'finish', abort },
+        refreshRecords,
+      );
     } catch (err) {
       // Losing the race to another member is success, not failure.
       const fresh = await services.client.getCeremony(record.cid).catch(() => null);
@@ -406,7 +446,7 @@ export function FinishCard({ record, view }: { record: CeremonyRecord; view: Cer
   };
 
   useEffect(() => {
-    if (record.liveMode && canFinalize && !triedRef.current) {
+    if (record.liveMode && canFinalize && !finishing && !triedRef.current) {
       triedRef.current = true;
       void run(false);
     }
@@ -414,6 +454,15 @@ export function FinishCard({ record, view }: { record: CeremonyRecord; view: Cer
   }, [record.liveMode, canFinalize]);
 
   if (!canFinalize && !canAbort) return null;
+  if (finishing) {
+    return (
+      <Card title={finishing.abort ? 'Calling it off' : 'Finishing the key'}>
+        <ConfirmingNote
+          lead={finishing.abort ? 'The committee is being called off.' : 'The key is being finished.'}
+        />
+      </Card>
+    );
+  }
   return (
     <Card title={canFinalize ? 'Finish the key' : 'This committee looks stuck'}>
       <p className="mb-3 text-sm">
@@ -437,7 +486,9 @@ export function FinishCard({ record, view }: { record: CeremonyRecord; view: Cer
 
 function UnlockCard({ record }: { record: CeremonyRecord }) {
   const services = useServices();
-  const { mnemonic } = useApp();
+  const { mnemonic, refreshRecords } = useApp();
+  /** Turned on this device, not in the finalized state yet. */
+  const turning = (r: RequestSummary) => findPending(record, { kind: 'partial', requestId: r.requestId }) !== undefined;
   const [requests, setRequests] = useState<RequestSummary[] | null>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [refusals, setRefusals] = useState<Record<string, string[]>>({});
@@ -472,8 +523,13 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
         throw new FlowRefusal(['the vote this request belongs to changed while we were checking — nothing was sent']);
       }
       setProgress(null);
-      const tx = await services.submit(prepared.action);
-      await services.waitTx(tx);
+      await sendTracked(
+        services,
+        record,
+        prepared.action,
+        { kind: 'partial', requestId, memberIndex: prepared.participantIndex },
+        refreshRecords,
+      );
       setRequests(await listRequests(services, record.cid, record.participantIndex));
     } catch (err) {
       if (err instanceof FlowRefusal) setRefusals((m) => ({ ...m, [requestId]: err.reasons }));
@@ -493,6 +549,7 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
       (r) =>
         !r.ready &&
         !r.myPartialDone &&
+        !turning(r) &&
         r.partialCount < r.threshold &&
         r.processId &&
         !refusals[r.requestId] &&
@@ -525,7 +582,12 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
                   : `${r.partialCount} of the ${r.threshold} needed members have turned their key${r.myPartialDone ? '.' : ' — your turn.'}`}
               </p>
               {!r.ready && r.myPartialDone && <p className="mt-1 text-sm text-ok">You have done your part.</p>}
-              {!r.ready && !r.myPartialDone && (
+              {!r.ready && !r.myPartialDone && turning(r) && (
+                <div className="mt-2">
+                  <ConfirmingNote lead="You turned your key." />
+                </div>
+              )}
+              {!r.ready && !r.myPartialDone && !turning(r) && (
                 <div className="mt-2 space-y-2">
                   {busyId === r.requestId && progress ? (
                     <ProveProgressView progress={progress} />
@@ -566,17 +628,39 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
 
 export function ParticipantView({ record }: { record: CeremonyRecord }) {
   const services = useServices();
-  const { refreshRecords } = useApp();
-  const [view, setView] = useState<CeremonyView | null>(null);
+  const { mnemonic, refreshRecords } = useApp();
+  /** Undefined before the first read; null while the finalized block does not hold the committee. */
+  const [view, setView] = useState<CeremonyView | null | undefined>(undefined);
+  const [failed, setFailed] = useState<FailedAction[]>([]);
   const poll = usePoll(
     async () => {
-      setView(await services.client.getCeremony(record.cid));
+      const v = await readCeremony(services.client, record.cid);
+      setView(v);
+      const settled = await settlePending(services, record, v);
+      if (settled.failed.length > 0) setFailed((f) => [...f, ...settled.failed]);
+      let changed = settled.changed;
+      // A fresh join learns its member index once the finalized state lists it (authenticated).
+      if (v && record.participantIndex === undefined && mnemonic && v.joinedCount > 0) {
+        const auth = participantKeys(mnemonic, services.config, record.cid).auth.address;
+        const index = await participantIndexOf(services.client, record.cid, auth);
+        if (index > 0) {
+          await updateRecord(record.chainId, record.manager, record.cid, { participantIndex: index });
+          changed = true;
+        }
+      }
+      if (changed) await refreshRecords();
     },
     8000,
     [record.cid],
   );
 
-  if (!view) {
+  const failures = failed.map((f) => (
+    <Note key={`${pendingKey(f.action)}:${f.action.sentAt}`} tone="bad">
+      {failedText(f)}
+    </Note>
+  ));
+
+  if (view === undefined) {
     if (poll.confirming) return <ConfirmingNote />;
     return poll.error ? (
       <Note tone="bad">We could not reach the public record: {poll.error}</Note>
@@ -584,9 +668,17 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
       <Spinner label="Opening your committee…" />
     );
   }
-  // We hold a role here, but the committee is not visible at the network's
-  // confirmed height yet (fresh create or restore): a wait, not an error.
-  if (view.phase === Phase.None) return <ConfirmingNote />;
+  // We hold a role here, but the committee is not at the network's confirmed
+  // height yet (the views revert UnknownCeremony()): a wait, not an error.
+  if (view === null) {
+    return (
+      <div className="space-y-4">
+        {failures}
+        <ConfirmingNote />
+      </div>
+    );
+  }
+  const joining = findPending(record, { kind: 'join' }) !== undefined;
 
   const toggleLive = async () => {
     await updateRecord(record.chainId, record.manager, record.cid, { liveMode: !record.liveMode });
@@ -595,9 +687,15 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
 
   return (
     <div className="space-y-4">
+      {failures}
       <Card title={record.name || 'Your committee'}>
         <p className="text-sm leading-relaxed">{phaseSentence(view)}</p>
-        {view.phase === Phase.Registration && (
+        {view.phase === Phase.Registration && joining && (
+          <div className="mt-2">
+            <ConfirmingNote lead="You joined the member list." />
+          </div>
+        )}
+        {view.phase === Phase.Registration && !joining && (
           <p className="mt-1 text-sm text-ink/70">
             You are on the list. The organizer locks it once everyone joined (
             {timeLeft(Number(view.registrationDeadline))}).

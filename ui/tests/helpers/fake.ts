@@ -88,6 +88,7 @@ export class FakeChain implements ChainReader {
   requests = new Map<string, RequestView>();
   plaintexts = new Map<string, { ready: boolean; values: bigint[] }>();
   allowedAdapters = new Set<string>();
+  authorizedCreators = new Set<string>();
   bindings = new Map<string, { cid: Hex; requestId: Hex; requested: boolean }>();
   /** When set, getPartialRequestSnapshot throws (simulates a failed authenticated read). */
   snapshotError: string | null = null;
@@ -139,6 +140,12 @@ export class FakeChain implements ChainReader {
         }
         case 'isAdapterAllowed':
           return this.allowedAdapters.has(String(c.args?.[1]).toLowerCase());
+        case 'isCreatorAuthorized':
+          return this.authorizedCreators.has(String(c.args?.[1]).toLowerCase());
+        case 'participantIndexOf': {
+          const auth = String(c.args?.[1]).toLowerCase();
+          return this.participants.findIndex((p) => p.auth.toLowerCase() === auth) + 1;
+        }
         default:
           throw new Error(`FakeChain: unhandled view ${c.functionName}`);
       }
@@ -356,6 +363,7 @@ export function makeFixture(opts: { t?: number; n?: number; phase?: Phase } = {}
       return `0x${'01'.repeat(32)}` as Hex;
     },
     waitTx: async () => {},
+    txStatus: async () => ({ status: 'confirmed' }),
     prove: async (circuit, witnessInput) => ({
       proof: ZERO_PROOF,
       publicSignals: signalsFromWitness(circuit, witnessInput),
