@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../App';
 import { KitCard } from '../components/KitCard';
 import { RecoveryKitStep } from '../components/RecoveryKitStep';
+import { StorageNote } from '../components/StorageNote';
 import { Button, Card, ConfirmingNote, Disclosure, Note, ProgressBar, Spinner } from '../components/ui';
 import { buildKitForRecords, manifestFingerprint } from '../flows/kit';
 import { abortAction, finalizeAction } from '../flows/organizer';
@@ -38,6 +39,7 @@ import {
   type FailedAction,
 } from '../lib/pending';
 import { getVoteLabels, putRecord, recordKey, updateRecord, type CeremonyRecord } from '../lib/records';
+import { KEEP_WORDS_UNTIL_RESULTS } from '../lib/storage';
 import { useServices, type ProveProgress } from '../services';
 import { phaseSentence } from './ViewerView';
 
@@ -346,6 +348,7 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
             ? `All ${view.n} contributions are in. Next, someone presses “Finish the key” — anyone can, it takes a few seconds.`
             : `${done} of ${view.n} members have contributed. Nothing more for you to do here — we are waiting for the others.`}
         </p>
+        <p className="mt-2 text-sm font-medium">{KEEP_WORDS_UNTIL_RESULTS}</p>
       </Card>
     );
   }
@@ -724,6 +727,7 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
         <Note tone="warn">This committee was called off. If a new one starts, you will get a fresh invitation.</Note>
       )}
 
+      <StorageNote />
       <KitCard record={record} />
     </div>
   );

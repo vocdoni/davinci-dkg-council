@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../App';
 import { buildKitForRecords, kitFileName, manifestFingerprint } from '../flows/kit';
 import { downloadTextFile, printTextSheet } from '../lib/download';
+import { KEEP_WORDS_UNTIL_RESULTS } from '../lib/storage';
 import { updateRecord, type CeremonyRecord } from '../lib/records';
 import { Button, Card, Note } from './ui';
 
@@ -66,6 +67,7 @@ export function KitCard({ record }: { record: CeremonyRecord }) {
           <Note tone="warn">Your saved kit does not cover everything on this device yet — save a fresh copy.</Note>
         </div>
       )}
+      <p className="mb-3 text-sm leading-relaxed">{KEEP_WORDS_UNTIL_RESULTS}</p>
       <div className="flex flex-wrap gap-2">
         <Button
           variant="secondary"

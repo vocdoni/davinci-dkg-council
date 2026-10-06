@@ -5,6 +5,7 @@ import { Note, Spinner } from './components/ui';
 import { loadConfig } from './config';
 import { captureInviteFragment } from './lib/inviteCapture';
 import { archiveAllRecords, listRecords, type CeremonyRecord } from './lib/records';
+import { requestPersistentStorage } from './lib/storage';
 import { archiveRoot, loadRoot, saveRoot, type VaultStore } from './lib/vault';
 import { Ceremony } from './screens/Ceremony';
 import { CreateCeremony } from './screens/CreateCeremony';
@@ -69,12 +70,16 @@ export function AppProvider({
     mnemonic,
     saveMnemonic: async (m) => {
       await saveRoot(m, vaultStore);
+      // A key now lives here: ask the browser not to evict this site's data. Not awaited (a
+      // browser may ask the person first); a refusal changes nothing but the member's note.
+      void requestPersistentStorage();
       setMnemonic(m);
     },
     switchRoot: async (m) => {
       await archiveRoot(vaultStore);
       await archiveAllRecords();
       await saveRoot(m, vaultStore);
+      void requestPersistentStorage();
       setMnemonic(m);
       setRecords(await listRecords());
     },

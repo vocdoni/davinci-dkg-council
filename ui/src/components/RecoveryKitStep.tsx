@@ -11,6 +11,7 @@ import { parseKit, printableSheet, serializeKit, type KitFile } from '@vocdoni/d
 import { useMemo, useRef, useState } from 'react';
 import { kitFileName, mnemonicMatchesKit } from '../flows/kit';
 import { downloadTextFile, printTextSheet } from '../lib/download';
+import { KEEP_WORDS_UNTIL_RESULTS } from '../lib/storage';
 import { Button, Card, Note } from './ui';
 
 export function WordGrid({ words, hidden }: { words: string[]; hidden?: Set<number> }) {
@@ -63,6 +64,7 @@ export function RecoveryKitStep({ kit, onDone }: { kit: KitFile; onDone: () => v
           the sheet — ideally both. Keep them private: anyone holding them can act as you. And if too many
           members lose their words, the committee can never open its results — no one can.
         </p>
+        <p className="mb-3 text-sm font-medium leading-relaxed">{KEEP_WORDS_UNTIL_RESULTS}</p>
         <WordGrid words={words} />
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
