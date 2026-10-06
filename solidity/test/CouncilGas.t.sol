@@ -8,7 +8,9 @@ import {VectorReplay} from "./utils/VectorReplay.sol";
 /// @notice Per-action gas (architecture §1.8). Run with `FOUNDRY_PROFILE=gas forge snapshot
 ///         --match-contract Gas`: the profile isolates every manager call in its own transaction
 ///         (cold storage, intrinsic cost) and executes under Osaka; results go to
-///         `snapshots/council.json`. `n*_t*` entries run on mock verifiers (the test contract
+///         `snapshots/council.json`. `make solidity-gas` also runs it with `--evm-version
+///         amsterdam` and `COUNCIL_GAS_GROUP=council-amsterdam` (EIP-8037 state gas, Sepolia
+///         since Glamsterdam) into `snapshots/council-amsterdam.json`. `n*_t*` entries run on mock verifiers (the test contract
 ///         plays the allowed adapter so bind/request are measured directly); `real_*` entries
 ///         replay the vector scenarios with the generated verifiers and the canned proofs, so
 ///         their deal / submitPartial numbers include the real Groth16 verification.
@@ -28,7 +30,7 @@ contract CouncilGasTest is VectorReplay {
     }
 
     function _snap(string memory tag, string memory action) internal {
-        vm.snapshotGasLastCall("council", string.concat(tag, "_", action));
+        vm.snapshotGasLastCall(vm.envOr("COUNCIL_GAS_GROUP", string("council")), string.concat(tag, "_", action));
     }
 
     function _run(uint8 n, uint8 t, uint256 fields, string memory tag) internal {

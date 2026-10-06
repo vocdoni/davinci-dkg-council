@@ -91,6 +91,27 @@ contract CurveHarness {
     function horner(uint256[2][16] memory a, uint256 t, uint256 m) external view returns (uint256, uint256) {
         return CouncilCurve.horner(a, t, m);
     }
+
+    /// @dev Batch-normalizes extended points (X, Y, Z, T) and returns their affine (x, y).
+    function normalize(uint256[4][] memory ext) external view returns (uint256[2][] memory out) {
+        uint256 len = ext.length;
+        uint256 pts = CouncilCurve.alloc(len);
+        for (uint256 i; i < len; ++i) {
+            uint256 r = CouncilCurve.at(pts, i);
+            uint256[4] memory e = ext[i];
+            assembly ("memory-safe") {
+                mstore(r, mload(e))
+                mstore(add(r, 0x20), mload(add(e, 0x20)))
+                mstore(add(r, 0x40), mload(add(e, 0x40)))
+                mstore(add(r, 0x60), mload(add(e, 0x60)))
+            }
+        }
+        CouncilCurve.normalize(pts, len, len, pts);
+        out = new uint256[2][](len);
+        for (uint256 i; i < len; ++i) {
+            (out[i][0], out[i][1]) = CouncilCurve.affineAt(pts, i);
+        }
+    }
 }
 
 /// @notice CouncilManager with its HashToScalar exposed.

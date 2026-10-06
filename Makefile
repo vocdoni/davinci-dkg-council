@@ -13,7 +13,7 @@ PNPM ?= npx -y pnpm@10
 FORGE_BIN     ?= $(or $(wildcard $(HOME)/.foundry/bin/forge),$(shell command -v forge 2>/dev/null))
 FOUNDRY_IMAGE ?= ghcr.io/foundry-rs/foundry:stable
 ifeq ($(strip $(FORGE_BIN)),)
-forge = docker run --rm --entrypoint forge -u $$(id -u):$$(id -g) -e HOME=/tmp -e FOUNDRY_PROFILE \
+forge = docker run --rm --entrypoint forge -u $$(id -u):$$(id -g) -e HOME=/tmp -e FOUNDRY_PROFILE -e COUNCIL_GAS_GROUP \
 	-v $(CURDIR):/work -w /work/solidity $(FOUNDRY_IMAGE) $(1)
 else
 forge = cd solidity && $(FORGE_BIN) $(1)
@@ -71,8 +71,10 @@ solidity-test: ## forge test
 	$(call forge,test)
 
 solidity-gas: export FOUNDRY_PROFILE := gas
-solidity-gas: ## Per-action gas snapshot under Osaka (FOUNDRY_PROFILE=gas)
+solidity-gas: ## Per-action gas snapshots under Osaka and Amsterdam (FOUNDRY_PROFILE=gas)
 	$(call forge,snapshot --match-contract Gas)
+	export COUNCIL_GAS_GROUP=council-amsterdam; \
+		$(call forge,snapshot --match-contract Gas --evm-version amsterdam --snap .gas-snapshot-amsterdam)
 
 # ---- SDK and relayer ------------------------------------------------------------------------
 

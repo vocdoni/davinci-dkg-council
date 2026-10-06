@@ -87,7 +87,9 @@ abstract contract VectorReplay is CouncilTestBase {
     }
 
     function _snapIf(string memory action) internal {
-        if (bytes(gasTag).length != 0) vm.snapshotGasLastCall("council", string.concat(gasTag, "_", action));
+        if (bytes(gasTag).length != 0) {
+            vm.snapshotGasLastCall(vm.envOr("COUNCIL_GAS_GROUP", string("council")), string.concat(gasTag, "_", action));
+        }
     }
 
     /// @dev Replay scenario `s` (0 = A: n=3, t=2, QUAL {1,3}; 1 = B: n=t=16). Returns false

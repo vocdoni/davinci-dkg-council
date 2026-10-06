@@ -277,36 +277,41 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         if (dealt != n && (block.timestamp <= c.dealingDeadline || dealt < t)) revert FinalizeConditionNotMet();
         uint256 qual = c.qualBitmap;
 
-        // A_k = Σ_{j in QUAL} C_{j,k}, reduced chart.
-        uint256[2][16] memory agg;
+        // A_k = Σ_{j in QUAL} C_{j,k} (points 0..t-1) and PK_m = Σ_k m^k·A_k (points t..t+n-1),
+        // reduced chart, in extended coordinates; one inversion converts all of them to affine.
+        uint256 count = t + n;
+        uint256 pts = CouncilCurve.alloc(count);
         for (uint256 k; k < t; ++k) {
-            uint256 x = 0;
-            uint256 y = 1;
+            uint256 a = CouncilCurve.at(pts, k);
             for (uint256 j; j < n; ++j) {
                 if ((qual >> j) & 1 == 0) continue;
                 uint256[2] storage ck = c.dealings[j].C[k];
-                (x, y) = CouncilCurve.add(x, y, CouncilCurve.toReduced(ck[0]), ck[1]);
+                CouncilCurve.addAffine(a, CouncilCurve.toReduced(ck[0]), ck[1]);
             }
-            agg[k][0] = x;
-            agg[k][1] = y;
         }
-        if (agg[0][0] == 0 && agg[0][1] == 1) {
+        if (CouncilCurve.isIdentity(pts)) {
             // P = O: defense in depth (protocol §8.4).
             c.phase = Phase.Aborted;
             emit CeremonyAborted(cid, uint8(Phase.Dealing));
             return;
         }
+        for (uint256 m = 1; m <= n; ++m) {
+            CouncilCurve.hornerExt(pts, t, m, CouncilCurve.at(pts, t + m - 1), count);
+        }
+        CouncilCurve.normalize(pts, count, count, pts);
         for (uint256 k; k < t; ++k) {
-            c.aggregates[k][0] = CouncilCurve.toTE(agg[k][0]);
-            c.aggregates[k][1] = agg[k][1];
+            (uint256 x, uint256 y) = CouncilCurve.affineAt(pts, k);
+            c.aggregates[k][0] = CouncilCurve.toTE(x);
+            c.aggregates[k][1] = y;
         }
         for (uint256 m = 1; m <= n; ++m) {
-            (uint256 x, uint256 y) = CouncilCurve.horner(agg, t, m);
+            (uint256 x, uint256 y) = CouncilCurve.affineAt(pts, t + m - 1);
             c.memberKeys[m - 1][0] = CouncilCurve.toTE(x);
             c.memberKeys[m - 1][1] = y;
         }
+        (, uint256 py) = CouncilCurve.affineAt(pts, 0);
         c.phase = Phase.Live;
-        emit CeremonyFinalized(cid, uint16(qual), c.aggregates[0][0], agg[0][1]);
+        emit CeremonyFinalized(cid, uint16(qual), c.aggregates[0][0], py);
     }
 
     /// @notice protocol §8.4 (permissionless): abort a ceremony that can no longer go Live.

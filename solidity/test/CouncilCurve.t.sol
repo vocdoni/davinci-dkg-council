@@ -104,6 +104,31 @@ contract CouncilCurveTest is Test {
         assertEq(sum, 1, "sum of lambdas");
     }
 
+    /// @dev The batch inversion maps (X, Y, Z, T) to (X/Z, Y/Z) and fails closed on any Z = 0
+    ///      instead of inverting 0 (which would return (0, 0) for the whole batch).
+    function testFuzz_NormalizeBatch(uint256 s, uint256 z, uint8 zeroAt) public {
+        uint256[4][] memory ext = new uint256[4][](3);
+        uint256[2][] memory want = new uint256[2][](3);
+        for (uint256 i; i < 3; ++i) {
+            (want[i][0], want[i][1]) = BabyJubJub.scalarMulBase(uint256(keccak256(abi.encode(s, i))));
+            uint256 zi = bound(uint256(keccak256(abi.encode(z, i))), 1, P - 1);
+            ext[i] = [
+                mulmod(want[i][0], zi, P),
+                mulmod(want[i][1], zi, P),
+                zi,
+                mulmod(mulmod(want[i][0], want[i][1], P), zi, P)
+            ];
+        }
+        uint256[2][] memory got = h.normalize(ext);
+        for (uint256 i; i < 3; ++i) {
+            assertEq(got[i][0], want[i][0]);
+            assertEq(got[i][1], want[i][1]);
+        }
+        ext[zeroAt % 3][2] = 0;
+        vm.expectRevert(InvalidPoint.selector);
+        h.normalize(ext);
+    }
+
     /// @dev Horner over A_k = a_k·G equals f(m)·G.
     function testFuzz_Horner(uint256 seed, uint8 t, uint8 m) public view {
         t = uint8(bound(t, 1, 16));
