@@ -1,0 +1,13 @@
+{
+  "chainId": 11155111,
+  "manager": "0x0000000000000000000000000000000000000000",
+  "deploymentBlock": 0,
+  "rpcUrls": [
+    "https://ethereum-sepolia-rpc.publicnode.com",
+    "https://sepolia.gateway.tenderly.co",
+    "https://1rpc.io/sepolia"
+  ],
+  "relayerUrl": "https://relayer.davinci-dkg-council.example.invalid",
+  "artifactsBaseUrl": "https://artifacts.davinci-dkg-council.example.invalid/circuits-v1",
+  "devMode": false
+}

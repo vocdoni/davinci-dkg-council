@@ -1,0 +1,9 @@
+{
+  "chainId": 31337,
+  "devMode": true,
+  "manager": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
+  "rpcUrls": ["http://127.0.0.1:8545"],
+  "relayerUrl": "http://127.0.0.1:8788",
+  "artifactsBaseUrl": "http://127.0.0.1:8789",
+  "deploymentBlock": 0
+}

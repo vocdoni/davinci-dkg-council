@@ -1,0 +1,297 @@
+/**
+ * Restore (protocol §5.3): from a recovery-kit file or from the twelve words
+ * alone. Either way identities are re-derived from the root and authenticated
+ * against chain registration state (`verifyRestoredIdentity`) — the kit's own
+ * records are only a corruption check, never trusted. A kit whose root
+ * differs from the one already on this device never overwrites it silently:
+ * the user must explicitly switch, which archives the old root and its
+ * records intact.
+ */
+
+import {
+  kitEntryIdentity,
+  normalizeCeremonyId,
+  parseKit,
+  rehearseEntry,
+  restoreFromKit,
+  rootFromMnemonic,
+  type Hex,
+  type KitManifestEntry,
+} from '@vocdoni/davinci-dkg-council-sdk';
+import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useApp } from '../App';
+import { Button, Card, Field, Note } from '../components/ui';
+import { manifestEntryFor, manifestFingerprint } from '../flows/kit';
+import { shortId } from '../lib/format';
+import { putRecord, recordKey, type CeremonyRecord } from '../lib/records';
+import { useServices } from '../services';
+
+const normalizeWords = (m: string) => m.trim().toLowerCase().split(/\s+/).join(' ');
+const ZERO_ADDRESS = ('0x' + '0'.repeat(40)) as Hex;
+
+interface PendingSwitch {
+  mnemonic: string;
+  records: CeremonyRecord[];
+  notes: string[];
+}
+
+export function Restore() {
+  const { mnemonic: currentMnemonic, saveMnemonic, switchRoot, refreshRecords } = useApp();
+  const { config, client } = useServices();
+  const navigate = useNavigate();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<PendingSwitch | null>(null);
+  const [words, setWords] = useState('');
+  const [link, setLink] = useState('');
+
+  const entryMatches = (e: KitManifestEntry) =>
+    Number(e.chainId) === config.chainId && e.manager.toLowerCase() === config.manager.toLowerCase();
+
+  const commitRecords = async (restored: CeremonyRecord[], notes: string[]) => {
+    for (const record of restored) await putRecord(record);
+    await refreshRecords();
+    setWarnings(notes);
+    setSuccess(true); // "Your key is back" — shown briefly before the start page.
+    setTimeout(() => navigate('/'), notes.length === 0 ? 2000 : 4000);
+  };
+
+  /**
+   * Store the restored root — unless a *different* root already lives here,
+   * in which case nothing is written until the user explicitly switches.
+   */
+  const finish = async (newMnemonic: string, restored: CeremonyRecord[], notes: string[]) => {
+    if (currentMnemonic && normalizeWords(currentMnemonic) !== normalizeWords(newMnemonic)) {
+      setPending({ mnemonic: newMnemonic, records: restored, notes });
+      return;
+    }
+    await saveMnemonic(newMnemonic);
+    await commitRecords(restored, notes);
+  };
+
+  const confirmSwitch = async () => {
+    if (!pending) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await switchRoot(pending.mnemonic);
+      await commitRecords(pending.records, pending.notes);
+      setPending(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restore = async (file: File) => {
+    setBusy(true);
+    setError(null);
+    setWarnings([]);
+    try {
+      const kit = parseKit(await file.text());
+      const { root, manifest } = restoreFromKit(kit);
+      const notes: string[] = [];
+      const restored: CeremonyRecord[] = [];
+      for (const entry of manifest) {
+        if (!entryMatches(entry)) {
+          notes.push(
+            `${shortId(entry.ceremonyId)}: was made with a different copy of this app — open the link you were given for that committee.`,
+          );
+          continue;
+        }
+        // Corruption check against the kit's own records.
+        if (!rehearseEntry(root, entry).ok) {
+          throw new Error('the keys in this kit do not match its own records — the file may be damaged');
+        }
+        // Authentication against chain registration state (§5.3).
+        const identity = kitEntryIdentity(root, entry);
+        const verdict = await client.verifyRestoredIdentity(identity);
+        if (!verdict.ok) {
+          notes.push(
+            `${shortId(entry.ceremonyId)}: the public record does not recognize this role (${verdict.mismatches.join('; ')}) — left out.`,
+          );
+          continue;
+        }
+        restored.push({
+          key: recordKey(config.chainId, entry.manager, entry.ceremonyId as Hex),
+          chainId: config.chainId,
+          manager: entry.manager,
+          cid: entry.ceremonyId as Hex,
+          role: entry.role,
+          participantIndex: verdict.participantIndex,
+          createdAt: Date.now(),
+        });
+      }
+      if (restored.length === 0) {
+        setWarnings(notes);
+        throw new Error('nothing in this kit could be restored here');
+      }
+      // The person restored *from* a kit, so this device is covered — no
+      // "save your kit" banner. Words-only restores leave it unset on purpose.
+      const fp = manifestFingerprint(restored.map((r) => manifestEntryFor(kit.private.mnemonic, r)));
+      await finish(
+        kit.private.mnemonic,
+        restored.map((r) => ({ ...r, kitExportFingerprint: fp })),
+        notes,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Words-only restore: twelve words + the committee link or code. */
+  const restoreWords = async () => {
+    setBusy(true);
+    setError(null);
+    setWarnings([]);
+    try {
+      const entered = normalizeWords(words);
+      let root;
+      try {
+        root = rootFromMnemonic(entered);
+      } catch {
+        throw new Error('those do not look like a valid set of twelve recovery words');
+      }
+      const match = link.match(/0x[0-9a-fA-F]{24}/);
+      if (!match) throw new Error('that link does not contain a committee code');
+      const cid = normalizeCeremonyId(match[0]);
+      const restored: CeremonyRecord[] = [];
+      for (const role of ['participant', 'organizer'] as const) {
+        // kitEntryIdentity derives everything from the root and this context;
+        // the placeholder address is never used.
+        const identity = kitEntryIdentity(root, {
+          role,
+          chainId: String(config.chainId),
+          manager: config.manager.toLowerCase() as Hex,
+          ceremonyId: cid,
+          accountIndex: 0,
+          authAddress: ZERO_ADDRESS,
+        });
+        const verdict = await client.verifyRestoredIdentity(identity).catch(() => null);
+        if (verdict?.ok) {
+          restored.push({
+            key: recordKey(config.chainId, config.manager, cid),
+            chainId: config.chainId,
+            manager: config.manager,
+            cid,
+            role,
+            participantIndex: verdict.participantIndex,
+            createdAt: Date.now(),
+          });
+          break;
+        }
+      }
+      if (restored.length === 0) {
+        throw new Error('the public record does not recognize these words for that committee');
+      }
+      await finish(entered, restored, []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (pending) {
+    return (
+      <div className="space-y-4">
+        <Card title="This device already holds a different key">
+          <Note tone="warn">
+            <p className="font-semibold">The kit you opened holds a different key than the one on this device.</p>
+            <p className="mt-1">
+              You can keep what you have (nothing changes), or switch to the restored key. Switching sets the
+              current key and its committees aside — they are kept, not deleted, and the matching recovery kit
+              brings them back — but this device then acts only with the restored key.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button variant="secondary" disabled={busy} onClick={() => setPending(null)}>
+                Keep what I have
+              </Button>
+              <Button disabled={busy} onClick={() => void confirmSwitch()}>
+                {busy ? 'Working…' : 'Switch to the restored key'}
+              </Button>
+            </div>
+          </Note>
+          {error && (
+            <div className="mt-3">
+              <Note tone="bad">That did not work: {error}.</Note>
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {success && <Note tone="ok">Your key is back. You can act for this committee again.</Note>}
+      <Card title="Restore from a recovery kit">
+        <p className="mb-3 text-sm leading-relaxed">
+          Pick the kit file you saved earlier. We re-create your keys from it and check them against the public
+          record; nothing secret is sent anywhere. This takes a few seconds.
+        </p>
+        <Button disabled={busy} onClick={() => fileRef.current?.click()}>
+          {busy ? 'Checking…' : 'Open the kit file'}
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void restore(f);
+          }}
+        />
+        {error && (
+          <div className="mt-3">
+            <Note tone="bad">That did not work: {error}.</Note>
+          </div>
+        )}
+        {warnings.map((w) => (
+          <div key={w} className="mt-3">
+            <Note tone="warn">{w}</Note>
+          </div>
+        ))}
+      </Card>
+      <Card title="No file? Use your twelve words">
+        <p className="mb-3 text-sm leading-relaxed">
+          Type the twelve words from your printed sheet and paste the committee link (or its code) from your
+          invitation or from whoever runs the committee. We rebuild your key and check it against the public
+          record.
+        </p>
+        <textarea
+          className="w-full rounded-lg border border-ink/20 px-3 py-2 font-mono text-sm"
+          rows={3}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          aria-label="Your twelve recovery words"
+          placeholder="word1 word2 word3 …"
+          value={words}
+          onChange={(e) => setWords(e.target.value)}
+        />
+        <div className="mt-3">
+          <Field
+            label="Committee link or code"
+            placeholder="https://… or 0x…"
+            value={link}
+            onChange={(e) => setLink(e.target.value)}
+          />
+        </div>
+        <div className="mt-3">
+          <Button disabled={busy || words.trim() === '' || link.trim() === ''} onClick={() => void restoreWords()}>
+            {busy ? 'Checking…' : 'Rebuild my key'}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}

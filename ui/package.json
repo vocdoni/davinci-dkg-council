@@ -1,0 +1,48 @@
+{
+  "name": "@vocdoni/davinci-dkg-council-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "sdk-build": "pnpm -C ../sdk run build",
+    "build": "pnpm run sdk-build && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "pnpm run sdk-build && tsc --noEmit && tsc --noEmit -p e2e && eslint .",
+    "test": "pnpm run sdk-build && vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "mock-relayer": "node scripts/mock-relayer.mjs"
+  },
+  "dependencies": {
+    "@vocdoni/davinci-dkg-council-sdk": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "uqr": "^0.1.2",
+    "viem": "^2.21.55"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.16.0",
+    "@playwright/test": "^1.49.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^22.10.1",
+    "@types/react": "^18.3.13",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.16.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "fake-indexeddb": "^6.0.0",
+    "jsdom": "^25.0.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.18.0",
+    "vite": "^5.4.11",
+    "vitest": "^3.1.0"
+  },
+  "packageManager": "pnpm@10.0.0"
+}
