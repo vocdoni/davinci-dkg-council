@@ -111,8 +111,8 @@ warnings, both harmless:
   throwaway's funder, so the bind, request and funding moved its nonce three times. The relayer
   resynced and sent the next action on the first attempt.
 - One `combiner tick failed` (`Invalid parameters`), a transient `eth_getLogs` refusal 37 s after
-  the request landed. The scan cursor only advances after a complete pass, so the next tick found
-  the request.
+  the request landed: a backend behind the head (see [the smoke test](#smoke-test-2026-10-06)).
+  The scan cursor only advances after a complete pass, so the next tick found the request.
 
 ## Circuit release
 
@@ -345,11 +345,23 @@ Headless Chromium against the public URLs:
   in-browser proving each), and the organizer finished the key: live after 92 minutes, every
   action paid by the relayer. Each step waited 15 to 19 minutes for finality.
 
-Until the block of a relayed action is finalized, the app shows the state before it: right after
-creating a committee, the organizer page shows "We could not reach the public record: …
-UnknownCeremony()" for about 15 minutes, and after locking the list it still offers the lock
-button. Both clear by themselves once the block is finalized. The browsers also logged a few HTTP
-429 responses (three profiles polling from one address), which the app retried.
+Until the block of a relayed action was finalized, the app showed the state before it: right
+after creating a committee, the organizer page showed "We could not reach the public record: …
+UnknownCeremony()" for about 15 minutes, and after locking the list it still offered the lock
+button. The browsers also logged a few HTTP 429 responses (three profiles polling from one
+address), which the app retried. Since the redeploy of 2026-10-06 16:50 UTC the app keeps every
+action it sent as pending until the finalized block shows it (`ui/src/lib/pending.ts`): after
+creating committee `0x28cb9a52e1585c4153ee1415` through the hosted app, the organizer page said
+"Your committee was created. Waiting for the network to confirm — about 15–20 minutes on
+Sepolia, 1–2 minutes on Gnosis. You can close this page and come back." for 17 minutes, then
+showed the dashboard, with no error and no console error on the way.
+
+The relayer also logged `combiner tick failed` (`Invalid parameters`) every two to three minutes:
+publicnode and Tenderly answer from several backends, and `eth_getLogs` up to the head one of
+them reported was refused by a backend a block behind (`-32602 block range extends beyond
+current head block`). The combine worker now ends that pass where it is and picks the rest up on
+the next ([relayer.md](relayer.md#combine-worker)); its logs stayed clean for the 20 minutes
+after the redeploy.
 
 ### Cost
 
