@@ -1,0 +1,23 @@
+{
+  "name": "@vocdoni/davinci-dkg-council-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless Council end-to-end suite: Anvil in Docker, real proofs, the relayer in front",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/dev.ts"
+  },
+  "dependencies": {
+    "@vocdoni/davinci-dkg-council-relayer": "workspace:*",
+    "@vocdoni/davinci-dkg-council-sdk": "workspace:*",
+    "viem": "^2.21.55"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "4.23.15",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  }
+}

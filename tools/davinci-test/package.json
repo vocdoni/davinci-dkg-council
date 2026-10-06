@@ -1,0 +1,23 @@
+{
+  "name": "@vocdoni/davinci-dkg-council-davinci-test",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal davinci-sdk client: creates a DAVINCI process keyed by a Council ceremony and reads its results",
+  "type": "module",
+  "bin": {
+    "davinci-council": "./dist/cli.js"
+  },
+  "scripts": {
+    "link-sdk": "node scripts/link-sdk.mjs",
+    "build": "node scripts/link-sdk.mjs && tsc -p tsconfig.json",
+    "check": "node scripts/link-sdk.mjs && tsc --noEmit -p tsconfig.json",
+    "start": "node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
