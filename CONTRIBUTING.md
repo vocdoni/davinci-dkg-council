@@ -128,7 +128,9 @@ Regenerate these instead of editing them:
 - `circuits/fixtures/*.json`: `make fixtures`
 - `tests/vectors/*.json`: `make vectors`
 - `tests/GAS.md`: a full `make e2e` run
-- `solidity/.gas-snapshot`, `solidity/snapshots/council.json`: `make solidity-gas`
+- `solidity/.gas-snapshot`, `solidity/snapshots/council.json` (Osaka) and
+  `solidity/.gas-snapshot-amsterdam`, `solidity/snapshots/council-amsterdam.json` (Amsterdam):
+  `make solidity-gas`
 
 `solidity/src/libraries/BabyJubJub.sol` is vendored from davinci-dkg; take upstream fixes by
 replacing the whole file below its header.

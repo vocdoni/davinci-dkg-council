@@ -95,12 +95,16 @@ Every action is simulated with `eth_call` first; a reverting one is refused with
 ### Sizing the budget
 
 At Osaka gas ([BENCHMARKS.md](../BENCHMARKS.md#gas), with every action sent through the
-relayer): a 3-member, `t = 2` ceremony with one 4-field decryption costs about 9.1M gas (≈ 0.009
-native units at 1 gwei), a 16-member one with one 16-field decryption about 109M (≈ 0.11). The
-largest single reservation is finalize at `n = t = 16`: 11.60M gas plus the 20% estimate headroom
-is a 13.92M gas limit, times maxFeePerGas (2 × base fee + tip, capped by `COUNCIL_MAX_FEE_WEI`),
-≈ 0.028 native units at a 1 gwei base fee. At 1 gwei the default budget of one native unit
-sponsors about nine 16-member ceremonies a day.
+relayer): a 3-member, `t = 2` ceremony with one 4-field decryption costs about 9.0M gas (≈ 0.009
+native units at 1 gwei), a 16-member one with one 16-field decryption about 101M (≈ 0.10). Under
+Amsterdam (Glamsterdam, Sepolia since 2026-10-06), whose state gas adds about 97,920 gas per
+storage slot written from zero, the 16-member ceremony with its decryption costs about 231M
+(≈ 0.23). The largest single reservation is the estimate plus the 20% headroom times
+maxFeePerGas (2 × base fee + tip, capped by `COUNCIL_MAX_FEE_WEI`): under Osaka a 4-field combine
+at `t = 16` (7.37M gas, an 8.85M limit, ≈ 0.018 native units at a 1 gwei base fee), under
+Amsterdam finalize at `n = t = 16` (9.05M gas, a 10.86M limit, ≈ 0.022). At 1 gwei the default
+budget of one native unit sponsors about ten 16-member ceremonies a day under Osaka, about four
+under Amsterdam.
 
 A gas limit is capped at the lower of the block gas limit and `COUNCIL_MAX_TX_GAS`, by default
 16,777,216 (2^24): Osaka (EIP-7825) rejects any transaction above that, whatever the block limit,
@@ -108,12 +112,15 @@ so the 20% headroom never pushes a large estimate into an invalid transaction.
 
 On a chain with Glamsterdam's separate state gas (EIP-8037; Sepolia since 2026-10-06) the 2^24
 maximum bounds a transaction's execution gas only: each new storage slot costs about 97,920 gas
-of state gas on top, and the gas limit must cover both. A 16-member finalize there needs 17.24M
-gas (10.97M execution + 6.27M state), above 2^24. Set `COUNCIL_STATE_GAS=true` on such a chain:
-the gas limit is then capped by the block gas limit alone (unless `COUNCIL_MAX_TX_GAS` is set
-explicitly). Leave it unset on an Osaka chain such as Gnosis, where a limit above 2^24 is
-invalid. The flag is explicit rather than probed: no RPC method says whether a chain prices state
-gas, and a wrong guess either reverts large actions out of gas or makes them invalid.
+of state gas on top, and the gas limit must cover both. A 16-member finalize there needs 9.05M
+gas (≈ 2.78M execution + 6.27M state), and every action of the current manager fits under 2^24 in
+total, the largest being the adapter's 16-field submitRequest (12.54M). The affine finalize of
+the previous Sepolia manager (`0x57ef…3070`) needed 17.24M (10.97M execution + 6.27M state),
+which a 2^24 clamp sent out of gas. Set `COUNCIL_STATE_GAS=true` on such a chain: the gas limit is
+then capped by the block gas limit alone (unless `COUNCIL_MAX_TX_GAS` is set explicitly). Leave
+it unset on an Osaka chain such as Gnosis, where a limit above 2^24 is invalid. The flag is
+explicit rather than probed: no RPC method says whether a chain prices state gas, and a wrong
+guess either reverts large actions out of gas or makes them invalid.
 
 The hot key must hold every transaction's worst case (gas limit × max fee) on top of what it
 already has in flight, or the node refuses the broadcast. The relayer checks the key's balance

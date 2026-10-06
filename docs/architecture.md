@@ -252,71 +252,99 @@ as the immutable `views`. Both contracts inherit the single `CouncilStorage` lay
 entire `ICouncil` interface (and therefore the adapter-facing `ICouncilManager`) is served at
 the manager's single address; clients and ABIs never see the second contract. The EIP-712
 hashing lives in the internal library `CouncilEIP712.sol` (contingency (a) of the original
-plan), curve work in `CouncilCurve.sol` (§1.8). Measured runtime sizes: manager **20,774 B**,
+plan), curve work in `CouncilCurve.sol` (§1.8). Measured runtime sizes: manager **21,745 B**,
 views **4,579 B**, both under the limit with via_ir and `optimizer_runs = 1`.
 `CouncilViewsSplit.t.sol` pins the mechanism (every view answers at the manager address,
 unknown selectors revert, value transfers revert).
 
-### 1.8 Gas, measured (Osaka; Gnosis block limit 17M, ~1 gwei)
+### 1.8 Gas, measured (Osaka and Amsterdam; Gnosis block limit 17M, ~1 gwei)
 
-Measured under **Osaka**, the EVM Sepolia and Gnosis run since Fusaka: `CouncilGas.t.sol` with
-`FOUNDRY_PROFILE=gas forge snapshot --match-contract Gas` (isolated calls; the `gas` profile sets
-`evm_version = "osaka"`), real verifiers, worst case `n = t = 16` unless stated. The headless e2e
-suite measures the same values from receipts on Anvil `--hardfork osaka` (`tests/GAS.md`);
-`BENCHMARKS.md` summarizes both.
+Measured with `CouncilGas.t.sol` and `make solidity-gas`, which runs `FOUNDRY_PROFILE=gas forge
+snapshot --match-contract Gas` twice (isolated calls, real verifiers, worst case `n = t = 16`
+unless stated): under **Osaka** (the `gas` profile's `evm_version`), the EVM Gnosis runs, into
+`snapshots/council.json`, and with `--evm-version amsterdam` into
+`snapshots/council-amsterdam.json`. Amsterdam is the execution layer of Glamsterdam, which Sepolia
+runs since 2026-10-06 (block 11,856,337); Foundry 1.8.3's Amsterdam reproduces Sepolia receipts
+exactly. The headless e2e suite measures the Osaka values from receipts on Anvil `--hardfork
+osaka` (`tests/GAS.md`); Anvil does not price Amsterdam's state gas yet. `BENCHMARKS.md`
+summarizes both.
 
-| Call | Measured (Osaka) | Dominated by |
-|---|---|---|
-| createCeremony (16 invites) | 481k | invite SSTOREs |
-| join | 542k | subgroup check + Schnorr + storage |
-| closeRegistration | 202k | roster hash + ctx |
-| deal | 2.06M | verifier (87 publics); 50-word dealing storage; hashing |
-| finalize (t=n=16, QUAL=16) | **11.60M** (Cancun 9.66M) | 240 Horner small-scalar muls + aggregation adds (≈ 720 modexp inversions) + 34 cold SSTOREs |
-| allowAdapter / authorizeCreator | 56k | one SSTORE + sig |
-| bindProcess | 170k | binding record |
-| submitRequest (16 fields) | 6.91M | 32 subgroup checks + 64-word storage |
-| submitPartial (16 fields) | 1.52M | verifier (67 publics); D storage |
-| combine (t=16) | 2.02M for 1 field, 3.78M for 2, 7.36M for 4 (Cancun 1.89M / 3.56M / 6.97M) | t+1 scalarMuls + point adds |
+| Call | Osaka | Amsterdam | Dominated by |
+|---|---|---|---|
+| createCeremony (16 invites) | 481k | 2.06M | invite SSTOREs |
+| join | 542k | 993k | subgroup check + Schnorr + storage |
+| closeRegistration | 202k | 387k | roster hash + ctx |
+| deal | 2.06M | 6.47M | verifier (87 publics); 50-word dealing storage; hashing |
+| finalize (t=n=16, QUAL=16) | **3.42M** | **9.05M** | 64 new slots (6.27M state gas under Amsterdam) + aggregation and 240 Horner small-scalar steps in extended coordinates + one inversion |
+| allowAdapter / authorizeCreator | 56k | 138k | one SSTORE + sig |
+| bindProcess | 170k | 692k | binding record |
+| submitRequest (16 fields) | 6.91M | 12.54M | 32 subgroup checks + 64-word storage |
+| submitPartial (16 fields) | 1.52M | 4.34M | verifier (67 publics); D storage |
+| combine (t=16) | 2.03M for 1 field, 3.79M for 2, 7.37M for 4 | 2.11M / 3.80M / 7.47M | t+1 scalarMuls + point adds |
 
-At the small end (`n = 5, t = 3`): finalize 821k (Cancun 735k), a 4-field combine 1.21M (Cancun
-1.12M). Finalize came in well above the pre-implementation estimate (~3.5–4.5M) and is the one
-worst case; it is permissionless, paid by the relayer, once per ceremony.
+At the small end (`n = 5, t = 3`): finalize 501k under Osaka and 1.91M under Amsterdam, a 4-field
+combine 1.21M and 1.30M. The affine finalize this replaced (one modexp inversion per curve
+operation, ≈ 720 at `n = t = 16`) measured 11.60M under Osaka (9.66M under Cancun) and 17.24M
+under Amsterdam at `n = t = 16`; 821k and 2.23M at `n = 5, t = 3`. Finalize is permissionless,
+paid by the relayer, once per ceremony.
 
-**Why Osaka costs more.** EIP-7883 reprices the modexp precompile: with a 32-byte base and modulus
-and a ~254-bit exponent, one call goes from ~1.35k to ~4.05k gas. The vendored `BabyJubJub.sol`
-returns every affine `scalarMul` and `pointAdd` through one modexp inversion (exponent `p − 2`),
-and `CouncilCurve.invModR` inverts mod `r` the same way for the Lagrange coefficients, so each
-curve operation costs ≈ 2.7k gas more: finalize +1.94M at `n = t = 16`, combine +7 to 8%. The
-verifier-bound calls (deal, submitPartial), the subgroup checks of join and submitRequest (which
-stay in extended coordinates) and plain storage are unchanged.
+**Why Amsterdam costs more.** EIP-8037 charges state growth as separate *state gas*, a fixed
+1,530 gas per byte: 97,920 for each storage slot written from zero, 183,600 for a new account,
+1,530 per byte of deployed code (a manager deployment with its views is ≈ 41.4M gas). No opcode or
+precompile was repriced, so each call grows with the new slots it writes: deal 50, finalize
+`2t + 2n` = 64 (6.27M of its 9.05M), submitRequest 4 per field, submitPartial 2 per field, join
+and the grants a few each. Combine writes at most one new slot per four fields and moves by
+at most ≈ 5%.
 
-**The per-transaction limit.** Osaka also caps one transaction at 2^24 = 16,777,216 gas
-(EIP-7825), below Gnosis' 17M block limit, so that cap is the binding limit for one action. The
-worst case, finalize at 11.60M, is 69% of it; with the relayer's 20% gas headroom it is sent with a
-13.92M gas limit.
+**Why Osaka costs more than Cancun.** EIP-7883 reprices the modexp precompile: with a 32-byte base
+and modulus and a ~254-bit exponent, one call goes from ~1.35k to ~4.05k gas. The vendored
+`BabyJubJub.sol` returns every affine `scalarMul` and `pointAdd` through one modexp inversion
+(exponent `p − 2`), and `CouncilCurve.invModR` inverts mod `r` the same way for the Lagrange
+coefficients, so each such curve operation costs ≈ 2.7k gas more: combine +7 to 8%. Finalize
+inverts once in total and is unaffected; the verifier-bound calls (deal, submitPartial), the
+subgroup checks of join and submitRequest (which stay in extended coordinates) and plain storage
+are unchanged.
+
+**The per-transaction limit.** Osaka caps one transaction at 2^24 = 16,777,216 gas (EIP-7825),
+below Gnosis' 17M block limit, so that cap is the binding limit for one action; the largest
+actions are a 4-field combine at t = 16 (7.37M) and submitRequest(16) (6.91M), finalize is 3.42M.
+Under Amsterdam the 2^24 cap bounds execution gas only and state gas comes on top of it, from the
+same gas limit; every Council action still fits under 2^24 in total (submitRequest(16) 12.54M,
+finalize 9.05M of which ≈ 2.78M execution). The relayer adds 20% headroom to its estimates and
+caps gas limits at 2^24 on Osaka chains and at the block gas limit on state-gas chains
+(`COUNCIL_STATE_GAS`, docs/relayer.md); the affine finalize, 17.24M under Amsterdam, was the one
+action that needed the latter.
 
 **Curve arithmetic.** `solidity/src/libraries/BabyJubJub.sol` is the NI-DKG's library, vendored
 from davinci-dkg byte for byte and never modified here (re-vendor the whole file to take an
-upstream fix). Council adds its own thin library, `solidity/src/libraries/CouncilCurve.sol`, that
-**wraps** it:
+upstream fix). Council adds its own library, `solidity/src/libraries/CouncilCurve.sol`, that
+**wraps** it and adds what finalize needs:
 
 - TE ↔ reduced conversions (one `mulmod` with `K`/`K_INV` from protocol §2.2) at the library
   boundary; `BabyJubJub.sol` has no conversion function at all, and davinci-contracts'
   `BjjFormLib` is not importable from this repo, so this part is needed regardless;
 - pass-throughs for `isInPrimeSubgroup`, `verifySchnorrEquation`, `pointAdd` and `scalarMul`
   (all `internal` in the vendored library, used read-only);
+- extended-coordinate arithmetic for finalize (the vendored library keeps its own `private`):
+  unified HWCD addition and doubling (complete on this curve), Horner over a small `m`
+  (MSB-first double-and-add) and a Montgomery batch inversion, over a scratch buffer allocated
+  once;
 - a modular inverse mod `r` via the modexp precompile (exponent `r − 2`) for the Lagrange
   coefficients — `BabyJubJub._inverse` is `private` and works mod `p` anyway.
 
 Two consequences, replacing earlier assumptions:
 
-1. **finalize uses `BabyJubJub.scalarMul` as-is.** Its window loop skips every leading-zero
-   window (`started` flag in `_mulWindow2`), so a Horner multiplier `m <= 16` (five bits, three
-   2-bit windows) costs a small fraction of a full 251-bit scalar. No short-scalar variant
-   exists; the measured worst case (11.60M under Osaka) fits the per-transaction cap with
-   headroom.
+1. **finalize inverts once.** It sums each `A_k` over QUAL, evaluates every `PK_m` by Horner and
+   converts all `t + n` points to affine with one modexp inversion. Storage, events, ABI and
+   outputs are those of the affine implementation: `CouncilFinalizeDiff.t.sol` runs both on the
+   same stored dealings (a test-only copy of the affine one is the oracle) for every
+   `1 <= t <= n <= 16` and random QUAL masks, forcing identity commitments, duplicate and
+   opposite points, cancellations, identity aggregates and identity member keys, and compares
+   every aggregate, member key, padding slot, the phase and the event. Since the formulas are
+   complete, a zero `Z` is unreachable from on-curve points; the batch inversion still reverts
+   `InvalidPoint()` on one instead of inverting 0, which would store `(0, 0)` for every key.
 2. **No MSM in the MVP.** Combine evaluates `m_k·G + Σ λ_i·D_{i,k}` with independent
-   `scalarMul` calls per term (measured 2.02M gas per field at t=16 under Osaka). The contract
+   `scalarMul` calls per term (measured 2.03M gas per field at t=16 under Osaka). The contract
    accepts 1 to 4 fields per combine call (`MAX_COMBINE_FIELDS = 4` stays the protocol maximum);
    the combiner keeps
 
@@ -324,18 +352,18 @@ Two consequences, replacing earlier assumptions:
    fieldsPerTx = min(4, max(1, floor(32 / t)))
    ```
 
-   as its conservative gas guideline. It gives 2 fields per transaction at t = 16 (3.78M); even a
-   full 4-field chunk at t = 16 (7.36M under Osaka) fits comfortably, so the formula errs on the
-   safe side for congested blocks and needed no change for Osaka. A shared-doubling Strauss MSM
-   is a later optimization inside CouncilCurve, not a dependency of v1, and would never touch
-   the vendored library (whose extended-coordinate core is `private`).
+   as its conservative gas guideline. It gives 2 fields per transaction at t = 16 (3.79M); even a
+   full 4-field chunk at t = 16 (7.37M under Osaka, 7.47M under Amsterdam) fits comfortably, so
+   the formula errs on the safe side for congested blocks. A shared-doubling Strauss MSM in
+   extended coordinates would cut combine further; combine barely moved under Amsterdam, so it
+   is not a priority.
 
-At Gnosis prices (~1 gwei effective) the full lifecycle of a 16-member ceremony plus one 16-field
-decryption measures about 116M gas total ≈ 0.12 xDAI under Osaka (112M under Cancun): 16 deals
-≈ 33M, eight 2-field combines ≈ 30M and 16 partials ≈ 24M dominate, and the relayer pays all of
-it except bind and request (≈ 109M). Cost is not the constraint; per-transaction gas versus the
-2^24 cap is, and only finalize (11.60M), a 4-field combine at t = 16 (7.36M) and
-submitRequest(16) (6.91M) come anywhere near it.
+At ~1 gwei the full lifecycle of a 16-member ceremony plus one 16-field decryption measures
+about 108M gas ≈ 0.11 xDAI under Osaka: 16 deals ≈ 33M, eight 2-field combines ≈ 30M and 16
+partials ≈ 24M dominate, and the relayer pays all of it except bind and request (≈ 101M). Under
+Amsterdam it is about 244M (≈ 231M relayer-paid): the deals (103M) and partials (69M) write most
+of the new slots. Cost is not the constraint on Gnosis; per-transaction gas versus the 2^24 cap
+is, and no action comes within half of it under Osaka.
 
 ## 2. Circuits
 
@@ -760,8 +788,9 @@ disclosure per screen, nowhere else.
    generate honest proofs once per circuit release, commit calldata fixtures, then test every
    contract rejection path — bad signatures, high-s, expired, replayed, consumed invite, subgroup
    violations, padding violations, payload-hash mismatch, verifier mutations, combine with wrong
-   λ/memberSet/plaintext, non-adapter bindProcess, unauthorized creator — plus full happy paths
-   and gas snapshots (`forge snapshot`) for the §1.8 table. Mandatory regressions from the
+   λ/memberSet/plaintext, non-adapter bindProcess, unauthorized creator — plus full happy paths,
+   the differential finalize tests against the affine oracle (§1.8) and gas snapshots
+   (`make solidity-gas`, Osaka and Amsterdam) for the §1.8 table. Mandatory regressions from the
    soundness review: every state-changing call on a nonexistent ceremony id reverts
    `UnknownCeremony()` before any authorization or storage effect (abort, addInvites,
    allowAdapter, authorizeCreator included); an invalid signature whose `ecrecover` yields the
