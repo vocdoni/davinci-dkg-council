@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+.git
+.dev
+circuits
+solidity
+relayer
+tests
+tools
+docs
+ui/e2e/screenshots
+ui/playwright-report
+ui/test-results

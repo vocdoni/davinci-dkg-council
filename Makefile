@@ -1,8 +1,8 @@
 .PHONY: help install test \
         circuits circuits-restore circuits-test fixtures vectors vectors-check \
         solidity-build solidity-test solidity-gas \
-        sdk sdk-test relayer relayer-test \
-        ui-dev ui-sepolia ui-build ui-lint ui-test \
+        sdk sdk-test relayer relayer-test relayer-docker \
+        ui-dev ui-sepolia ui-build ui-lint ui-test ui-config ui-docker \
         e2e e2e-browser dev dev-process dev-settle dev-results \
         sepolia-deploy sepolia-run
 
@@ -23,6 +23,9 @@ endif
 # The davinci-test CLI against a running `make dev` stack.
 DAVINCI_CLI    := node tools/davinci-test/dist/cli.js
 DEV_CLI_CONFIG := .dev/davinci-test.json
+
+# Images (make relayer-docker / ui-docker).
+IMAGE_TAG ?= dev
 
 help: ## Show this help
 	@echo "DAVINCI DKG Council"
@@ -87,6 +90,9 @@ relayer-test: ## Type-check and test the relayer
 	$(PNPM) --filter ./relayer run check
 	$(PNPM) --filter ./relayer run test
 
+relayer-docker: ## Build the relayer image (IMAGE_TAG)
+	docker build -f relayer/Dockerfile -t ghcr.io/vocdoni/davinci-dkg-council-relayer:$(IMAGE_TAG) .
+
 # ---- Web app --------------------------------------------------------------------------------
 
 ui-dev: ## Serve the app against ui/public/config.json (the local stack by default)
@@ -106,6 +112,12 @@ ui-lint: ## Type-check and lint the app
 
 ui-test: ## App unit tests (vitest, jsdom)
 	$(PNPM) --filter ./ui run test
+
+ui-config: ## Re-render ui/public/config.json from CHAIN_ID, MANAGER_ADDRESS, RPC_URLS, …
+	bash scripts/render-ui-config.sh
+
+ui-docker: ## Build the app image (IMAGE_TAG; config build args in ui/Dockerfile)
+	docker build -f ui/Dockerfile -t ghcr.io/vocdoni/davinci-dkg-council-ui:$(IMAGE_TAG) .
 
 # ---- End to end -----------------------------------------------------------------------------
 

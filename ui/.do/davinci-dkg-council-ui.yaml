@@ -1,0 +1,75 @@
+# DigitalOcean App Platform spec for the DAVINCI DKG Council web app.
+#
+# Deploy with:
+#   doctl apps create --spec ui/.do/davinci-dkg-council-ui.yaml
+# or paste the YAML into the App Platform UI under "Edit App Spec".
+#
+# How DO uses this:
+#   1. Clones github.com/vocdoni/davinci-dkg-council on each push to `main`.
+#   2. Builds ui/Dockerfile from the repository root, passing every env entry below whose `scope`
+#      is BUILD_TIME as a `--build-arg` (scripts/render-ui-config.sh turns them into /config.json).
+#   3. Reads the static files out of `output_dir` in the resulting image and serves them from DO's
+#      edge; no nginx runtime is involved. `catchall_document` gives the client-side routes
+#      (/new, /c/<ceremony id>) their single-page-app fallback.
+#
+# NOT DEPLOYED YET: no CouncilManager is live (docs/deployments.md). The values below start from
+# the Sepolia placeholders in ui/public/config.sepolia.json; set MANAGER_ADDRESS,
+# DEPLOYMENT_BLOCK, RELAYER_URL and ARTIFACTS_BASE_URL to the real deployment before creating the
+# app. The build refuses a production config with fewer than two RPC endpoints.
+
+name: davinci-dkg-council-ui
+region: ams3
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+
+# Optional: add a custom domain.
+# domains:
+#   - domain: council.davinci.vote
+#     type: PRIMARY
+
+ingress:
+  rules:
+    - component:
+        name: davinci-dkg-council-ui
+      match:
+        path:
+          prefix: /
+
+static_sites:
+  - name: davinci-dkg-council-ui
+    dockerfile_path: ui/Dockerfile
+    # source_dir defaults to the repository root, which the Dockerfile needs: it copies the
+    # workspace manifests, sdk/, ui/ and scripts/.
+    output_dir: /usr/share/nginx/html
+    catchall_document: index.html
+    github:
+      branch: main
+      deploy_on_push: true
+      repo: vocdoni/davinci-dkg-council
+    envs:
+      # ── Runtime config (scripts/render-ui-config.sh writes ui/public/config.json) ────────
+      - key: UI_CONFIG
+        scope: BUILD_TIME
+        value: ui/public/config.sepolia.json
+      # The CouncilManager and the block it was deployed at (the first block the app scans).
+      - key: MANAGER_ADDRESS
+        scope: BUILD_TIME
+        value: "0x0000000000000000000000000000000000000000"
+      - key: DEPLOYMENT_BLOCK
+        scope: BUILD_TIME
+        value: "0"
+      # At least two independently administered providers: the app's authenticated reads
+      # require them to agree (protocol §9.3).
+      - key: RPC_URLS
+        scope: BUILD_TIME
+        value: https://ethereum-sepolia-rpc.publicnode.com,https://sepolia.gateway.tenderly.co,https://1rpc.io/sepolia
+      - key: RELAYER_URL
+        scope: BUILD_TIME
+        value: https://relayer.davinci-dkg-council.example.invalid
+      # A CORS-enabled mirror of the pinned circuit files; the sha256 pins live in the SDK.
+      - key: ARTIFACTS_BASE_URL
+        scope: BUILD_TIME
+        value: https://artifacts.davinci-dkg-council.example.invalid/circuits-v1
+

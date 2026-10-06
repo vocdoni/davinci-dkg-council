@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+.git
+.dev
+circuits
+solidity
+ui
+tests
+tools
+docs
