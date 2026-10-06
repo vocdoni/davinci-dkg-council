@@ -17,7 +17,7 @@
 # static hosts that build from source (DigitalOcean App Platform, ui/.do/) read the files out of
 # /usr/share/nginx/html instead and never run nginx.
 
-FROM node:22-slim AS build
+FROM node:25-slim AS build
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
