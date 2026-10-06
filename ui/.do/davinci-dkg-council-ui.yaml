@@ -58,10 +58,10 @@ static_sites:
       # The CouncilManager and the block it was deployed at (the first block the app scans).
       - key: MANAGER_ADDRESS
         scope: BUILD_TIME
-        value: "0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070"
+        value: "0x77e4d62f60568d5a315052063115391aac828e6b"
       - key: DEPLOYMENT_BLOCK
         scope: BUILD_TIME
-        value: "11856029"
+        value: "11857219"
       # At least two independently administered providers: the app's authenticated reads
       # require them to agree (protocol §9.3).
       - key: RPC_URLS
