@@ -15,7 +15,12 @@
 #   COUNCIL_ARTIFACTS_DIR   the released dev artifacts, default
 #                            ~/.davinci-dkg-council/artifacts (vkeys must
 #                            match circuits/release byte for byte)
+#   DEAL_VERIFIER, PARTIAL_VERIFIER
+#                            reuse deployed verifiers (Deploy.s.sol checks their code hashes
+#                            against the pins before it deploys the manager); the record keeps
+#                            their original creation receipts, marked "reused"
 #   MANAGER                  skip the manager deployment and only (re)deploy the test adapter
+#   FORGE_SCRIPT_ARGS        extra `forge script` arguments, e.g. "--with-gas-price 1.7gwei -g 110"
 #   DEPLOYMENT_OUT           default scripts/sepolia/deployment.json
 #   COUNCIL_SEPOLIA_STATE   local state directory (forge broadcast copies), default ~/.davinci-dkg-council/sepolia
 #   ETHERSCAN_API_KEY_FILE   optional: verify every contract on Etherscan (failures only warn)
@@ -80,10 +85,17 @@ receipt_of() {
        effectiveGasPrice: (.effectiveGasPrice | num)}' "$1"
 }
 
+# Gas limits come from the RPC's eth_estimateGas (--skip-simulation), not from forge's local
+# simulation: that one does not price Glamsterdam's state gas (EIP-8037, about 1,530 gas per
+# byte of deployed code), so on Sepolia it underestimates a CREATE about fivefold and the
+# transaction would run out of gas.
+# shellcheck disable=SC2206
+script_args=(--rpc-url "$RPC_URL" --broadcast --slow --skip-simulation ${FORGE_SCRIPT_ARGS:-})
+
 if [[ -z ${MANAGER:-} ]]; then
   echo "deploy: verifiers + CouncilManager ($release_tag, $release_id) on chain $chain_id"
   PRIVATE_KEY=$key CIRCUIT_RELEASE_ID=$release_id \
-    "$FORGE" script script/Deploy.s.sol --rpc-url "$RPC_URL" --broadcast --slow
+    "$FORGE" script script/Deploy.s.sol "${script_args[@]}"
   run=$(broadcast Deploy.s.sol)
   MANAGER=$(created "$run" CouncilManager)
   [[ -n $MANAGER ]] || die "no CouncilManager in $run"
@@ -94,7 +106,7 @@ manager_run=$STATE/$chain_id-deploy-manager.json
 
 echo "deploy: test adapter for manager $MANAGER"
 PRIVATE_KEY=$key MANAGER=$MANAGER \
-  "$FORGE" script ../scripts/sepolia/DeployTestAdapter.s.sol --rpc-url "$RPC_URL" --broadcast --slow
+  "$FORGE" script ../scripts/sepolia/DeployTestAdapter.s.sol "${script_args[@]}"
 adapter_run=$(broadcast DeployTestAdapter.s.sol)
 # forge leaves contractName null for a script outside the project; it holds exactly one CREATE.
 adapter=$(jq -r '[.transactions[] | select(.transactionType == "CREATE")] | if length == 1 then .[0].contractAddress else empty end' "$adapter_run")
@@ -118,6 +130,19 @@ registry=$("$CAST" parse-bytes32-address "$("$CAST" call "$adapter" 'registry()'
 echo "deploy: verifier code hashes match CouncilRelease.sol; manager bound to $release_id"
 
 manager_receipt=$(receipt_of "$manager_run" "$MANAGER")
+# A reused verifier has no creation in this run: keep its receipt from the previous record.
+creation_of() {
+  local r
+  r=$(receipt_of "$manager_run" "$1")
+  if [[ -z $r ]]; then
+    r=$(jq -c --arg a "${1,,}" 'first(.contracts[] | select(.address == $a) | {tx, block, gasUsed, effectiveGasPrice}) // {}' \
+      "$OUT" 2>/dev/null || echo '{}')
+    r=$(jq -c '. + {reused: true}' <<<"$r")
+  fi
+  echo "$r"
+}
+deal_tx=$(creation_of "$deal")
+partial_tx=$(creation_of "$partial")
 jq -n \
   --arg chainId "$chain_id" --arg tag "$release_tag" --arg releaseId "$release_id" \
   --arg deployer "$(jq -r '.transactions[0].transaction.from' "$manager_run")" \
@@ -127,8 +152,8 @@ jq -n \
   --arg managerHash "$("$CAST" codehash "$MANAGER" --rpc-url "$RPC_URL")" \
   --arg viewsHash "$("$CAST" codehash "$views" --rpc-url "$RPC_URL")" \
   --arg adapterHash "$("$CAST" codehash "$adapter" --rpc-url "$RPC_URL")" \
-  --argjson dealTx "$(receipt_of "$manager_run" "$deal")" \
-  --argjson partialTx "$(receipt_of "$manager_run" "$partial")" \
+  --argjson dealTx "$deal_tx" \
+  --argjson partialTx "$partial_tx" \
   --argjson managerTx "$manager_receipt" \
   --argjson adapterTx "$(receipt_of "$adapter_run" "$adapter")" \
   '{
