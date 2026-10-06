@@ -8,7 +8,7 @@
 #
 # Configuration is env-only; see docs/relayer.md.
 
-FROM node:22-slim AS base
+FROM node:25-slim AS base
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
