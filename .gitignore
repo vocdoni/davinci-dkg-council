@@ -40,6 +40,8 @@ Thumbs.db
 .env.local
 *.pem
 *.key
+# Railway workspace token (scripts/railway-*.sh)
+/railway-api-key
 
 # ---- Local notes ------------------------------------------------------------
 CLAUDE.md
