@@ -12,7 +12,7 @@ import {
   type CeremonyView,
   type Hex,
 } from '@vocdoni/davinci-dkg-council-sdk';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, configure, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ContractFunctionExecutionError, ContractFunctionRevertedError, encodeErrorResult } from 'viem';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,6 +32,9 @@ import { plainSubmitError, submitRevertName, TxRejectedError } from '../src/lib/
 import type { TxStatus } from '../src/services';
 import { ADAPTER, makeFixture, MANAGER, PROCESS_ID, type Fixture } from './helpers/fake';
 import { fixtureRecord, renderApp } from './helpers/render';
+
+// Each screen step chains several in-memory reads and IndexedDB writes: give a loaded CI runner room.
+configure({ asyncUtilTimeout: 5_000 });
 
 URL.createObjectURL = vi.fn(() => 'blob:council-test');
 URL.revokeObjectURL = vi.fn();

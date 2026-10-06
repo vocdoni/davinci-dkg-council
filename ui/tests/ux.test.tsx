@@ -5,7 +5,7 @@
  */
 
 import { NotFinalizedYetError, Phase } from '@vocdoni/davinci-dkg-council-sdk';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildKitForRecords, manifestFingerprint } from '../src/flows/kit';
@@ -61,7 +61,8 @@ describe('kit banners (P0-1)', () => {
     });
     await screen.findByText(/You joined this committee after saving your kit/);
     await user.click(screen.getByRole('button', { name: /Download the kit file/ }));
-    expect(screen.queryByText(/You joined this committee after saving your kit/)).toBeNull();
+    // The record is rewritten in IndexedDB first: wait for it rather than racing it.
+    await waitFor(() => expect(screen.queryByText(/You joined this committee after saving your kit/)).toBeNull());
     expect(screen.queryByText(/save a fresh copy/)).toBeNull();
   });
 
