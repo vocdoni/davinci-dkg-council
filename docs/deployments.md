@@ -247,10 +247,24 @@ The relayer's hot key is
 [`0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c`](https://sepolia.etherscan.io/address/0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c),
 funded with 0.03 ETH from the deployer and used by nothing else. Reads and sends go to
 publicnode, then Tenderly. In open mode anyone's ceremony is sponsored within the quotas
-and the budget. At 1 gwei the budget covers about two `n = 3, t = 2` ceremonies with one 4-field
-decryption a day (9.1M gas each, [Sizing the budget](relayer.md#sizing-the-budget)); a 16-member
-ceremony does not fit, and the relayer answers `BUDGET_EXHAUSTED` once the window is spent. Watch
+and the budget, and the relayer answers `BUDGET_EXHAUSTED` once the window is spent. Watch
 `balanceWei` in `/v1/health` and top the key up before it runs dry.
+
+Since Sepolia's hard fork of 2026-10-06 13:53 UTC (block 11,856,337) the Council actions cost two
+to three times the gas of the [rehearsal](#rehearsal-ceremony-2026-10-06) and of `tests/GAS.md`: a
+plain transfer to a new account went from 21,000 to 204,600 gas. Through the hosted app an
+`n = 2, t = 2` committee took 7.27M gas to go live, 0.0079 ETH at 1.0 to 1.4 gwei:
+
+| Action | Gas after the fork | Rehearsal, before it (`n = 3`) |
+|---|---:|---:|
+| createCeremony | 475,777 | 153,444 |
+| join | 987,722 to 995,497 | 541,958 to 542,705 |
+| closeRegistration | 287,948 | 110,747 |
+| deal | 1,759,442 | 1,080,566 to 1,080,606 |
+| finalize | 1,005,715 | 395,138 |
+
+So at 1 gwei the 0.02 ETH budget sponsors about two small committees a day, fewer with
+decryptions, and no 16-member one; `DAILY_BUDGET_WEI` raises it.
 
 ### Deploying
 
@@ -309,6 +323,28 @@ up` runs with a project token created for the upload and deleted afterwards.
   the CSP needs no new origin and no CORS mirror is involved; the SDK still checks every byte
   against the same pins. `ui/nginx.conf` answers a missing circuit file with 404 instead of the
   app's index page.
+
+### Smoke test (2026-10-06)
+
+Headless Chromium against the public URLs:
+
+- The app loads with no console errors and no CSP violations, and its `/config.json` passes the
+  app's validation. A client-side route loaded directly (`/new`) gets the single-page-app
+  fallback.
+- From the app's origin, all six circuit files download (HTTP 200) and hash to their pins, and
+  the relayer's `/v1/health` answers with the CORS header for that origin; another origin gets
+  `FORBIDDEN_ORIGIN`.
+- An organizer created committee `0xb37b266ebe380bb17f0ac73c` (`n = 2, t = 2`), two members
+  joined from their invite links in separate browser profiles, the organizer locked the list,
+  both members approved it and contributed (2 s to fetch and check the circuit files, 1 to 2 s of
+  in-browser proving each), and the organizer finished the key: live after 92 minutes, every
+  action paid by the relayer. Each step waited 15 to 19 minutes for finality.
+
+Until the block of a relayed action is finalized, the app shows the state before it: right after
+creating a committee, the organizer page shows "We could not reach the public record: …
+UnknownCeremony()" for about 15 minutes, and after locking the list it still offers the lock
+button. Both clear by themselves once the block is finalized. The browsers also logged a few HTTP
+429 responses (three profiles polling from one address), which the app retried.
 
 ### Cost
 
