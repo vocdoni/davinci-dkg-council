@@ -66,7 +66,7 @@ static_sites:
       # require them to agree (protocol §9.3).
       - key: RPC_URLS
         scope: BUILD_TIME
-        value: https://ethereum-sepolia-rpc.publicnode.com,https://sepolia.gateway.tenderly.co,https://1rpc.io/sepolia
+        value: https://ethereum-sepolia-rpc.publicnode.com,https://sepolia.gateway.tenderly.co
       - key: RELAYER_URL
         scope: BUILD_TIME
         value: https://relayer.davinci-dkg-council.example.invalid

@@ -25,7 +25,7 @@ want manager 0x00000000000000000000000000000000000000aa
 want deploymentBlock 123
 want relayerUrl https://relayer.example
 want devMode false
-[ "$(node -e 'console.log(require(process.argv[1]).rpcUrls.length)' "$out")" = 3 ] || { echo "FAIL: rpcUrls"; exit 1; }
+[ "$(node -e 'console.log(require(process.argv[1]).rpcUrls.length)' "$out")" = 2 ] || { echo "FAIL: rpcUrls"; exit 1; }
 
 # "null" clears a URL; RPC_URLS splits on commas.
 UI_CONFIG=ui/public/config.sepolia.json ARTIFACTS_BASE_URL=null RPC_URLS='https://a.example, https://b.example' render

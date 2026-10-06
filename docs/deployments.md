@@ -223,11 +223,13 @@ docker build -f ui/Dockerfile --build-arg UI_CONFIG=ui/public/config.sepolia.jso
 
 `ARTIFACTS_BASE_URL` should point at a public mirror of the six release files that allows
 cross-origin reads; with `null` the SDK fetches the GitHub release itself, which a browser can only
-do while the repository is public. The pins stay in the SDK either way. The three
-Sepolia `rpcUrls` are independent providers for the authenticated reads; 1rpc.io serves reads but
-refuses `eth_sendRawTransaction` on its free plan, which only matters for the relayer. It also
-timed out from the deployment host on 2026-10-06, so the rehearsal read through publicnode and
-Tenderly only.
+do while the repository is public. The pins stay in the SDK either way. The two Sepolia
+`rpcUrls`, publicnode and Tenderly, are independent providers for the authenticated reads, which
+refuse to read unless every listed provider reports the same finalized block. 1rpc.io was the
+third until its Sepolia endpoint stopped at block 11,856,336, the last block before the hard fork
+of 2026-10-06 13:53 UTC (blocks from 11,856,337 carry `blockAccessListHash` and `slotNumber`); a
+provider stuck like that stops the app with "RPC providers disagree on the finalized block", so
+add a third one only if it is well maintained.
 
 Running the relayer for a deployment is covered in [relayer.md](relayer.md).
 
@@ -238,13 +240,13 @@ The Sepolia app and a public relayer run on [Railway](https://railway.com), in t
 
 | Service | URL | Configuration |
 |---|---|---|
-| `council-ui` | https://council-ui-production.up.railway.app | `config.sepolia.json` with the relayer below; publicnode, Tenderly and 1rpc.io for the authenticated reads; the six `circuits-v1` files served by the same origin under `/circuits-v1/` |
+| `council-ui` | https://council-ui-production.up.railway.app | `config.sepolia.json` with the relayer below; publicnode and Tenderly for the authenticated reads; the six `circuits-v1` files served by the same origin under `/circuits-v1/` |
 | `council-relayer` | https://council-relayer-production.up.railway.app | open admission, combine worker from block 11,856,029, a 0.02 ETH rolling 24 h budget, CORS for the app's origin only, state on a volume at `/data` |
 
 The relayer's hot key is
 [`0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c`](https://sepolia.etherscan.io/address/0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c),
-funded with 0.03 ETH from the deployer and used by nothing else. Sends go to publicnode, then
-Tenderly; 1rpc.io only serves reads. In open mode anyone's ceremony is sponsored within the quotas
+funded with 0.03 ETH from the deployer and used by nothing else. Reads and sends go to
+publicnode, then Tenderly. In open mode anyone's ceremony is sponsored within the quotas
 and the budget. At 1 gwei the budget covers about two `n = 3, t = 2` ceremonies with one 4-field
 decryption a day (9.1M gas each, [Sizing the budget](relayer.md#sizing-the-budget)); a 16-member
 ceremony does not fit, and the relayer answers `BUDGET_EXHAUSTED` once the window is spent. Watch

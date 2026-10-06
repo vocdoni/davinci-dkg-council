@@ -4,8 +4,7 @@
   "deploymentBlock": 11856029,
   "rpcUrls": [
     "https://ethereum-sepolia-rpc.publicnode.com",
-    "https://sepolia.gateway.tenderly.co",
-    "https://1rpc.io/sepolia"
+    "https://sepolia.gateway.tenderly.co"
   ],
   "relayerUrl": "https://relayer.davinci-dkg-council.example.invalid",
   "artifactsBaseUrl": "https://artifacts.davinci-dkg-council.example.invalid/circuits-v1",

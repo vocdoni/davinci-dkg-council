@@ -13,7 +13,7 @@
 #                        sent only inside a request body, never printed or passed as an argument
 #   DEPLOYMENT           deployment record, default scripts/sepolia/deployment.json: the manager
 #                        and the start block of the combine worker
-#   RPC_URLS             default publicnode, Tenderly's gateway (both send), 1rpc.io (reads only)
+#   RPC_URLS             default publicnode, then Tenderly's gateway
 #   DAILY_BUDGET_WEI     default 20000000000000000 (0.02 ETH per rolling 24 h)
 #   CORS_ORIGINS         default https://<the UI service's Railway domain>
 #   TRUSTED_PROXIES      default 0.0.0.0/0,::/0: every hop is Railway's. Its edge drops any
@@ -29,7 +29,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/railway-lib.sh"
 
 : "${COUNCIL_KEY_FILE:?file holding the relayer hot key}"
 : "${DEPLOYMENT:=$root/scripts/sepolia/deployment.json}"
-: "${RPC_URLS:=https://ethereum-sepolia-rpc.publicnode.com,https://sepolia.gateway.tenderly.co,https://1rpc.io/sepolia}"
+: "${RPC_URLS:=https://ethereum-sepolia-rpc.publicnode.com,https://sepolia.gateway.tenderly.co}"
 : "${DAILY_BUDGET_WEI:=20000000000000000}"
 : "${TRUSTED_PROXIES:=0.0.0.0/0,::/0}"
 : "${SERVICE_NAME:=council-relayer}"
