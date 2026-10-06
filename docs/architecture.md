@@ -818,7 +818,7 @@ disclosure per screen, nowhere else.
    real humans before any production use. The headless half is scripted:
    `scripts/sepolia/deploy.sh` and `scripts/sepolia/run.sh` deploy the pinned release and drive
    an n = 3, t = 2 ceremony through a local relayer with authenticated reads
-   (`docs/deployments.md`; no deployment is live yet).
+   (`docs/deployments.md`).
 
 ## 8. Build and development setup
 

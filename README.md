@@ -153,7 +153,7 @@ app, the relayer combines, and anyone calls `finalizeResultsFromDKG`.
 
 | Network | Circuit release | CouncilManager | Status |
 |---|---|---|---|
-| Sepolia | `circuits-v1` (development setup) | [`0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070`](https://sepolia.etherscan.io/address/0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070) | rehearsals only |
+| Sepolia | `circuits-v1` (development setup) | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | rehearsals only (`0x57ef…3070`, the first deployment, is superseded) |
 
 `circuits-v1` is a development phase 2, so it is not for real elections. The Sepolia app runs at
 https://council-ui-production.up.railway.app, with a public relayer.

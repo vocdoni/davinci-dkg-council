@@ -111,7 +111,8 @@ deals 33M, eight 2-field combines 30M, 16 partials 24M, 16 joins 8.7M, the reque
 finalize 3.4M); the relayer pays all of it except the DAVINCI side's bind and request, about
 101M. Under Amsterdam the same lifecycle is about 244M, 231M of it paid by the relayer: the
 dealings (103M) and partials (69M) write most of the new slots. A 3-member, `t = 2` ceremony with
-one 4-field decryption costs about 9.0M under Osaka.
+one 4-field decryption costs about 9.0M under Osaka and 15.9M on Sepolia under Amsterdam
+([docs/deployments.md](docs/deployments.md#rehearsal-ceremony-on-the-current-manager-2026-10-06)).
 
 The DAVINCI side, on a davinci-contracts `ProcessRegistry` (`tests/davinci.test.ts`, Osaka):
 `newProcess` 886,426 with 4 fields (binding through the real `CouncilAdapter`),
@@ -128,7 +129,7 @@ The DAVINCI side, on a davinci-contracts `ProcessRegistry` (`tests/davinci.test.
 | Largest single reservation, Osaka (4-field `combine` at `t = 16`, 8.85M gas limit at 2 × 1 gwei) | ≈ 0.018 native units |
 | Largest single reservation, Amsterdam (`finalize` at `n = t = 16`, 10.86M gas limit at 2 × 1 gwei) | ≈ 0.022 native units |
 | 16-member ceremony + one 16-field decryption, relayer share, at 1 gwei | ≈ 0.10 (Osaka) / ≈ 0.23 (Amsterdam) native units |
-| 3-member ceremony + one 4-field decryption, at 1 gwei | ≈ 0.009 native units (Osaka) |
+| 3-member ceremony + one 4-field decryption, at 1 gwei | ≈ 0.009 (Osaka) / ≈ 0.016 (Amsterdam, measured on Sepolia) native units |
 
 At 1 gwei the default daily budget (`COUNCIL_DAILY_BUDGET_WEI`, one native unit) sponsors about
 ten 16-member ceremonies with a decryption each under Osaka, about four under Amsterdam.

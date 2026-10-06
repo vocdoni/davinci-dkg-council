@@ -98,8 +98,9 @@ At Osaka gas ([BENCHMARKS.md](../BENCHMARKS.md#gas), with every action sent thro
 relayer): a 3-member, `t = 2` ceremony with one 4-field decryption costs about 9.0M gas (≈ 0.009
 native units at 1 gwei), a 16-member one with one 16-field decryption about 101M (≈ 0.10). Under
 Amsterdam (Glamsterdam, Sepolia since 2026-10-06), whose state gas adds about 97,920 gas per
-storage slot written from zero, the 16-member ceremony with its decryption costs about 231M
-(≈ 0.23). The largest single reservation is the estimate plus the 20% headroom times
+storage slot written from zero, the 3-member one costs about 15.9M (measured on Sepolia,
+[deployments.md](deployments.md#rehearsal-ceremony-on-the-current-manager-2026-10-06)) and the
+16-member one about 231M (≈ 0.23). The largest single reservation is the estimate plus the 20% headroom times
 maxFeePerGas (2 × base fee + tip, capped by `COUNCIL_MAX_FEE_WEI`): under Osaka a 4-field combine
 at `t = 16` (7.37M gas, an 8.85M limit, ≈ 0.018 native units at a 1 gwei base fee), under
 Amsterdam finalize at `n = t = 16` (9.05M gas, a 10.86M limit, ≈ 0.022). At 1 gwei the default

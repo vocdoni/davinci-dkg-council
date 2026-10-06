@@ -2,11 +2,13 @@
 
 | Network | Circuit release | CouncilManager | Deployment block | Status |
 |---|---|---|---:|---|
-| Sepolia (11155111) | `circuits-v1` (development setup) | [`0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070`](https://sepolia.etherscan.io/address/0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070) | 11,856,029 | rehearsals only; one live `n = 3, t = 2` ceremony completed on 2026-10-06 |
+| Sepolia (11155111) | `circuits-v1` (development setup) | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | 11,857,219 | **current**; rehearsals only |
+| Sepolia (11155111) | `circuits-v1` (development setup) | [`0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070`](https://sepolia.etherscan.io/address/0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070) | 11,856,029 | superseded on 2026-10-06: its affine finalize needs 17.24M gas at `n = t = 16` under Glamsterdam ([below](#superseded-first-deployment)) |
 
 There is no production deployment: `circuits-v1` is a development phase 2 (see
 [Circuit release](#circuit-release)). `scripts/sepolia/deployment.json` is the machine-readable
-record of the Sepolia deployment, which `scripts/sepolia/run.sh` reads.
+record of the current Sepolia deployment, which `scripts/sepolia/run.sh` and the Railway scripts
+read.
 
 The Sepolia deployment has a public app and relayer on Railway
 ([Hosting on Railway](#hosting-on-railway)):
@@ -17,6 +19,92 @@ The Sepolia deployment has a public app and relayer on Railway
 | Relayer | https://council-relayer-production.up.railway.app (`/v1/health`) |
 
 ## Sepolia
+
+Deployed on 2026-10-06 from `0x951163cefc22ce67f6d8b95b00a0074c4656df42` with
+`scripts/sepolia/deploy.sh`, in blocks 11,857,219 and 11,857,220, under Glamsterdam. The manager
+carries the finalize that works in extended coordinates with one inversion (`n = t = 16`: 9.05M
+gas instead of 17.24M); the two verifiers of the [first deployment](#superseded-first-deployment)
+are reused (`DEAL_VERIFIER`, `PARTIAL_VERIFIER`), since their code hashes are still the
+`CouncilRelease.sol` pins.
+
+| Contract | Address | EXTCODEHASH | Creation tx | Gas |
+|---|---|---|---|---:|
+| DealVerifier (reused) | [`0x79577ec86de4ee262867ca3297a0a7c0b58792c8`](https://sepolia.etherscan.io/address/0x79577ec86de4ee262867ca3297a0a7c0b58792c8) | `0x11846f7e14acc5efe8e7c97ebc1af97a6fab6350e631aba333715e7cb0cc9c1f` | `0x5f8ecad2d1d43f945f5a88962c2ad7e40702bab0c0fe858065abc5ce50c52fe3` | 3,384,996 |
+| PartialVerifier (reused) | [`0x50501fc7275742f3a52d84adcf8d0097ef0a4b40`](https://sepolia.etherscan.io/address/0x50501fc7275742f3a52d84adcf8d0097ef0a4b40) | `0x8599caa2240444a17eea76d829f019a7e5844a183f469f05effeea41d867a177` | `0x08bb6f3456ae710582a29a0edabedcb58fdd628bb16b714575be1f255bf2b576` | 2,667,240 |
+| CouncilManager | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | `0xb7d2d76b91253c3b3aac75c2e103898a13d2386220cea8aa9ccc4d3abd694699` | `0xc1cd17c1d23fd874eae9450a0d9eac22e163b028fe26d35fa0349663b47501c8` | 41,116,466 |
+| CouncilViews | [`0xb6d71f96717b5122d84c579db9ca504e4581854e`](https://sepolia.etherscan.io/address/0xb6d71f96717b5122d84c579db9ca504e4581854e) | `0xd34e405b901a9d02e66da91a5485ef0fd47f6f5c336a24225e68f645bd6d55e5` | created by the manager's constructor (same tx) | – |
+| MockCouncilAdapter | [`0x09762039a3650fa5f5d48d7043ad93562dbd92a5`](https://sepolia.etherscan.io/address/0x09762039a3650fa5f5d48d7043ad93562dbd92a5) | `0xe0d2bea14a96153080b20c485f902fed152876227b5adbb65b831f21799850d3` | `0xc4114d788ef851b2c5af4d19ab29c1df8e09f64177ed7dbc885f0a12b53e1895` | 3,341,067 |
+
+- **Release pins.** The manager's `circuitReleaseId()` is
+  `0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301`. `Deploy.s.sol` checked
+  both reused verifiers' code hashes against the `CouncilRelease.sol` pins before it deployed the
+  manager, and `deploy.sh` read them back from the chain afterwards.
+- **Source verification.** The manager is verified on Etherscan; the views and the test adapter
+  show there as similar matches of the same contracts of the first deployment. Sourcify has
+  an exact match (creation and runtime code) of all three; the verifiers were verified with the
+  first deployment.
+- **Cost.** 44,457,533 gas, 0.047487 ETH at 1.06 to 1.13 gwei. Glamsterdam charges deployed code
+  as state gas (EIP-8037, 1,530 gas per byte): the manager's and the views' 26,324 bytes alone are
+  40.3M of the manager's 41.1M. Deploying the two verifiers as well would add about 48M, which is
+  why they were reused. Forge's local simulation does not price state gas, so `deploy.sh` takes
+  its gas limits from the RPC's `eth_estimateGas` (`--skip-simulation`); this run also capped the
+  fee at 1.7 gwei with a 10% gas margin (`FORGE_SCRIPT_ARGS="--with-gas-price 1.7gwei -g 110"`) so
+  the deployer's 0.084 ETH covered the worst case.
+- **Test adapter.** `MockCouncilAdapter` is the e2e stand-in for DAVINCI's `CouncilAdapter`. Its
+  `registry` is the deployer, the only account that can bind processes and submit decryption
+  requests through it. It is a rehearsal requester, not a DAVINCI integration.
+
+### Rehearsal ceremony on the current manager (2026-10-06)
+
+The ceremony script (`scripts/sepolia/ceremony.sepolia.ts`, as `run.sh` launches it) passed all
+12 checks against this deployment: `n = 3, t = 2`, real proofs (snarkjs in Node), every signed
+action except one partial sent through the **public Railway relayer** (open mode, its combine
+worker on), so its hot key paid them; the deployer was the adapter's registry (bind, request)
+and funded the throwaway key of the direct partial. Authenticated reads went to publicnode and
+Tenderly, pinned to the finalized block both agreed on.
+
+| | |
+|---|---|
+| Ceremony | `0x93a546f5aa4caf723a4f5d67` |
+| Process (test adapter) | `0x9b806c874c718199d9e2179a4eda2b93df6058edeec2054b01513879326208` |
+| Request | `0xed305e3f1d3d7c573d2367f7dbad513f4a0458fc12ae07bb9260bd67bb7ddc20` |
+| Ceremony key | `(11025900677309699712186952944891124199856606496303082980562743788913815237165, 18051147959958640529905911198816814632186782067004490707174814899722007429429)` |
+| Plaintexts | `[0, 1, 123456789, 1099511627773]`, read from finalized state through both the manager and the adapter |
+| Member set | `[1, 3]`: member 1 sent its partial directly from a throwaway key, member 3 through the relayer, and the relayer's worker combined all four fields in one transaction |
+
+| Step | Action | Sent via | Gas used | Gas price (gwei) | Tx |
+|---|---|---|---:|---:|---|
+| create | createCeremony (invites=3) | relayer | 587,556 | 1.038 | `0x5f2d4624f768673748e4047cba42a19a6c59089e2ee13da62e556b0c50313b13` |
+| join | join (3 members) | relayer | 989,099 to 992,872 | 1.002 to 1.081 | `0x9964bc3d…`, `0x434692c4…`, `0x51bd906e…` |
+| close | closeRegistration (n=3) | relayer | 294,999 | 1.066 | `0xb7c9a315cd1c292170790b4b75780dea309385277b527424f38688d648fa86a7` |
+| deal | deal (n=3, t=2), 3 dealers | relayer | 1,874,334 to 1,874,386 | 1.024 to 1.086 | `0x858ff7f2…`, `0x55b067c6…`, `0x991d306f…` |
+| finalize | finalize (\|QUAL\|=3) | relayer | 1,184,369 | 1.069 | `0x0b51c04e8ff20ec7405137dce62cf0a379ebec0a2f4d921e5aba58cda1ad75cb` |
+| authorize | allowAdapter / authorizeCreator | relayer | 137,990 / 138,228 | 0.985 / 1.015 | `0x9dc4d1b5…`, `0x08130dcc…` |
+| bind | bindProcess | adapter | 806,336 | 1.073 | `0x46a86dce05c520ae14b6a66f52fcfd3c3d9f3c54328d8efc0d22b270b82e70fa` |
+| request | submitRequest (fields=4) | adapter | 3,170,653 | 1.023 | `0x12897de06c95af407830136842f880712e993331707119082d0a7b9760eedff3` |
+| partials | fund the throwaway key (0.004 ETH) | transfer | 204,600 | 1.056 | `0x72b66b7980d12c7868c9501d7ac22fe77b689529a11516d0fe1eb6eba4a8563c` |
+| partials | submitPartial (member 1, fields=4) | direct | 1,629,203 | 1.111 | `0x0bdd9aa9dea41d50225ebe26ecf8073e3140df4babeec8f2e8fc1298aa72f533` |
+| partials | submitPartial (member 3, fields=4) | relayer | 1,629,207 | 1.030 | `0x25b02ec8bf0db123f57b38f0a950cb6e4061e393de00736799892f02196cab54` |
+| combine | combine (t=2, fields=4) | relayer (worker) | 1,746,569 | 1.049 | `0xc77b4fcce195605b896ecad171cc06e81cfc6c4f44ad76c51fe249649b443ca0` |
+| cleanup | sweep the throwaway key back | transfer | 21,000 | 1.097 | `0x6c4ac01d065604fb24eed285e92266bfc0e26038973bb644563b5faa8c1fcdb5` |
+| **total** | | | **20,146,790** | | 0.021204 ETH |
+
+Under Glamsterdam the same ceremony costs 1.8 times the [first rehearsal](#rehearsal-ceremony-2026-10-06)'s
+gas (11.14M), almost all of it state gas for new storage slots; finalize, whose state gas is
+`2t + 2n` = 10 slots here, is 1.18M (395,138 before the fork, on the affine manager). The relayer
+paid 14.31M gas, 0.015047 ETH; without the adapter's two calls and the two transfers, the ceremony
+and its decryption took 15.94M gas. The deployer spent 0.006161 ETH (bind, request and the
+throwaway's funding net of its sweep). The run took 69.0 min, 63.4 of them four finality waits
+(11.1 to 18.1 min each); each action took 6.5 to 37.4 s from request to receipt. The throwaway
+key's first partial attempt saw no balance for about 30 s after its funding landed (one provider
+behind the other) and went through on the third try.
+
+## Superseded: first deployment
+
+The first Sepolia deployment, superseded on 2026-10-06 by the one above. Its contracts stay on
+chain and keep working, but the app, the relayer and `scripts/sepolia/deployment.json` no longer
+point at them: under Glamsterdam its affine finalize needs 17.24M gas at `n = t = 16` (10.97M
+execution + 6.27M state), and a relayer that clamps gas limits at 2^24 cannot send it.
 
 Deployed on 2026-10-06 from `0x951163cefc22ce67f6d8b95b00a0074c4656df42` with
 `scripts/sepolia/deploy.sh`, in blocks 11,856,027 to 11,856,030 (Osaka).
@@ -38,9 +126,7 @@ Deployed on 2026-10-06 from `0x951163cefc22ce67f6d8b95b00a0074c4656df42` with
   match, creation and runtime code); `forge verify-contract` submits to both.
 - **Cost.** 12,116,072 gas, 0.012715 ETH at 0.96 to 1.10 gwei. The script took 2.1 min,
   verifications included.
-- **Test adapter.** `MockCouncilAdapter` is the e2e stand-in for DAVINCI's `CouncilAdapter`. Its
-  `registry` is the deployer, the only account that can bind processes and submit decryption
-  requests through it. It is a rehearsal requester, not a DAVINCI integration.
+- **Test adapter.** Same contract as above, bound to this manager.
 
 ### Rehearsal ceremony (2026-10-06)
 
@@ -160,7 +246,9 @@ COUNCIL_KEY_FILE=path/to/key ETHERSCAN_API_KEY_FILE=path/to/etherscan-key make s
 | `RPC_URL` | `https://ethereum-sepolia-rpc.publicnode.com` | Sending endpoint |
 | `EXPECTED_CHAIN_ID` | `11155111` | The script refuses an endpoint serving another chain |
 | `COUNCIL_ARTIFACTS_DIR` | `~/.davinci-dkg-council/artifacts` | The released files; their vkeys must equal `circuits/release/` byte for byte |
+| `DEAL_VERIFIER`, `PARTIAL_VERIFIER` | | Reuse deployed verifiers (their code hashes must be the pins); the record keeps their original creation receipts, marked `reused` |
 | `MANAGER` | | Skip the manager and only (re)deploy the test adapter |
+| `FORGE_SCRIPT_ARGS` | | Extra `forge script` arguments, such as a fee cap: `--with-gas-price 1.7gwei -g 110` |
 | `DEPLOYMENT_OUT` | `scripts/sepolia/deployment.json` | The deployment record |
 | `COUNCIL_SEPOLIA_STATE` | `~/.davinci-dkg-council/sepolia` | Local state: forge broadcast copies, relayer state, run records |
 | `ETHERSCAN_API_KEY_FILE` | | Verify every contract on Etherscan and Sourcify (failures only warn) |
@@ -179,9 +267,16 @@ How each pin is checked:
 - Clients re-read `circuitReleaseId()` through the SDK's authenticated reads (two providers, one
   agreed finalized block) before they prove anything.
 
-The deployment costs about 12.1M gas (two verifiers, manager plus views, test adapter): 0.012 ETH
-at 1 gwei. Commit the record with the addresses and update this page,
-`ui/public/config.sepolia.json` and `ui/.do/davinci-dkg-council-ui.yaml` together.
+Gas limits come from the RPC's `eth_estimateGas` (`forge script --skip-simulation`): forge's local
+simulation does not price Glamsterdam's state gas and would send a CREATE with about a fifth of
+the gas it needs. Under Osaka the whole deployment (two verifiers, manager plus views, test
+adapter) costs about 12.1M gas, 0.012 ETH at 1 gwei. Under Glamsterdam deployed code costs 1,530
+gas per byte of state gas: the manager with its views is 41.1M, the adapter 3.3M, and the two
+verifiers would add about 48M, so reuse them whenever the pins allow (about 0.047 ETH at 1 gwei
+instead of about 0.095). The deployer must also hold gas limit × max fee for the largest
+transaction; `FORGE_SCRIPT_ARGS` can cap the fee and the estimate margin. Commit the record with
+the addresses and update this page, `ui/public/config.sepolia.json` and
+`ui/.do/davinci-dkg-council-ui.yaml` together.
 
 ## Rehearsal ceremony
 
@@ -190,9 +285,12 @@ recorded deployment with real proofs: it builds the SDK, the relayer and the con
 relayer locally in restricted mode (a fresh API token, a modest daily budget, its combine worker
 on), and runs `scripts/sepolia/ceremony.sepolia.ts` through it with authenticated reads from two
 providers. Every run writes a JSON record and a Markdown summary to `COUNCIL_SEPOLIA_STATE`. A
-run costs about 11.1M gas (0.012 ETH at 1 gwei) and takes about 72 min on Sepolia, of which about
-67 min are four finality waits ([the 2026-10-06 run](#rehearsal-ceremony-2026-10-06)). Every
-variable is documented at the top of the script.
+run costs about 20.1M gas on Sepolia since Glamsterdam (0.021 ETH at 1 gwei; 11.1M before it) and
+takes about 70 min, of which about 65 min are four finality waits
+([the run on the current manager](#rehearsal-ceremony-on-the-current-manager-2026-10-06)). To
+send through an already running relayer instead of a local one, run
+`scripts/sepolia/ceremony.sepolia.ts` with the environment `run.sh` sets, pointing
+`COUNCIL_RELAYER_URL` at it. Every variable is documented at the top of the script.
 
 Both scripts also run against a local Anvil (`EXPECTED_CHAIN_ID=31337`,
 `anvil --hardfork osaka --block-time 1 --slots-in-an-epoch 4`, two RPC URLs such as
@@ -216,7 +314,7 @@ required, not optional. Serve the app against the Sepolia deployment with
 
 ```bash
 docker build -f ui/Dockerfile --build-arg UI_CONFIG=ui/public/config.sepolia.json \
-  --build-arg MANAGER_ADDRESS=0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070 --build-arg DEPLOYMENT_BLOCK=11856029 \
+  --build-arg MANAGER_ADDRESS=0x77e4d62f60568d5a315052063115391aac828e6b --build-arg DEPLOYMENT_BLOCK=11857219 \
   --build-arg RELAYER_URL=https://… --build-arg ARTIFACTS_BASE_URL=https://… \
   -t davinci-dkg-council-ui .
 ```
@@ -241,11 +339,12 @@ The Sepolia app and a public relayer run on [Railway](https://railway.com), in t
 | Service | URL | Configuration |
 |---|---|---|
 | `council-ui` | https://council-ui-production.up.railway.app | `config.sepolia.json` with the relayer below; publicnode and Tenderly for the authenticated reads; the six `circuits-v1` files served by the same origin under `/circuits-v1/` |
-| `council-relayer` | https://council-relayer-production.up.railway.app | open admission, combine worker from block 11,856,029, a 0.06 ETH rolling 24 h budget, state gas on (`COUNCIL_STATE_GAS=true`), CORS for the app's origin only, state on a volume at `/data` |
+| `council-relayer` | https://council-relayer-production.up.railway.app | open admission, combine worker from block 11,857,219, a 0.06 ETH rolling 24 h budget, state gas on (`COUNCIL_STATE_GAS=true`), CORS for the app's origin only, state on a volume at `/data` |
 
 The relayer's hot key is
 [`0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c`](https://sepolia.etherscan.io/address/0x998bCda6fbb3dd0C0764F9030F7a66FA77C2d13c),
-funded with 0.03 ETH from the deployer and used by nothing else. Reads and sends go to
+funded from the deployer (0.03 ETH, then 0.01 ETH on 2026-10-06 for the rehearsal on the current
+manager) and used by nothing else. Reads and sends go to
 publicnode, then Tenderly. In open mode anyone's ceremony is sponsored within the quotas
 and the budget, and the relayer answers `BUDGET_EXHAUSTED` once the window is spent, or when
 the key cannot cover an action's worst case ("… the operator must top it up", logged as `hot key
@@ -253,8 +352,9 @@ balance too low`). Watch `balanceWei` in `/v1/health` and top the key up before 
 
 Since Sepolia's hard fork of 2026-10-06 13:53 UTC (block 11,856,337) the Council actions cost two
 to three times the gas of the [rehearsal](#rehearsal-ceremony-2026-10-06) and of `tests/GAS.md`: a
-plain transfer to a new account went from 21,000 to 204,600 gas. Through the hosted app an
-`n = 2, t = 2` committee took 7.27M gas to go live, 0.0079 ETH at 1.0 to 1.4 gwei:
+plain transfer to a new account went from 21,000 to 204,600 gas. Through the hosted app, on the
+first manager, an `n = 2, t = 2` committee took 7.27M gas to go live, 0.0079 ETH at 1.0 to 1.4
+gwei:
 
 | Action | Gas after the fork | Rehearsal, before it (`n = 3`) |
 |---|---:|---:|
@@ -265,9 +365,10 @@ plain transfer to a new account went from 21,000 to 204,600 gas. Through the hos
 | finalize | 1,005,715 | 395,138 |
 
 The fork is Glamsterdam, whose separate state gas (EIP-8037, about 97,920 gas per new storage
-slot) comes on top of the EIP-7825 2^24 execution cap: a 16-member finalize needs 17.24M gas
-(10.97M execution + 6.27M state). The relayer runs with `COUNCIL_STATE_GAS=true`, so it caps gas
-limits at the block gas limit instead of 2^24 ([relayer.md](relayer.md#sizing-the-budget)). At
+slot) comes on top of the EIP-7825 2^24 execution cap: on the first manager a 16-member finalize
+needed 17.24M gas (10.97M execution + 6.27M state), on the current one it needs 9.05M. The
+relayer runs with `COUNCIL_STATE_GAS=true`, so it caps gas limits at the block gas limit instead
+of 2^24 ([relayer.md](relayer.md#sizing-the-budget)). At
 1 gwei the 0.06 ETH budget sponsors about six small committees a day, fewer with decryptions;
 `DAILY_BUDGET_WEI` changes it, and the key must hold what the budget allows.
 
@@ -362,6 +463,19 @@ them reported was refused by a backend a block behind (`-32602 block range exten
 current head block`). The combine worker now ends that pass where it is and picks the rest up on
 the next ([relayer.md](relayer.md#combine-worker)); its logs stayed clean for the 20 minutes
 after the redeploy.
+
+### Redeploy for the current manager (2026-10-06)
+
+Both services were redeployed with `scripts/railway-deploy-relayer.sh` and
+`scripts/railway-deploy-ui.sh` from the commit that records the current deployment, so they took
+the new manager and start block 11,857,219 from `scripts/sepolia/deployment.json`; the relayer
+starts a fresh state file for the new manager (budget window and quotas included). Headless
+Chromium against the public URLs afterwards: the app loads with no console errors, its
+`/config.json` names manager `0x77e4…8e6b` and block 11,857,219, the home page and `/new` render,
+the six circuit files hash to their pins, and the relayer's `/v1/health` answers from the app's
+origin with its CORS header and the new manager. The [rehearsal on the current
+manager](#rehearsal-ceremony-on-the-current-manager-2026-10-06) then ran through this relayer
+and its combine worker.
 
 ### Cost
 
