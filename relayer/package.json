@@ -1,0 +1,29 @@
+{
+  "name": "@vocdoni/davinci-dkg-council-relayer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Council relayer: relays signed actions and runs the public combine step",
+  "type": "module",
+  "main": "./dist/main.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p ../sdk/tsconfig.json && tsc -p tsconfig.json",
+    "check": "tsc -p ../sdk/tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "start": "node dist/main.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vocdoni/davinci-dkg-council-sdk": "workspace:*",
+    "viem": "^2.21.55"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
