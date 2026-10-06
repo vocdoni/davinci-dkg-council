@@ -12,10 +12,12 @@
 #      edge; no nginx runtime is involved. `catchall_document` gives the client-side routes
 #      (/new, /c/<ceremony id>) their single-page-app fallback.
 #
-# NOT DEPLOYED YET: no CouncilManager is live (docs/deployments.md). The values below start from
-# the Sepolia placeholders in ui/public/config.sepolia.json; set MANAGER_ADDRESS,
-# DEPLOYMENT_BLOCK, RELAYER_URL and ARTIFACTS_BASE_URL to the real deployment before creating the
-# app. The build refuses a production config with fewer than two RPC endpoints.
+# The values below target the Sepolia rehearsal deployment of circuits-v1 (development setup,
+# docs/deployments.md), as in ui/public/config.sepolia.json. RELAYER_URL and ARTIFACTS_BASE_URL
+# are still placeholders: set them to a running relayer and to a public, CORS-enabled mirror of
+# the six circuit files before creating the app (while the repository is private, browsers cannot
+# fetch the GitHub release assets). The build refuses a production config with fewer than two RPC
+# endpoints.
 
 name: davinci-dkg-council-ui
 region: ams3
@@ -56,10 +58,10 @@ static_sites:
       # The CouncilManager and the block it was deployed at (the first block the app scans).
       - key: MANAGER_ADDRESS
         scope: BUILD_TIME
-        value: "0x0000000000000000000000000000000000000000"
+        value: "0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070"
       - key: DEPLOYMENT_BLOCK
         scope: BUILD_TIME
-        value: "0"
+        value: "11856029"
       # At least two independently administered providers: the app's authenticated reads
       # require them to agree (protocol §9.3).
       - key: RPC_URLS

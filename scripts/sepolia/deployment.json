@@ -1,0 +1,52 @@
+{
+  "chainId": 11155111,
+  "circuitRelease": {
+    "tag": "circuits-v1",
+    "circuitReleaseId": "0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301",
+    "developmentSetup": true
+  },
+  "deployer": "0x951163cefc22ce67f6d8b95b00a0074c4656df42",
+  "deploymentBlock": 11856029,
+  "contracts": {
+    "DealVerifier": {
+      "address": "0x79577ec86de4ee262867ca3297a0a7c0b58792c8",
+      "codehash": "0x11846f7e14acc5efe8e7c97ebc1af97a6fab6350e631aba333715e7cb0cc9c1f",
+      "tx": "0x5f8ecad2d1d43f945f5a88962c2ad7e40702bab0c0fe858065abc5ce50c52fe3",
+      "block": 11856027,
+      "gasUsed": 3384996,
+      "effectiveGasPrice": 1104650524
+    },
+    "PartialVerifier": {
+      "address": "0x50501fc7275742f3a52d84adcf8d0097ef0a4b40",
+      "codehash": "0x8599caa2240444a17eea76d829f019a7e5844a183f469f05effeea41d867a177",
+      "tx": "0x08bb6f3456ae710582a29a0edabedcb58fdd628bb16b714575be1f255bf2b576",
+      "block": 11856028,
+      "gasUsed": 2667240,
+      "effectiveGasPrice": 1068664417
+    },
+    "CouncilManager": {
+      "address": "0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070",
+      "codehash": "0x4da37b74b2b734457cd9f44138e8bff3f0f5d5df85179acebee5c6c94b81e63e",
+      "tx": "0x07f6c19143910276dd7f7f976ecd056f1b27ea10a205cd08183c32d010cb6675",
+      "block": 11856029,
+      "gasUsed": 5572333,
+      "effectiveGasPrice": 1014332559
+    },
+    "CouncilViews": {
+      "address": "0x83e192139d96c2dbf9fd4c174088aab26c6a2497",
+      "codehash": "0xd34e405b901a9d02e66da91a5485ef0fd47f6f5c336a24225e68f645bd6d55e5",
+      "createdBy": "CouncilManager constructor",
+      "tx": "0x07f6c19143910276dd7f7f976ecd056f1b27ea10a205cd08183c32d010cb6675",
+      "block": 11856029
+    },
+    "MockCouncilAdapter": {
+      "address": "0x7d439940a257fe415e4e488b49428c2e457fe34f",
+      "codehash": "0xd862822c66c29d5d9babde9d61899f4bf6619426d34490386092e29dc4083fce",
+      "registry": "0x951163cefc22ce67f6d8b95b00a0074c4656df42",
+      "tx": "0x6846723894023ac306ba58b64a1e4cc2b198412608754818e93300d3fe659b9d",
+      "block": 11856030,
+      "gasUsed": 491503,
+      "effectiveGasPrice": 962336870
+    }
+  }
+}

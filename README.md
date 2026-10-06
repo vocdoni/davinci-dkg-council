@@ -148,8 +148,13 @@ app, the relayer combines, and anyone calls `finalizeResultsFromDKG`.
 
 ### Deployments
 
-Not deployed yet: a Sepolia deployment of the `circuits-v1` release follows.
-[docs/deployments.md](docs/deployments.md) lists the release pins and how to deploy.
+| Network | Circuit release | CouncilManager | Status |
+|---|---|---|---|
+| Sepolia | `circuits-v1` (development setup) | [`0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070`](https://sepolia.etherscan.io/address/0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070) | rehearsals only |
+
+`circuits-v1` is a development phase 2, so it is not for real elections.
+[docs/deployments.md](docs/deployments.md) has every address, the release pins, the first live
+ceremony (gas, cost and timings) and how to deploy.
 
 ## Documentation
 

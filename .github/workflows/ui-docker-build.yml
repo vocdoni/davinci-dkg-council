@@ -6,7 +6,7 @@ name: Web app Docker
 # ui/.do/) read the files out of /usr/share/nginx/html instead.
 #
 # The published image bakes the committed ui/public/config.json, which targets the local dev
-# stack (`make dev`): no CouncilManager is deployed yet (docs/deployments.md). A deployment builds
+# stack (`make dev`), not a public deployment (docs/deployments.md). A deployment builds
 # its own image with `--build-arg UI_CONFIG=… MANAGER_ADDRESS=… RELAYER_URL=…` (ui/Dockerfile).
 #
 # A stable release tag (vX.Y.Z) additionally moves `latest`; prereleases (v1.2.3-rc1) publish

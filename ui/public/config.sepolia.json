@@ -1,7 +1,7 @@
 {
   "chainId": 11155111,
-  "manager": "0x0000000000000000000000000000000000000000",
-  "deploymentBlock": 0,
+  "manager": "0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070",
+  "deploymentBlock": 11856029,
   "rpcUrls": [
     "https://ethereum-sepolia-rpc.publicnode.com",
     "https://sepolia.gateway.tenderly.co",
