@@ -8,14 +8,17 @@
  */
 
 import {
+  COUNCIL_MANAGER_ABI,
   CouncilClient,
+  DEFAULT_LOG_CHUNK,
   decodeManagerLogs,
+  LogScanner,
   RelayerClient,
   type Action,
   type Hex,
 } from '@vocdoni/davinci-dkg-council-sdk';
 import { createContext, useContext, type ReactNode } from 'react';
-import { createPublicClient, createWalletClient, defineChain, http } from 'viem';
+import { createPublicClient, createWalletClient, defineChain, http, type AbiEvent } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { AppConfig } from './config';
 import type { ChainReader, ManagerEvent } from './lib/chain';
@@ -55,9 +58,22 @@ export interface Services {
     witnessInput: DealWitnessInput | PartialWitnessInput,
     onProgress?: OnProveProgress,
   ): Promise<ProveResult>;
-  /** Discovery-only event scan from the deployment block. */
-  getEvents(fromBlock: bigint): Promise<ManagerEvent[]>;
+  /**
+   * Cosmetic only (which invite each member joined with): this committee's ParticipantJoined
+   * events, scanned in bounded ranges from `fromBlock` (the committee's creation block when this
+   * device knows a lower bound for it, else the deployment block) and resumed on every call, a
+   * bounded number of requests at a time. `complete` is false while the scan has not reached the
+   * head; what was found so far is returned either way. Nothing a member does waits on this.
+   */
+  joinedEvents(cid: Hex, fromBlock?: bigint): Promise<{ events: ManagerEvent[]; complete: boolean }>;
 }
+
+/** eth_getLogs requests one `joinedEvents` call may make (the next call resumes). */
+const LOG_REQUESTS_PER_CALL = 40;
+
+const PARTICIPANT_JOINED = COUNCIL_MANAGER_ABI.find(
+  (e) => e.type === 'event' && e.name === 'ParticipantJoined',
+) as AbiEvent;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -71,6 +87,9 @@ export function buildServices(config: AppConfig): Services {
   });
 
   const publicClient = createPublicClient({ transport: http(config.rpcUrls[0]) });
+  /** Every configured provider, in order: a label scan moves on when one refuses eth_getLogs. */
+  const logSources = config.rpcUrls.map((url) => createPublicClient({ transport: http(url) }));
+  const joinScans = new Map<string, LogScanner>();
 
   let submit: (action: Action) => Promise<Hex>;
   let waitTx: (txHash: Hex) => Promise<void>;
@@ -136,13 +155,24 @@ export function buildServices(config: AppConfig): Services {
     txStatus,
     prove: (circuit, witnessInput, onProgress) =>
       proveInWorker(circuit, witnessInput, config.artifactsBaseUrl, onProgress),
-    getEvents: async (fromBlock) => {
-      const logs = await publicClient.getLogs({
-        address: config.manager,
-        fromBlock,
-        toBlock: 'latest',
-      });
-      return decodeManagerLogs(logs) as unknown as ManagerEvent[];
+    joinedEvents: async (cid, fromBlock) => {
+      const key = cid.toLowerCase();
+      let scanner = joinScans.get(key);
+      if (!scanner) {
+        scanner = new LogScanner(logSources, {
+          address: config.manager,
+          event: PARTICIPANT_JOINED,
+          args: { cid },
+          fromBlock: fromBlock ?? BigInt(config.deploymentBlock),
+          chunkSize: config.logChunkBlocks !== undefined ? BigInt(config.logChunkBlocks) : DEFAULT_LOG_CHUNK,
+        });
+        joinScans.set(key, scanner);
+      }
+      await scanner.advance({ maxRequests: LOG_REQUESTS_PER_CALL });
+      return {
+        events: decodeManagerLogs([...scanner.logs]) as unknown as ManagerEvent[],
+        complete: scanner.complete,
+      };
     },
   };
 }

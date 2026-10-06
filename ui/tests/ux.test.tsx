@@ -80,7 +80,7 @@ describe('kit banners (P0-1)', () => {
 describe('vote names (P0-2)', () => {
   it('falls back to an ordinal and says it is the member’s turn', async () => {
     const f = makeFixture();
-    f.addRequest(`0x${'0f'.repeat(32)}`, [7n, 0n, 3n]);
+    f.addRequest([7n, 0n, 3n]);
     await renderApp(f, `/c/${f.cid}`, {
       mnemonic: f.memberMnemonics[0] as string,
       record: fixtureRecord(f, 'participant', 1),
@@ -91,7 +91,7 @@ describe('vote names (P0-2)', () => {
 
   it('shows the organizer-typed local label instead', async () => {
     const f = makeFixture();
-    f.addRequest(`0x${'0f'.repeat(32)}`, [7n]);
+    f.addRequest([7n]);
     await setVoteLabel(f.config.chainId, f.config.manager, f.cid, PROCESS_ID, 'City budget');
     expect((await getVoteLabels(f.config.chainId, f.config.manager, f.cid))[PROCESS_ID.toLowerCase()]).toBe(
       'City budget',

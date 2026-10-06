@@ -13,7 +13,8 @@
 #   RPC_URLS           comma-separated JSON-RPC endpoints (two independent providers or more)
 #   RELAYER_URL        relayer base URL; "null" for none (direct sending, dev mode only)
 #   ARTIFACTS_BASE_URL mirror of the pinned circuit files; "null" for the GitHub release
-#   DEPLOYMENT_BLOCK   block the manager was deployed at (first block the app scans)
+#   DEPLOYMENT_BLOCK   block the manager was deployed at (where the app's label scans start)
+#   LOG_CHUNK_BLOCKS   blocks per eth_getLogs request of those scans (default 10000)
 #   DEV_MODE           true/false: local chain (31337/1337) with a single RPC
 #
 # Usage: [VAR=… …] scripts/render-ui-config.sh [output-path]
@@ -46,6 +47,7 @@ set('RPC_URLS', 'rpcUrls', (v) => v.split(',').map((u) => u.trim()).filter(Boole
 set('RELAYER_URL', 'relayerUrl', nullable);
 set('ARTIFACTS_BASE_URL', 'artifactsBaseUrl', nullable);
 set('DEPLOYMENT_BLOCK', 'deploymentBlock', int('DEPLOYMENT_BLOCK'));
+set('LOG_CHUNK_BLOCKS', 'logChunkBlocks', int('LOG_CHUNK_BLOCKS'));
 set('DEV_MODE', 'devMode', (v) => v === 'true');
 
 const local = cfg.chainId === 31337 || cfg.chainId === 1337;

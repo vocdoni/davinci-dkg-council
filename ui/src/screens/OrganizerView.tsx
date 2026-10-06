@@ -18,7 +18,7 @@ import {
   prepareCloseRegistration,
 } from '../flows/organizer';
 import { listRequests, type RequestSummary } from '../flows/participant';
-import { getJoinedParticipants, inviteLinkage, readCeremony } from '../lib/chain';
+import { getJoinedParticipants, inviteLinkage, readCeremony, type JoinedParticipant } from '../lib/chain';
 import { bitCount, formatDate, identityCode, shortId, thresholdSentence, timeLeft, voteName } from '../lib/format';
 import { usePoll } from '../lib/hooks';
 import {
@@ -39,7 +39,7 @@ import {
   type LabelMap,
   type VoteLabelMap,
 } from '../lib/records';
-import { useServices } from '../services';
+import { useServices, type Services } from '../services';
 import { FinishCard } from './ParticipantView';
 import { phaseSentence } from './ViewerView';
 
@@ -53,6 +53,37 @@ interface Joined {
   /** Label-only linkage from cross-checked join events; may be unknown. */
   inviteId?: number;
 }
+
+/**
+ * Which invite each member joined with (labels only): this committee's join events, scanned in
+ * bounded, resumable ranges from its creation block when this device recorded one (else the
+ * deployment block) and cross-checked against authenticated state. A scan that fails or has not
+ * reached the head yet leaves some members without a name; it never blocks anything.
+ */
+function joinLinkage(
+  services: Services,
+  record: CeremonyRecord,
+  people: JoinedParticipant[],
+  view: CeremonyView,
+): Promise<Map<number, number>> {
+  const settled = settledLinkage.get(record.key);
+  if (settled) return Promise.resolve(settled);
+  const fromBlock = record.fromBlock !== undefined ? BigInt(record.fromBlock) : undefined;
+  return services
+    .joinedEvents(record.cid, fromBlock)
+    .then(({ events }) => {
+      const linkage = inviteLinkage(events, record.cid, people, view);
+      // The list is locked and every member is linked: nothing left to scan for.
+      if (view.phase !== (Phase.Registration as number) && linkage.size === people.length) {
+        settledLinkage.set(record.key, linkage);
+      }
+      return linkage;
+    })
+    .catch(() => new Map<number, number>());
+}
+
+/** Committees whose every member is linked to an invitation after the list was locked. */
+const settledLinkage = new Map<string, Map<number, number>>();
 
 function InviteRow({
   record,
@@ -198,10 +229,8 @@ function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: Ce
         throw new Error('this committee is no longer open for joining');
       }
       const people = await getJoinedParticipants(client, record.cid, Number(v.joinedCount), anchor);
-      const linkage = await services
-        .getEvents(BigInt(services.config.deploymentBlock))
-        .then((events) => inviteLinkage(events, record.cid, people, v))
-        .catch(() => new Map<number, number>());
+      // Labels only: a missing link shows the member without a name, never blocks the review.
+      const linkage = await joinLinkage(services, record, people, v);
       setReview({
         count: Number(v.joinedCount),
         members: people.map((p, i) => ({ ...p, inviteId: linkage.get(i + 1) })),
@@ -632,10 +661,7 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
       if (settled.changed) await refreshRecords();
       if (v && v.joinedCount > 0) {
         const people = await getJoinedParticipants(services.client, record.cid, Number(v.joinedCount));
-        const linkage = await services
-          .getEvents(BigInt(services.config.deploymentBlock))
-          .then((events) => inviteLinkage(events, record.cid, people, v))
-          .catch(() => new Map<number, number>());
+        const linkage = await joinLinkage(services, record, people, v);
         setJoined(people.map((p, i) => ({ ...p, inviteId: linkage.get(i + 1) })));
       }
     },

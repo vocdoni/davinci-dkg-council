@@ -15,9 +15,7 @@ import {
   preparePartial,
 } from '../src/flows/participant';
 import { getJoinedParticipants, inviteLinkage } from '../src/lib/chain';
-import { makeFixture, PROCESS_ID } from './helpers/fake';
-
-const REQ = `0x${'ee'.repeat(32)}` as Hex;
+import { ADAPTER, CREATOR, makeFixture, PROCESS_ID } from './helpers/fake';
 
 const refusalReasons = async (p: Promise<unknown>): Promise<string[]> => {
   try {
@@ -75,7 +73,7 @@ describe('contribute (§8.3)', () => {
 describe('unlock (§9.3)', () => {
   it('turns the key for a genuine, bound, approved request', async () => {
     const f = makeFixture();
-    f.addRequest(REQ, [5n, 7n]);
+    const REQ = f.addRequest([5n, 7n]);
     const prepared = await preparePartial(f.memberMnemonics[0] as string, f.services, f.cid, REQ);
     expect(prepared.participantIndex).toBe(1);
     expect(prepared.processId).toBe(PROCESS_ID);
@@ -85,53 +83,77 @@ describe('unlock (§9.3)', () => {
     }
   });
 
+  it('reads no event logs: listing and unlocking work while every log scan fails', async () => {
+    const f = makeFixture();
+    const REQ = f.addRequest([5n]);
+    f.services.joinedEvents = () => Promise.reject(new Error('query exceeds max block range 10000'));
+    const list = await listRequests(f.services, f.cid, 1);
+    expect(list.map((r) => [r.requestId, r.processId, r.adapter])).toEqual([[REQ, PROCESS_ID, ADAPTER]]);
+    const prepared = await preparePartial(f.memberMnemonics[0] as string, f.services, f.cid, REQ, undefined, {
+      processId: PROCESS_ID,
+    });
+    expect(prepared.processId).toBe(PROCESS_ID);
+  });
+
   it('refuses when the authenticated snapshot cannot be verified', async () => {
     const f = makeFixture();
-    f.addRequest(REQ, [5n]);
+    const REQ = f.addRequest([5n]);
     f.chain.snapshotError = 'providers disagree at the anchor';
     const reasons = await refusalReasons(preparePartial(f.memberMnemonics[0] as string, f.services, f.cid, REQ));
     expect(reasons[0]).toBe('this request could not be verified, nothing was revealed');
     expect(reasons[1]).toMatch(/providers disagree/);
   });
 
-  it('refuses an unbound request and a non-approved adapter', async () => {
-    const unbound = makeFixture();
-    unbound.addRequest(REQ, [5n], { bind: false });
-    expect(
-      (await refusalReasons(preparePartial(unbound.memberMnemonics[0] as string, unbound.services, unbound.cid, REQ)))[0],
-    ).toMatch(/could not confirm which vote/);
-
-    const notAllowed = makeFixture();
-    notAllowed.addRequest(REQ, [5n], { allow: false });
-    expect(
-      (
-        await refusalReasons(
-          preparePartial(notAllowed.memberMnemonics[0] as string, notAllowed.services, notAllowed.cid, REQ),
-        )
-      )[0],
-    ).toMatch(/not approved by this committee/);
+  it('refuses an unreadable origin, a non-approved adapter and a non-authorized creator', async () => {
+    const refusal = async (opts: { bind?: boolean; allow?: boolean; authorize?: boolean }) => {
+      const f = makeFixture();
+      const REQ = f.addRequest([5n], opts);
+      return (await refusalReasons(preparePartial(f.memberMnemonics[0] as string, f.services, f.cid, REQ)))[0];
+    };
+    expect(await refusal({ bind: false })).toMatch(/could not confirm which vote/);
+    expect(await refusal({ allow: false })).toMatch(/not approved by this committee/);
+    expect(await refusal({ authorize: false })).toMatch(/set up by someone this committee did not allow/);
   });
 
-  it('shows a vote label only when the authenticated record confirms the event', async () => {
+  it('shows a vote only when the request record and its binding agree', async () => {
     const f = makeFixture();
-    f.addRequest(REQ, [5n]);
+    const REQ = f.addRequest([5n]);
     let list = await listRequests(f.services, f.cid, 1);
     expect(list[0]?.processId).toBe(PROCESS_ID);
-    expect(list[0]?.adapter).toBeDefined();
-    // A lying provider rewrites the event's vote id; getBinding no longer
-    // maps it back to this request, so the label must disappear — the request
-    // can never be *shown* as a different vote.
-    const ev = f.events.find((e) => e.eventName === 'ProcessBound');
-    if (!ev) throw new Error('fixture event missing');
-    ev.args.processId = `0x${'99'.repeat(32)}` as Hex;
+    expect(list[0]?.adapter).toBe(ADAPTER);
+    // The record names another vote for this request (a corrupted read): the origin no longer
+    // hashes to the request id, so the label disappears and the unlock is refused — the request
+    // is never shown as a different vote.
+    const other = `0x${'99'.repeat(31)}` as Hex;
+    f.chain.origins.set(REQ.toLowerCase(), [ADAPTER, other, CREATOR]);
+    f.chain.bindings.set(`${ADAPTER.toLowerCase()}:${other}`, { cid: f.cid, requestId: REQ, requested: true });
     list = await listRequests(f.services, f.cid, 1);
     expect(list[0]?.processId).toBeUndefined();
     expect(list[0]?.adapter).toBeUndefined();
+    expect((await refusalReasons(preparePartial(f.memberMnemonics[0] as string, f.services, f.cid, REQ)))[0]).toMatch(
+      /vote record does not match/,
+    );
+    // An origin whose binding does not exist at all cannot be confirmed.
+    f.chain.origins.set(REQ.toLowerCase(), [ADAPTER, `0x${'98'.repeat(31)}`, CREATOR]);
+    expect((await refusalReasons(preparePartial(f.memberMnemonics[0] as string, f.services, f.cid, REQ)))[0]).toMatch(
+      /could not confirm which vote/,
+    );
+    expect(f.actions).toHaveLength(0);
+  });
+
+  it('enumerates many requests page by page', async () => {
+    const f = makeFixture();
+    const ids = Array.from({ length: 70 }, (_, i) =>
+      f.addRequest([BigInt(i)], { processId: `0x${(i + 1).toString(16).padStart(62, '0')}` as Hex }),
+    );
+    const list = await listRequests(f.services, f.cid, 1);
+    expect(list.map((r) => r.requestId)).toEqual(ids);
+    expect(list.every((r) => r.processId !== undefined)).toBe(true);
   });
 
   it('pins the unlock to the exact vote the user approved', async () => {
     const f = makeFixture();
-    f.addRequest(REQ, [5n]);
+    const REQ = f.addRequest([5n]);
     const m = f.memberMnemonics[0] as string;
     // Approval passed but not yet matched to a vote on this device.
     expect((await refusalReasons(preparePartial(m, f.services, f.cid, REQ, undefined, {})))[0]).toMatch(
@@ -141,7 +163,7 @@ describe('unlock (§9.3)', () => {
     expect(
       (
         await refusalReasons(
-          preparePartial(m, f.services, f.cid, REQ, undefined, { processId: `0x${'77'.repeat(32)}` as Hex }),
+          preparePartial(m, f.services, f.cid, REQ, undefined, { processId: `0x${'77'.repeat(31)}` as Hex }),
         )
       )[0],
     ).toMatch(/no longer belongs to the vote you approved/);
@@ -153,7 +175,7 @@ describe('unlock (§9.3)', () => {
 
   it('refuses a tampered ciphertext (torsion point) without revealing anything', async () => {
     const f = makeFixture();
-    f.addRequest(REQ, [5n]);
+    const REQ = f.addRequest([5n]);
     const req = f.chain.requests.get(REQ.toLowerCase());
     if (!req || !req.cts[0]) throw new Error('fixture request missing');
     req.cts[0] = [0n, P - 1n, req.cts[0][2], req.cts[0][3]]; // (0, -1): on curve, outside the prime subgroup

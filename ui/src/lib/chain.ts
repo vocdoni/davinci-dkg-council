@@ -4,12 +4,14 @@
  *
  * Everything security-relevant goes through `authenticatedRead` (protocol
  * §9.3 item 1: at least two independent providers agreeing at one finalized
- * block — enforced inside the SDK client). Events are discovery only; the
- * app acts on authenticated state, never on logs.
+ * block — enforced inside the SDK client). Event logs serve labels only
+ * (`inviteLinkage`); the app acts on authenticated state, never on logs, and
+ * no step a member takes reads them.
  */
 
 import {
   Phase,
+  readRequestIds,
   type CeremonyView,
   type Dealing,
   type FinalizedAnchor,
@@ -90,16 +92,16 @@ export async function readCeremony(client: ChainReader, cid: Hex, anchor?: Final
   }
 }
 
-/** A decoded manager event (discovery only). */
+/** A decoded manager event (labels only). */
 export interface ManagerEvent {
   eventName: string;
   args: Record<string, unknown>;
   blockNumber?: bigint | null;
 }
 
+/** Every request id bound to the committee, read page by page at one anchor (getRequestCount + getRequestIdsPage). */
 export async function getRequestIds(client: ChainReader, cid: Hex, anchor?: FinalizedAnchor): Promise<Hex[]> {
-  const { results } = await client.authenticatedRead([{ functionName: 'getRequestIds', args: [cid] }], anchor);
-  return (results[0] as readonly Hex[]).slice();
+  return (await readRequestIds(client, cid, anchor)).ids;
 }
 
 export interface JoinedParticipant {
@@ -160,20 +162,6 @@ export function inviteLinkage(
     usedInvites.add(inviteId);
   }
   return byIndex;
-}
-
-export async function getBinding(
-  client: ChainReader,
-  adapter: Hex,
-  processId: Hex,
-  anchor?: FinalizedAnchor,
-): Promise<{ cid: Hex; requestId: Hex; requested: boolean }> {
-  const { results } = await client.authenticatedRead(
-    [{ functionName: 'getBinding', args: [adapter, processId] }],
-    anchor,
-  );
-  const [cid, requestId, requested] = results[0] as [Hex, Hex, boolean];
-  return { cid, requestId, requested };
 }
 
 export async function isAdapterAllowed(

@@ -17,8 +17,13 @@ export interface AppConfig {
   relayerUrl: string | null;
   /** Mirror for the pinned circuit artifacts; null = canonical release URL. */
   artifactsBaseUrl: string | null;
-  /** First block to scan for discovery events. */
+  /**
+   * The block the manager was deployed at: where a scan of event logs starts when the
+   * committee's own creation block is not known (labels only; nothing critical reads logs).
+   */
   deploymentBlock: number;
+  /** Blocks per eth_getLogs request of those scans (default 10,000; halved when a provider refuses). */
+  logChunkBlocks?: number;
   /** Explicit local development declaration (permits a single RPC). */
   devMode: boolean;
   /** Dev only: funded key for direct sending when no relayer runs. */
@@ -76,6 +81,13 @@ export function validateConfig(raw: unknown): AppConfig {
   if (typeof deploymentBlock !== 'number' || !Number.isInteger(deploymentBlock) || deploymentBlock < 0) {
     throw new ConfigError('deploymentBlock must be a non-negative integer');
   }
+  const logChunkBlocks = o.logChunkBlocks;
+  if (
+    logChunkBlocks !== undefined &&
+    (typeof logChunkBlocks !== 'number' || !Number.isInteger(logChunkBlocks) || logChunkBlocks < 1 || logChunkBlocks > 1_000_000)
+  ) {
+    throw new ConfigError('logChunkBlocks must be an integer between 1 and 1,000,000');
+  }
   if (o.devPrivateKey !== undefined && !(typeof o.devPrivateKey === 'string' && /^0x[0-9a-fA-F]{64}$/.test(o.devPrivateKey))) {
     throw new ConfigError('devPrivateKey must be a 32-byte 0x-hex string');
   }
@@ -89,6 +101,7 @@ export function validateConfig(raw: unknown): AppConfig {
     relayerUrl: (o.relayerUrl as string | undefined) ?? null,
     artifactsBaseUrl: (o.artifactsBaseUrl as string | undefined) ?? null,
     deploymentBlock,
+    ...(logChunkBlocks === undefined ? {} : { logChunkBlocks }),
     devMode,
     devPrivateKey: o.devPrivateKey as Hex | undefined,
   };

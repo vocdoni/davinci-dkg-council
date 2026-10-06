@@ -17,6 +17,7 @@ import {
   organizerAuthKey,
   Phase,
   rootFromMnemonic,
+  requestId as sdkRequestId,
   rosterHash,
   ceremonyId as sdkCeremonyId,
   type Action,
@@ -90,6 +91,8 @@ export class FakeChain implements ChainReader {
   allowedAdapters = new Set<string>();
   authorizedCreators = new Set<string>();
   bindings = new Map<string, { cid: Hex; requestId: Hex; requested: boolean }>();
+  /** getRequestOrigin per request id: (adapter, processId, creator), as bindProcess stores it. */
+  origins = new Map<string, [Hex, Hex, Hex]>();
   /** When set, getPartialRequestSnapshot throws (simulates a failed authenticated read). */
   snapshotError: string | null = null;
   /** When > 0, each batch containing a getParticipant call throws once and decrements. */
@@ -121,8 +124,17 @@ export class FakeChain implements ChainReader {
   async authenticatedRead(calls: { functionName: string; args?: readonly unknown[] }[]) {
     const results = calls.map((c) => {
       switch (c.functionName) {
-        case 'getRequestIds':
-          return [...this.requests.keys()];
+        case 'getRequestCount':
+          return BigInt(this.requests.size);
+        case 'getRequestIdsPage': {
+          const offset = Number(c.args?.[1]);
+          return [...this.requests.keys()].slice(offset, offset + Number(c.args?.[2]));
+        }
+        case 'getRequestOrigin': {
+          const origin = this.origins.get(String(c.args?.[0]).toLowerCase());
+          if (!origin) throw new Error('UnknownRequest()');
+          return origin;
+        }
         case 'getParticipant': {
           if (this.participantReadFailures > 0) {
             this.participantReadFailures -= 1;
@@ -136,7 +148,9 @@ export class FakeChain implements ChainReader {
         }
         case 'getBinding': {
           const key = `${String(c.args?.[0]).toLowerCase()}:${String(c.args?.[1]).toLowerCase()}`;
-          return this.bindings.get(key) ?? { cid: `0x${'00'.repeat(32)}`, requestId: `0x${'00'.repeat(32)}`, requested: false };
+          const bound = this.bindings.get(key);
+          if (!bound) throw new Error('UnknownBinding()'); // as the contract: no binding, no answer
+          return bound;
         }
         case 'isAdapterAllowed':
           return this.allowedAdapters.has(String(c.args?.[1]).toLowerCase());
@@ -267,15 +281,19 @@ export interface Fixture {
   services: Services;
   /** Every action passed to services.submit, in order. */
   actions: Action[];
-  /** Discovery events returned by services.getEvents. */
+  /** ParticipantJoined events returned by services.joinedEvents (labels only). */
   events: ManagerEvent[];
   groupPk: Point;
-  /** Add a decryption request with real ciphertexts for `values`. */
-  addRequest(requestId: Hex, values: bigint[], opts?: { bind?: boolean; allow?: boolean }): void;
+  /**
+   * Add a decryption request with real ciphertexts for `values`, bound (unless `bind: false`)
+   * by ADAPTER for `processId` (default PROCESS_ID) and CREATOR; returns its request id.
+   */
+  addRequest(values: bigint[], opts?: { bind?: boolean; allow?: boolean; authorize?: boolean; processId?: Hex }): Hex;
 }
 
 export const ADAPTER = '0x00000000000000000000000000000000000000ad' as Hex;
-export const PROCESS_ID = `0x${'cd'.repeat(32)}` as Hex;
+export const CREATOR = '0x00000000000000000000000000000000000000c0' as Hex;
+export const PROCESS_ID = `0x${'cd'.repeat(31)}` as Hex;
 
 /** Build a full consistent ceremony: n members, all dealings accepted, Live. */
 export function makeFixture(opts: { t?: number; n?: number; phase?: Phase } = {}): Fixture {
@@ -368,10 +386,15 @@ export function makeFixture(opts: { t?: number; n?: number; phase?: Phase } = {}
       proof: ZERO_PROOF,
       publicSignals: signalsFromWitness(circuit, witnessInput),
     }),
-    getEvents: async () => events,
+    joinedEvents: async () => ({ events, complete: true }),
   };
 
-  const addRequest = (requestId: Hex, values: bigint[], o: { bind?: boolean; allow?: boolean } = {}) => {
+  const addRequest = (
+    values: bigint[],
+    o: { bind?: boolean; allow?: boolean; authorize?: boolean; processId?: Hex } = {},
+  ): Hex => {
+    const processId = o.processId ?? PROCESS_ID;
+    const requestId = sdkRequestId(chainId, MANAGER, cid, ADAPTER, processId);
     const cts = values.map((v, k) => {
       const r = 1000n + BigInt(k);
       const c1 = mulBase(r);
@@ -386,10 +409,12 @@ export function makeFixture(opts: { t?: number; n?: number; phase?: Phase } = {}
       cts,
     });
     if (o.bind !== false) {
-      chain.bindings.set(`${ADAPTER.toLowerCase()}:${PROCESS_ID.toLowerCase()}`, { cid, requestId, requested: true });
-      events.push({ eventName: 'ProcessBound', args: { cid, adapter: ADAPTER, processId: PROCESS_ID, requestId } });
+      chain.bindings.set(`${ADAPTER.toLowerCase()}:${processId.toLowerCase()}`, { cid, requestId, requested: true });
+      chain.origins.set(requestId.toLowerCase(), [ADAPTER, processId, CREATOR]);
     }
     if (o.allow !== false) chain.allowedAdapters.add(ADAPTER.toLowerCase());
+    if (o.authorize !== false) chain.authorizedCreators.add(CREATOR.toLowerCase());
+    return requestId;
   };
 
   return {

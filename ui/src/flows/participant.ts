@@ -5,7 +5,9 @@
  * protocol checks (§8.2, §8.3, §9.3) and turns failures into plain-language
  * refusals the screens show verbatim. All chain state used here comes from
  * authenticated snapshots (two agreeing providers at one finalized block,
- * enforced inside the SDK client).
+ * enforced inside the SDK client). Nothing here reads event logs: public
+ * providers refuse long log ranges, and a member may come back to unlock
+ * months after the ceremony.
  */
 
 import {
@@ -22,6 +24,7 @@ import {
   provePossession,
   recoverShare,
   rootFromMnemonic,
+  readRequestBinding,
   rosterHash,
   shareEncryptionKey,
   signAction,
@@ -30,12 +33,13 @@ import {
   type CeremonyView,
   type FinalizedAnchor,
   type Hex,
+  type RequestBindingRefusal,
   type Roster,
   type SecpKey,
   type ShareKey,
 } from '@vocdoni/davinci-dkg-council-sdk';
 import type { AppConfig } from '../config';
-import { getBinding, getRequestIds, isAdapterAllowed, type ChainReader } from '../lib/chain';
+import { getRequestIds, type ChainReader } from '../lib/chain';
 import { bitCount, bitIndexes } from '../lib/format';
 import { actionValidUntil } from './organizer';
 import type { Services } from '../services';
@@ -246,10 +250,10 @@ export function abortEligible(view: CeremonyView, nowSeconds: number): boolean {
 export interface RequestSummary {
   requestId: Hex;
   /**
-   * The vote this request belongs to — shown only after the binding was
-   * *authenticated* (events are discovery; the displayed value is confirmed
-   * by authenticated getBinding/isAdapterAllowed reads at one anchor).
-   * Undefined when no binding could be verified.
+   * The vote this request belongs to — read from the request record itself
+   * (`getRequestOrigin`) and authenticated at one finalized anchor with
+   * getBinding/isAdapterAllowed/isCreatorAuthorized; never taken from logs.
+   * Undefined when the binding could not be verified.
    */
   processId?: Hex;
   adapter?: Hex;
@@ -266,53 +270,40 @@ interface Binding {
   processId: Hex;
 }
 
-/** Discovery: ProcessBound events for this ceremony (candidates only; never shown or acted on unverified). */
-async function boundProcesses(services: Services, cid: Hex): Promise<Map<string, Binding>> {
-  const events = await services.getEvents(BigInt(services.config.deploymentBlock));
-  const out = new Map<string, Binding>();
-  for (const ev of events) {
-    if (ev.eventName !== 'ProcessBound') continue;
-    const args = ev.args as { cid?: string; adapter?: Hex; processId?: Hex; requestId?: Hex };
-    if (args.cid?.toLowerCase() !== cid.toLowerCase() || !args.requestId) continue;
-    if (args.adapter && args.processId) {
-      out.set(args.requestId.toLowerCase(), { adapter: args.adapter, processId: args.processId });
-    }
-  }
-  return out;
-}
+const BINDING_REFUSALS: Record<RequestBindingRefusal, string> = {
+  'other-ceremony': 'this unlock request belongs to another committee',
+  'binding-mismatch': 'the vote record does not match this unlock request',
+  'adapter-not-allowed': 'the connection that asked for this unlock is not approved by this committee',
+  'creator-not-authorized': 'the vote was set up by someone this committee did not allow',
+  'not-submitted': 'this vote has not asked to be opened yet',
+};
 
 /**
- * Authenticate one request's vote binding: the event-discovered candidate
- * must be confirmed by authenticated reads at `anchor` — the adapter is
- * allowed by this committee and getBinding(adapter, processId) maps to
- * exactly this (requestId, ceremonyId). Returns the plain-language refusal
- * instead of a binding when any check fails.
+ * Authenticate one request's vote binding from contract state at `anchor`
+ * (protocol §9.3 item 3; SDK `readRequestBinding`): the stored origin
+ * recomputes to this request id, getBinding maps back to exactly this
+ * (requestId, ceremonyId) and says it was submitted, the adapter is allowed
+ * and the creator authorized by this committee. No event logs are read, so
+ * this works the same months after the ceremony. Returns the plain-language
+ * refusal instead of a binding when any check or read fails.
  */
 async function verifiedBinding(
   client: ChainReader,
   cid: Hex,
   requestId: Hex,
-  candidate: Binding | undefined,
   anchor: FinalizedAnchor,
 ): Promise<{ binding: Binding | null; refusal: string }> {
-  if (!candidate) {
+  let checked;
+  try {
+    checked = await readRequestBinding(client, cid, requestId, anchor);
+  } catch {
     return { binding: null, refusal: 'we could not confirm which vote this unlock request belongs to' };
   }
-  const [allowed, bound] = await Promise.all([
-    isAdapterAllowed(client, cid, candidate.adapter, anchor),
-    getBinding(client, candidate.adapter, candidate.processId, anchor),
-  ]);
-  if (!allowed) {
-    return { binding: null, refusal: 'the connection that asked for this unlock is not approved by this committee' };
+  if (!checked.ok) {
+    const refusal = BINDING_REFUSALS[checked.reason] ?? 'the vote record does not match this unlock request';
+    return { binding: null, refusal };
   }
-  if (
-    !bound.requested ||
-    bound.requestId.toLowerCase() !== requestId.toLowerCase() ||
-    bound.cid.toLowerCase() !== cid.toLowerCase()
-  ) {
-    return { binding: null, refusal: 'the vote record does not match this unlock request' };
-  }
-  return { binding: candidate, refusal: '' };
+  return { binding: { adapter: checked.adapter, processId: checked.processId }, refusal: '' };
 }
 
 /** List this ceremony's decryption requests with progress, for the screens. */
@@ -320,14 +311,11 @@ export async function listRequests(services: Services, cid: Hex, myIndex?: numbe
   const client = services.client;
   const { view, anchor } = await client.getRoster(cid);
   const ids = await getRequestIds(client, cid, anchor);
-  const candidates = await boundProcesses(services, cid).catch(() => new Map<string, Binding>());
   const out: RequestSummary[] = [];
   for (const id of ids) {
     const req = await client.getRequest(id, anchor);
     const plain = await client.getPlaintexts(id, anchor);
-    const verified = await verifiedBinding(client, cid, id, candidates.get(id.toLowerCase()), anchor).catch(
-      () => ({ binding: null }),
-    );
+    const verified = await verifiedBinding(client, cid, id, anchor);
     out.push({
       requestId: id,
       processId: verified.binding?.processId,
@@ -390,15 +378,9 @@ export async function preparePartial(
   }
 
   // The request must have come through an approved connection bound to a
-  // vote we can show the user — authenticated, not taken from events.
-  const candidates = await boundProcesses(services, cid).catch(() => new Map<string, Binding>());
-  const { binding, refusal } = await verifiedBinding(
-    client,
-    cid,
-    requestId,
-    candidates.get(requestId.toLowerCase()),
-    snapshot.anchor,
-  );
+  // vote we can show the user — read from state and authenticated, never
+  // taken from event logs.
+  const { binding, refusal } = await verifiedBinding(client, cid, requestId, snapshot.anchor);
   if (!binding) throw new FlowRefusal([refusal]);
 
   // Pin the user's approval to the exact vote they saw.

@@ -70,6 +70,12 @@ export function CreateCeremony() {
     setBusy(true);
     setError(null);
     try {
+      // A lower bound of the creation block, so label scans of this committee's events start
+      // there instead of at the deployment block (cosmetic; null when the read fails).
+      const fromBlock = await services.client
+        .finalizedAnchor()
+        .then((a) => Number(a.blockNumber))
+        .catch(() => undefined);
       const prepared = await prepareCreateCeremony(draftMnemonic, services.config, {
         threshold,
         memberCount: members,
@@ -88,6 +94,7 @@ export function CreateCeremony() {
       // The dashboard shows "waiting for the network to confirm" until the finalized block has it.
       await putRecord({
         ...draftRecord,
+        ...(fromBlock === undefined ? {} : { fromBlock }),
         kitExportFingerprint: manifestFingerprint(kit.manifest),
         pending: [{ kind: 'create', txHash, sentAt: Date.now() }],
       });

@@ -37,6 +37,11 @@ export interface CeremonyRecord {
   liveMode?: boolean;
   /** Fingerprint of the manifest last exported in a kit (nudges updates). */
   kitExportFingerprint?: string;
+  /**
+   * Organizer: a block at or before the committee's creation (the finalized block when this
+   * device created it). Where label scans of its event logs start; else the deployment block.
+   */
+  fromBlock?: number;
   /** Participant: one-time "save your kit once more" prompt after joining. */
   kitJoinNudge?: boolean;
   /** Set when the record's root was switched away from (restore-switch); hidden from the UI. */

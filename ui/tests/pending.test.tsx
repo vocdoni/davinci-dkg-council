@@ -136,8 +136,7 @@ describe('when a pending action counts as shown', () => {
     f.chain.authorizedCreators.add(ADAPTER.toLowerCase());
     expect(await settled(grant, at({ phase: Phase.Live }))).toBe(true);
 
-    const rid = `0x${'0e'.repeat(32)}` as Hex;
-    f.addRequest(rid, [1n]);
+    const rid = f.addRequest([1n]);
     const partial = pending({ kind: 'partial', requestId: rid, memberIndex: 2 });
     expect(await settled(partial, at({ phase: Phase.Live }))).toBe(false);
     (f.chain.requests.get(rid) as { partialBitmap: number }).partialBitmap = 0b010;
@@ -445,8 +444,7 @@ describe('screens right after an action (finalized block behind the head)', () =
     vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout'] });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const f = makeFixture();
-    const rid = `0x${'0f'.repeat(32)}` as Hex;
-    f.addRequest(rid, [7n, 3n]);
+    const rid = f.addRequest([7n, 3n]);
     await renderApp(f, `/c/${f.cid}`, { mnemonic: f.memberMnemonics[0] as string, record: fixtureRecord(f, 'participant', 1) });
     await screen.findByText(`Vote #1 (${PROCESS_ID.slice(0, 8)}…${PROCESS_ID.slice(-4)})`);
     await user.click(await screen.findByRole('button', { name: 'Check and turn my key' }));
