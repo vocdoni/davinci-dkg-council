@@ -27,4 +27,6 @@ export * from './prover.js';
 export * from './artifacts.js';
 export * from './relayer.js';
 export * from './client.js';
+export * from './logs.js';
+export * from './requests.js';
 export { COUNCIL_MANAGER_ABI } from './abi.js';

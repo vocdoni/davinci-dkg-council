@@ -14,12 +14,21 @@ import {
   encodeFunctionData,
   http,
   parseEventLogs,
+  type AbiEvent,
   type Log,
   type PublicClient,
 } from 'viem';
 import { COUNCIL_MANAGER_ABI } from './abi.js';
 import { MAX_FIELDS, Phase } from './constants.js';
 import { normalizeCeremonyId } from './encoding.js';
+import { scanLogs, type LogScanResult } from './logs.js';
+import {
+  readRequestBinding,
+  readRequestIds,
+  readRequestOrigin,
+  type RequestBinding,
+  type RequestOrigin,
+} from './requests.js';
 import type {
   Action,
   CeremonyView,
@@ -92,10 +101,14 @@ const normalizeRpcUrl = (url: string): string => {
 const canonical = (v: unknown): string =>
   JSON.stringify(v, (_k, val: unknown) => (typeof val === 'bigint' ? `#${val.toString(10)}` : val));
 
-interface ViewCall {
+/** One view call of an authenticated batch read. */
+export interface ViewCall {
   functionName: string;
   args?: readonly unknown[];
 }
+
+/** CouncilManager event names (for `scanEvents`). */
+export type ManagerEventName = Extract<(typeof COUNCIL_MANAGER_ABI)[number], { type: 'event' }>['name'];
 
 export class CouncilClient {
   readonly chainId: bigint;
@@ -530,16 +543,77 @@ export class CouncilClient {
     return results[0] as Hex;
   }
 
-  // --- events (discovery only; act on authenticated state, not on logs) ---
+  // --- requests, from state (no logs; protocol §9.3 item 3) ---
 
-  async getEvents(args: { fromBlock: bigint; toBlock?: bigint }): Promise<ReturnType<typeof decodeManagerLogs>> {
-    const client = this.clients[0] as PublicClient;
-    const logs = await client.getLogs({
+  /** Who bound a request: adapter, DAVINCI process id and creator. */
+  async getRequestOrigin(requestIdValue: Hex, anchor?: FinalizedAnchor): Promise<RequestOrigin> {
+    const { adapter, processId, creator } = await readRequestOrigin(this, requestIdValue, anchor);
+    return { adapter, processId, creator };
+  }
+
+  /** Every request id bound to the ceremony, in binding order, paged at one anchor. */
+  async getRequestIds(cid: Hex, anchor?: FinalizedAnchor): Promise<Hex[]> {
+    return (await readRequestIds(this, cid, anchor)).ids;
+  }
+
+  /**
+   * The vote a request belongs to, derived from the request record and authenticated at one
+   * finalized anchor (`readRequestBinding`): never from logs, so it works however old the
+   * ceremony is.
+   */
+  async verifyRequestBinding(cid: Hex, requestIdValue: Hex, anchor?: FinalizedAnchor): Promise<RequestBinding> {
+    return readRequestBinding(this, cid, requestIdValue, anchor);
+  }
+
+  // --- events (cosmetic discovery only; act on authenticated state, never on logs) ---
+
+  /**
+   * Paged, resumable scan of manager events from the first provider (falling back to the
+   * others), decoded. Unauthenticated: labels and linkage only. Ranges of at most `chunkSize`
+   * blocks (default 10,000), halved when a provider refuses one; an incomplete result carries
+   * `nextBlock` to resume from instead of throwing. `args` filters indexed arguments of
+   * `eventName` (e.g. `{ cid }`).
+   */
+  async scanEvents(opts: {
+    fromBlock: bigint;
+    toBlock?: bigint;
+    eventName?: ManagerEventName;
+    args?: Record<string, unknown>;
+    chunkSize?: bigint;
+    maxRequests?: number;
+    signal?: AbortSignal;
+  }): Promise<LogScanResult & { events: ReturnType<typeof decodeManagerLogs> }> {
+    const event = opts.eventName
+      ? (COUNCIL_MANAGER_ABI.find((e) => e.type === 'event' && e.name === opts.eventName) as AbiEvent | undefined)
+      : undefined;
+    if (opts.eventName && !event) throw new Error(`council client: unknown event ${opts.eventName}`);
+    const result = await scanLogs(this.clients, {
       address: this.manager,
-      fromBlock: args.fromBlock,
-      toBlock: args.toBlock ?? 'latest',
+      event,
+      args: opts.args,
+      fromBlock: opts.fromBlock,
+      toBlock: opts.toBlock,
+      chunkSize: opts.chunkSize,
+      maxRequests: opts.maxRequests,
+      signal: opts.signal,
     });
-    return decodeManagerLogs(logs);
+    return { ...result, events: decodeManagerLogs(result.logs) };
+  }
+
+  /**
+   * Every manager event in `[fromBlock, toBlock]` (default: up to the head), read in ranges of
+   * at most 10,000 blocks. Throws when the scan cannot complete; prefer `scanEvents`.
+   */
+  async getEvents(args: { fromBlock: bigint; toBlock?: bigint }): Promise<ReturnType<typeof decodeManagerLogs>> {
+    const result = await this.scanEvents({ fromBlock: args.fromBlock, toBlock: args.toBlock });
+    if (!result.complete) {
+      throw new Error(
+        `council client: event scan stopped at block ${result.nextBlock} of ${result.toBlock}` +
+          (result.error instanceof Error ? ` (${result.error.message})` : ''),
+        { cause: result.error },
+      );
+    }
+    return result.events;
   }
 
   // --- direct submission (any funded account; relayer bypass) ---
