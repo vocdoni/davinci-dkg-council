@@ -1,0 +1,78 @@
+name: Web app Docker
+
+# Reusable workflow that builds the web app image (ui/Dockerfile) and optionally publishes it to
+# GHCR as ghcr.io/vocdoni/davinci-dkg-council-ui: the Vite bundle served by nginx with a
+# single-page-app fallback. Static hosts that build from source (DigitalOcean App Platform,
+# ui/.do/) read the files out of /usr/share/nginx/html instead.
+#
+# The published image bakes the committed ui/public/config.json, which targets the local dev
+# stack (`make dev`): no CouncilManager is deployed yet (docs/deployments.md). A deployment builds
+# its own image with `--build-arg UI_CONFIG=… MANAGER_ADDRESS=… RELAYER_URL=…` (ui/Dockerfile).
+#
+# A stable release tag (vX.Y.Z) additionally moves `latest`; prereleases (v1.2.3-rc1) publish
+# their own tag only.
+
+on:
+  workflow_call:
+    inputs:
+      image-tag:
+        description: "Primary tag to push (e.g. main, v0.1.0, pr-123)."
+        required: true
+        type: string
+      push:
+        description: "Whether to push to the registry (true) or only build (false)."
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  docker:
+    name: ${{ inputs.push && 'Build and Publish' || 'Build' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        if: ${{ inputs.push }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compose tag list
+        id: tags
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ inputs.image-tag }}
+        run: |
+          # Refs with slashes (feature/foo) are not valid Docker tags, so flatten them.
+          primary=$(echo "$IMAGE_TAG" | tr '/' '-')
+          image=ghcr.io/vocdoni/davinci-dkg-council-ui
+          tags="${image}:${primary}"
+          # Only a stable release tag moves `latest`.
+          if [[ "${primary}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tags="${tags}"$'\n'"${image}:latest"
+          fi
+          {
+            echo 'list<<EOF'
+            echo "${tags}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: ${{ inputs.push && 'Build and Publish' || 'Build' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ui/Dockerfile
+          push: ${{ inputs.push }}
+          cache-from: type=gha,scope=ui
+          cache-to: type=gha,mode=max,scope=ui
+          tags: ${{ steps.tags.outputs.list }}

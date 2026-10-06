@@ -1,0 +1,174 @@
+name: Publish Circuits
+
+# Triggered by adding the 'trigger-upload-circuits' label to a pull request from this repository.
+# Runs a new DEV phase-2 for the circuits on the PR head (circuits/build.sh against the Hermez 2^18
+# powers of tau), re-pins the SDK and the contracts to it (circuits/scripts/pin.ts), regenerates
+# the proof fixtures, runs the circuit and contract suites against the new setup, and stages:
+#   - a DRAFT GitHub release named after circuits/release/release.json "tag" (circuits-vN) with
+#     the six files the SDK downloads (deal.wasm, partial.wasm, both *_final.zkey, both vkeys)
+#     and release.json;
+#   - the re-pinned tree files as the `council-circuits-pins` workflow artifact;
+# and comments the commands that bring the pins into the branch. Bump the tag in
+# circuits/scripts/release.ts first: a published release is never overwritten. Publish the draft
+# when the PR merges; until then `make circuits-restore` and the e2e suite cannot fetch it.
+#
+# Every run is a different setup (random contribution entropy): commit the pins of the run whose
+# draft you publish, never mix two runs.
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: circuits-upload-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  upload:
+    if: >-
+      ${{
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'trigger-upload-circuits' &&
+        github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Remove PR label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                name: 'trigger-upload-circuits',
+              });
+            } catch (err) {
+              core.warning(`Failed to remove label: ${err.message}`);
+            }
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.3
+
+      - name: Install circom 2.2.3
+        run: bash scripts/ci-install-circom.sh
+
+      - name: Download and verify the powers of tau
+        run: bash scripts/ci-fetch-ptau.sh "$RUNNER_TEMP/powersOfTau28_hez_final_18.ptau"
+
+      - name: Refuse to overwrite a published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          src=$(sed -n 's/^  tag: "\(.*\)",$/\1/p' circuits/scripts/release.ts)
+          [[ -n $src ]] || { echo "::error::cannot read the tag from circuits/scripts/release.ts"; exit 1; }
+          if draft=$(gh release view "$src" --json isDraft -q .isDraft 2>/dev/null) && [[ $draft != true ]]; then
+            echo "::error::$src is already published; bump the tag in circuits/scripts/release.ts"
+            exit 1
+          fi
+          echo "tag=$src" >> "$GITHUB_OUTPUT"
+
+      - name: New DEV phase-2 (compile, setup, verifiers, release.json, vectors)
+        env:
+          COUNCIL_PTAU: ${{ runner.temp }}/powersOfTau28_hez_final_18.ptau
+        run: pnpm --filter ./circuits run build
+
+      - name: Re-pin the SDK and the contracts
+        run: |
+          (cd solidity && forge build)
+          pnpm --filter ./circuits run pin
+
+      - name: Proof fixtures for the new setup
+        run: pnpm --filter ./circuits run fixtures
+
+      - name: Circuit tests
+        run: pnpm --filter ./circuits run test
+
+      - name: Contract tests (release pins, real verifiers, vectors)
+        working-directory: solidity
+        run: forge test
+
+      - name: Stage the release files
+        run: |
+          staging="$RUNNER_TEMP/release-assets"
+          mkdir -p "$staging"
+          cp circuits/build/deal_js/deal.wasm circuits/build/partial_js/partial.wasm "$staging/"
+          cp circuits/build/deal_final.zkey circuits/build/partial_final.zkey \
+             circuits/build/deal_vkey.json circuits/build/partial_vkey.json \
+             circuits/release/release.json "$staging/"
+          (cd "$staging" && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          id=$(node -e 'console.log(require("./circuits/release/release.json").circuitReleaseId)')
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" "$RUNNER_TEMP"/release-assets/* --draft --target "$HEAD_SHA" \
+            --title "$TAG (development setup)" \
+            --notes "Circuit artifacts staged from PR #$PR at $HEAD_SHA. circuitReleaseId \`$id\`. DEVELOPMENT phase-2 (one contribution + beacon): not for production."
+
+      - name: Store the re-pinned files
+        uses: actions/upload-artifact@v4
+        with:
+          name: council-circuits-pins
+          if-no-files-found: error
+          path: |
+            circuits/release/
+            circuits/fixtures/
+            tests/vectors/
+            solidity/src/verifiers/
+            solidity/script/CouncilRelease.sol
+            sdk/src/artifacts.ts
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        with:
+          script: |
+            const runId = context.runId;
+            const repo = `${context.repo.owner}/${context.repo.repo}`;
+            const tag = process.env.TAG;
+            const body =
+              `Circuit release \`${tag}\` staged as a draft release.\n\n` +
+              `Bring its pins into the branch (they belong to this run's setup only):\n\n` +
+              `\`\`\`bash\n` +
+              `gh run download ${runId} -R ${repo} -n council-circuits-pins -D .\n` +
+              `git add circuits/release circuits/fixtures tests/vectors solidity/src/verifiers \\\n` +
+              `  solidity/script/CouncilRelease.sol sdk/src/artifacts.ts\n` +
+              `\`\`\`\n\n` +
+              `Publish the draft \`${tag}\` release when this PR merges.\n`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });

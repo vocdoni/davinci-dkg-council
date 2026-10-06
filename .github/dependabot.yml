@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # The circuits' toolchain is pinned with the circuit release: circomlib and snarkjs change
+      # the compiled R1CS, the zkeys or the generated verifiers, so a bump needs a new release.
+      - dependency-name: "circomlib"
+      - dependency-name: "snarkjs"
+
+  - package-ecosystem: "docker"
+    directories:
+      - "/relayer"
+      - "/ui"
+    schedule:
+      interval: "weekly"

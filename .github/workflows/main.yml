@@ -1,0 +1,318 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - dev
+      - stage
+      - main
+      - release**
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: "0 1 * * *" # 02:00 UTC+1
+  workflow_dispatch:
+    inputs:
+      e2e:
+        description: "Also run the headless e2e suite (Anvil, real proofs; needs the published circuit release)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-push-{1}-{2}', github.workflow, github.ref, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Per-job path gating for the circuits job (GitHub has no path filters below
+  # workflow level).
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      circuits: ${{ steps.filter.outputs.circuits }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Did the circuits change?
+        id: filter
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          # Scheduled and manual runs, and the first push of a new branch (no
+          # "before" commit), always run the circuits job.
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" || "$GITHUB_EVENT_NAME" == "workflow_dispatch" ||
+                -z "$base" || "$base" =~ ^0+$ ]]; then
+            echo "circuits=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "$base" "${{ github.sha }}" -- circuits tests/vectors | grep -q .; then
+            echo "circuits=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "circuits=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Contracts: CouncilManager + CouncilViews + the generated verifiers. The
+  # tests read circuits/release, circuits/fixtures and tests/vectors.
+  # ---------------------------------------------------------------------------
+  job_forge_test:
+    name: Forge Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.3
+
+      - name: Build (runtime sizes, EIP-170)
+        working-directory: solidity
+        run: forge build --sizes
+
+      - name: Test
+        working-directory: solidity
+        run: forge test
+
+  # ---------------------------------------------------------------------------
+  # TypeScript SDK. The real-prover tests skip themselves when the pinned
+  # artifacts are not in ~/.davinci-dkg-council/artifacts; everything else
+  # runs on the committed vectors.
+  # ---------------------------------------------------------------------------
+  job_sdk:
+    name: SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: pnpm --filter ./sdk run check
+
+      - name: Build
+        run: pnpm --filter ./sdk run build
+
+      - name: Test
+        run: pnpm --filter ./sdk run test
+
+  # ---------------------------------------------------------------------------
+  # Cross-implementation vectors: the standalone generator must reproduce the
+  # committed tests/vectors/*.json byte for byte.
+  # ---------------------------------------------------------------------------
+  job_vectors:
+    name: Vectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate and compare
+        run: pnpm --filter ./circuits run vectors-check
+
+  # ---------------------------------------------------------------------------
+  # Relayer: type-check, build, unit tests against an in-memory chain.
+  # ---------------------------------------------------------------------------
+  job_relayer:
+    name: Relayer
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: pnpm --filter ./relayer run check
+
+      - name: Build
+        run: pnpm --filter ./relayer run build
+
+      - name: Unit tests
+        run: pnpm --filter ./relayer run test
+
+  # ---------------------------------------------------------------------------
+  # Web app: config renderer, lint, unit tests, production build.
+  # ---------------------------------------------------------------------------
+  job_ui:
+    name: Web app
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Check the config renderer
+        run: bash scripts/render-ui-config.test.sh
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm --filter ./ui run lint
+
+      - name: Unit tests
+        run: pnpm --filter ./ui run test
+
+      - name: Build
+        run: pnpm --filter ./ui run build
+
+  # ---------------------------------------------------------------------------
+  # Circuits: compile with circom 2.2.3, run a throwaway DEV phase-2 against
+  # the Hermez 2^18 powers of tau, regenerate the proof fixtures for it, then
+  # the witness, mutation and release suites. The fresh setup differs from the
+  # pinned release (random contribution entropy); the tree changes it causes
+  # are never committed from here (publish-circuits.yml stages a release).
+  # ---------------------------------------------------------------------------
+  job_circuits:
+    name: Circuits
+    needs: changes
+    if: needs.changes.outputs.circuits == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install circom 2.2.3
+        run: bash scripts/ci-install-circom.sh
+
+      - name: Download and verify the powers of tau
+        run: bash scripts/ci-fetch-ptau.sh "$RUNNER_TEMP/powersOfTau28_hez_final_18.ptau"
+
+      - name: Build (compile + DEV phase-2 + verifiers + vectors)
+        env:
+          COUNCIL_PTAU: ${{ runner.temp }}/powersOfTau28_hez_final_18.ptau
+        run: pnpm --filter ./circuits run build
+
+      - name: Proof fixtures for the fresh setup
+        run: pnpm --filter ./circuits run fixtures
+
+      - name: Test
+        run: pnpm --filter ./circuits run test
+
+  # ---------------------------------------------------------------------------
+  # Headless e2e (on demand): Anvil (Osaka) and forge from the Foundry image,
+  # real proofs from the pinned circuit release, the relayer in front.
+  # scripts/ci-e2e.sh downloads the release and skips with a notice while it
+  # is not published. The DAVINCI round trip needs the sibling davinci-contracts
+  # and davinci-sdk checkouts and is excluded. Runs on the org's self-hosted
+  # runners (Default group): the 16-member lifecycle proves about 70 Groth16
+  # statements.
+  # ---------------------------------------------------------------------------
+  job_e2e:
+    name: E2E
+    if: github.event_name == 'workflow_dispatch' && inputs.e2e
+    runs-on: [self-hosted, davinci, ci]
+    timeout-minutes: 60
+    concurrency:
+      group: council-self-hosted-e2e
+      cancel-in-progress: false
+    steps:
+      # Some self-hosted runners export no HOME (a runner started as root by systemd).
+      - name: Give the run a home
+        run: |
+          rm -rf "${RUNNER_TEMP:?}/home"
+          mkdir -p "$RUNNER_TEMP/home"
+          echo "HOME=$RUNNER_TEMP/home" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run the headless suite
+        env:
+          COUNCIL_ARTIFACTS_DIR: ${{ runner.temp }}/council-artifacts
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci-e2e.sh
+
+  # ---------------------------------------------------------------------------
+  # Images: built on every run, pushed on branch pushes.
+  # ---------------------------------------------------------------------------
+  call-docker-build:
+    name: Relayer Docker
+    needs:
+      - job_forge_test
+      - job_sdk
+      - job_relayer
+    permissions:
+      contents: read
+      packages: write
+    if: github.event.pull_request.draft != true
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image-tag: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+      push: ${{ github.event_name == 'push' }}
+
+  call-ui-docker-build:
+    name: Web app Docker
+    needs:
+      - job_ui
+    permissions:
+      contents: read
+      packages: write
+    if: github.event.pull_request.draft != true
+    uses: ./.github/workflows/ui-docker-build.yml
+    with:
+      image-tag: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+      push: ${{ github.event_name == 'push' }}
