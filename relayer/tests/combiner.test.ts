@@ -328,6 +328,29 @@ describe('combine worker on public RPCs (Railway: "combiner tick failed" every f
     expect(logs.loud()).toEqual([]);
   });
 
+  it('halves its log range when the rpc caps eth_getLogs below it, and keeps the smaller range', async () => {
+    const logs = capture();
+    const s = stack({});
+    const combiner = new Combiner({
+      client: s.chain.client,
+      manager: MANAGER,
+      sponsor: s.sponsor,
+      sender: s.sender,
+      solver: new InlineDlogSolver(BABY_STEPS, TEST_BOUND),
+      startBlock: 0n,
+      logRange: 16n,
+      log: logs.log,
+      now: () => s.clock.t,
+    });
+    const key = ceremony(s.chain, 22, 2, 2);
+    s.chain.blockNumber += 40n;
+    request(s.chain, key, 22, 22, [6n], [1, 2]);
+    s.chain.maxLogRange = 5n; // a provider capped below the configured range
+    await combiner.tick();
+    expect(s.chain.manager.requests.get(requestIdOf(22))?.plaintexts).toEqual([6n]);
+    expect(logs.loud()).toEqual([]);
+  });
+
   it('keeps the chunks a failed pass already scanned', async () => {
     const { chain, combiner } = setup();
     const key = ceremony(chain, 21, 2, 2);

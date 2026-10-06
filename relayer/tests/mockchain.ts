@@ -271,6 +271,8 @@ export class MockChain {
    * load-balanced public RPC): a range past its head is refused like publicnode and Tenderly do.
    */
   logsHeadLag = 0n;
+  /** Widest eth_getLogs range served; wider ones are refused like a public provider's cap. */
+  maxLogRange: bigint | undefined;
   /** Fail every request whose method this returns an error for (until cleared). */
   failRequests: ((method: string) => Error | undefined) | undefined;
   readonly mined = new Map<string, number>();
@@ -557,6 +559,9 @@ export class MockChain {
     const head = this.blockNumber - this.logsHeadLag;
     if (to > head) {
       throw rpcError(-32602, `block range extends beyond current head block: requested ${to}, head ${head}`);
+    }
+    if (this.maxLogRange !== undefined && to - from + 1n > this.maxLogRange) {
+      throw rpcError(-32005, `query exceeds max block range ${this.maxLogRange}`);
     }
     const topic0 = filter.topics?.[0];
     return this.logs

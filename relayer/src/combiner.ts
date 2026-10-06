@@ -17,6 +17,7 @@ import {
   COUNCIL_MANAGER_ABI,
   combinedPoint,
   fieldsPerCombineTx,
+  isLogRangeError,
   verifyCombine,
   type Hex,
   type Point,
@@ -37,7 +38,7 @@ export interface CombinerOptions {
   solver: DlogSolver;
   /** First block scanned for RequestSubmitted. */
   startBlock: bigint;
-  /** Max blocks per eth_getLogs query. */
+  /** Max blocks per eth_getLogs query; halved (down to 1) when a provider refuses a range. */
   logRange: bigint;
   /** Base of the exponential backoff after a failed attempt. */
   backoffMs?: number;
@@ -75,7 +76,7 @@ export class Combiner {
   private readonly sponsor: Pick<Sponsor, 'sponsor' | 'admits'>;
   private readonly sender: Pick<TxSender, 'status'>;
   private readonly solver: DlogSolver;
-  private readonly logRange: bigint;
+  private logRange: bigint;
   private readonly backoffMs: number;
   private readonly log: Logger;
   private readonly now: () => number;
@@ -191,7 +192,9 @@ export class Combiner {
    *
    * Public endpoints are load-balanced: the backend answering eth_getLogs may be a block or two
    * behind the one that answered eth_blockNumber, and refuses a range past its own head
-   * (-32602). That ends the pass where it is; the next pass picks the rest up.
+   * (-32602). That ends the pass where it is; the next pass picks the rest up. A range the
+   * provider refuses as too large is halved for this and every later pass, so a relayer
+   * restarted months after its start block catches up through any public provider's cap.
    */
   private async discover(): Promise<void> {
     const latest = await this.client.getBlockNumber({ cacheTime: 0 });
@@ -210,6 +213,13 @@ export class Combiner {
         });
       } catch (err) {
         if (isBehindHead(err)) return;
+        // A provider that caps eth_getLogs below the configured range (or the size of its
+        // answer): retry the same blocks in half the range, and keep the smaller range.
+        if (isLogRangeError(err) && this.logRange > 1n) {
+          this.logRange /= 2n;
+          this.log.info('log range refused by the rpc, halving it', { logRange: this.logRange.toString(), err: shortMessage(err) });
+          continue;
+        }
         throw err;
       }
       for (const l of logs) {
