@@ -149,6 +149,19 @@ encryption key. After the vote the sequencer requests the decryption, the member
 app, the relayer combines, and anyone calls `finalizeResultsFromDKG`.
 [tools/davinci-test](tools/davinci-test/README.md) is a complete client.
 
+### Opening results months later
+
+Results are usually opened weeks or months after the ceremony. A member who comes back needs only
+the twelve recovery words and the committee link: the app re-derives the keys, finds the vote and
+the member's share from current contract state through two public RPCs, and never reads event
+logs on the way (public providers refuse long `eth_getLogs` ranges; logs only feed the
+organizer's labels, through a paged scanner). What has to outlive the ceremony is the chain state,
+a hosted copy of the app with its pinned circuit files, a relayer or anyone willing to pay for the
+transactions, and at least `t` members' words: browsers delete site data (Safari after about a
+week without a visit), so members are told to keep the words until the results are opened.
+[docs/architecture.md §6.6](docs/architecture.md#66-opening-results-months-later) has the details;
+`tests/tests/long-delay.test.ts` and the browser journey run it after a 700,000-block gap.
+
 ### Deployments
 
 | Network | Circuit release | CouncilManager | Status |

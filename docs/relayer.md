@@ -157,7 +157,7 @@ Configuration is environment-only.
 | `COUNCIL_CORS_ORIGINS` | empty | Allowed browser origins, comma-separated, or `*` |
 | `COUNCIL_TRUSTED_PROXIES` | empty | Proxy IPs/CIDRs whose `X-Forwarded-For` is honoured (replaces `COUNCIL_TRUST_PROXY`) |
 | `COUNCIL_START_BLOCK` | `0` | First block the combiner scans; set it to the deployment block |
-| `COUNCIL_LOG_RANGE` | `5000` | Maximum blocks per `eth_getLogs` |
+| `COUNCIL_LOG_RANGE` | `5000` | Maximum blocks per `eth_getLogs`; halved automatically when the provider refuses a range |
 | `COUNCIL_COMBINER_POLL_MS` | `5000` | Combiner poll interval |
 | `COUNCIL_BSGS_BABY_STEPS` | `1048576` | BSGS table size (memory/time trade-off) |
 | `COUNCIL_TX_BUMP_AFTER_MS` | `30000` | Fee-bump a transaction pending this long |
@@ -207,7 +207,11 @@ the last 64 blocks on every pass, and moves its cursor chunk by chunk. Public en
 load-balanced: the backend that answers `eth_getLogs` can be a block or two behind the one that
 reported the head, and refuses the range (`-32602 block range extends beyond current head
 block` on publicnode and Tenderly). The pass then stops where it is and the next one picks the
-rest up. A failed pass waits twice as long before the next one, up to a minute. Transient RPC
+rest up. A provider that caps `eth_getLogs` below `COUNCIL_LOG_RANGE` (or refuses an answer as
+too large) gets the same blocks again in half the range, and the smaller range is kept; the
+cursor lives in memory, so a relayer restarted months after `COUNCIL_START_BLOCK` rescans from
+there in those ranges (about 130 requests per 650,000 blocks at 5,000). A failed pass waits twice
+as long before the next one, up to a minute. Transient RPC
 failures (that one, rate limits, timeouts, 5xx, dropped connections) log at `info` as `combiner
 pass deferred` until five in a row, then as a `combiner tick failed` warning; anything else
 warns at once.

@@ -143,9 +143,11 @@ Bitmap conventions, pinned: `qualBitmap` bit `j-1` = dealer `j` dealt; `consumed
 invite `i` consumed; `partialBitmap` bit `i-1` = member `i` has an accepted partial;
 `completedBitmap` bit `k` = field `k` combined.
 
-Every byte a participant needs months later (roster, dealings, ctx inputs, aggregates, partials)
-is reconstructable from these views plus events, from any archive-free RPC: all of it is current
-contract storage, not event-only history.
+Every byte a participant needs months later (roster, dealings, ctx inputs, aggregates, request
+ids, which vote each request belongs to, partials) is current contract storage, readable through
+these views alone from any archive-free RPC at the finalized block. No step a member takes reads
+event logs (§6.6): public providers cap `eth_getLogs` ranges, so a log scan that works the week
+of the ceremony is refused months later.
 
 ### 1.3 Events
 
@@ -167,6 +169,10 @@ event PartialAccepted(bytes32 indexed requestId, uint8 index);
 event FieldsCombined(bytes32 indexed requestId, uint8[] fieldIndexes, uint64[] plaintexts);
 event RequestCompleted(bytes32 indexed requestId);
 ```
+
+Events are for indexers, the relayer's request discovery (§5.2) and labels. The app reads exactly
+one of them, `ParticipantJoined`, to show the organizer which invitation each member used (that
+linkage is not stored); everything it acts on comes from the §1.2 views.
 
 ### 1.4 Custom errors
 
@@ -589,7 +595,9 @@ Modules (public API surface):
 | `keys` | mnemonic generation/restore, HKDF DeriveScalar, all §5.2 derivations, recovery-kit build/parse/verify |
 | `invites` | capability derivation, link build/parse (`#v1.<id>.<hex>`), Invite struct signing |
 | `eip712` | typed-data builders + signers for every §7.2 struct, payload hashes |
-| `client` | viem-based reads over the §1.2 views, event decoding, multi-RPC verification helpers, `getPartialRequestSnapshot`, `verifyRestoredIdentity` |
+| `client` | viem-based reads over the §1.2 views, multi-RPC verification helpers, `getPartialRequestSnapshot`, `verifyRestoredIdentity`, `getRequestIds` / `verifyRequestBinding` (from `requests`), `scanEvents` (from `logs`) |
+| `requests` | request enumeration (`getRequestCount` + `getRequestIdsPage`) and the vote a request belongs to (`getRequestOrigin`, confirmed by `getBinding`, `isAdapterAllowed`, `isCreatorAuthorized` and the recomputed request id), all at one authenticated anchor |
+| `logs` | paged `eth_getLogs` scanner for cosmetic discovery: bounded ranges (10,000 blocks by default), halved on a provider's range or result-cap refusal, a resumable cursor (`LogScanner`), the next provider on any other failure, an incomplete result instead of an exception |
 | `dealing` | coefficient/ephemeral derivation, shares, masks, witness build, proof via worker |
 | `recovery` | §8.6 share recovery with all mandatory checks |
 | `partial` | §9.3 pre-checks, D computation, witness, proof (`buildPartialDecryption`) |
@@ -617,6 +625,12 @@ Public-surface rules, enforced by the implementation:
 - Recovery verification: `CouncilClient.verifyRestoredIdentity` checks a restored root against
   chain state; `kit` exports `kitEntryIdentity(root, entry)` and
   `rehearseEntry(root, entry, expected?)` for the §5.3 rehearsal flow.
+- No critical path reads logs. Restore, roster, dealings, shares, request ids and each request's
+  vote binding come from views at the authenticated anchor (`readRequestBinding` refuses with a
+  named reason: `other-ceremony`, `binding-mismatch`, `adapter-not-allowed`,
+  `creator-not-authorized`, `not-submitted`). `scanEvents` and `LogScanner` exist for labels; they
+  read from one provider at a time, unauthenticated, and their result must never gate an action.
+  `getEvents` is kept for compatibility, pages the same way and throws when it cannot complete.
 - BSGS at the full `2^40` bound measures ~3.5 s worst case in Node (the relayer's combine
   worker; browsers are not expected to run it).
 
@@ -678,7 +692,10 @@ Error codes: `INVALID_ACTION`, `BAD_SIGNATURE`, `WRONG_CHAIN`, `UNSUPPORTED_MANA
 - **Combine worker** (`COUNCIL_COMBINER_ENABLED=true`): polls incomplete requests that have
   ≥ t partials, runs the SDK BSGS natively (≤ 2^40 bound; precomputed baby-step table kept in
   memory), submits combine chunks, backs off on `FieldCompleted` races (another combiner won —
-  fine, the operation is permissionless and idempotent in effect).
+  fine, the operation is permissionless and idempotent in effect). It discovers requests from
+  `RequestSubmitted` logs (ceremonies are not enumerable from state) in `COUNCIL_LOG_RANGE`-block
+  ranges from `COUNCIL_START_BLOCK`, halving the range for good when the provider refuses one; a
+  restart months later rescans from the start block in those ranges.
 - Rate limiting per IP and per action type; CORS restricted to the app origins.
 
 Env: `COUNCIL_RPC_URL` (comma-separated fallbacks), `COUNCIL_MANAGER_ADDRESS`,
@@ -696,8 +713,12 @@ image build (`ui/Dockerfile`, `ui/.do/`):
 
 ```json
 { "chainId": 100, "manager": "0x…", "rpcUrls": ["https://…", "https://…"],
-  "relayerUrl": "https://…", "artifactsBaseUrl": "https://github.com/…/releases/download/…" }
+  "relayerUrl": "https://…", "artifactsBaseUrl": "https://github.com/…/releases/download/…",
+  "deploymentBlock": 11857219 }
 ```
+
+`deploymentBlock` is where label scans start when the organizer's device did not record its
+committee's creation block; `logChunkBlocks` (optional, default 10,000) sets their range.
 
 `rpcUrls` must list at least two independently administered providers on a production chain —
 protocol §9.3's authenticated-read rule depends on it; a single entry is accepted only together
@@ -739,26 +760,39 @@ The invite fragment (`#v1.<id>.<hex>`) is imported and stripped on load (protoco
   indicator, one relayed action. "Keep this page open" live mode: the app polls, pre-downloads
   artifacts, and submits automatically — but never merely because the phase flipped: auto-submit
   fires only for a roster hash the member already approved on this device.
-- **Unlock results**: lists open requests (with bound-process identity shown); runs §9.3 checks;
-  computes the partial proof; one relayed action. Live mode again covers "stay on this page and
-  we'll do it when it's time".
+- **Unlock results**: lists open requests from state (`getRequestCount` + `getRequestIdsPage`),
+  each with the vote it belongs to read from the request record and authenticated (never from
+  logs); runs §9.3 checks; computes the partial proof; one relayed action. Live mode again covers
+  "stay on this page and we'll do it when it's time".
 - **Recovery**: import kit or words; re-derive; verify against chain; show every ceremony in the
   manifest with its status.
+- **This device**: the member's page says whether the browser keeps this site's data
+  (`navigator.storage.persisted()`) and offers to ask again; the join kit step, the
+  "contribution is in" card and the recovery-kit card all say to keep the twelve words until the
+  results are opened.
 
 ### 6.4 Local storage model
 
-Per origin, in `localStorage`/IndexedDB:
+Per origin, in IndexedDB (database `council`):
 
 ```
-council.root.v1        root mnemonic, encrypted with a WebCrypto AES-GCM key derived (PBKDF2)
-                        from a user PIN/passphrase; or plaintext with an explicit opt-in warning
-council.ceremonies.v1  per-ceremony records: role, cid, chainId, manager, inviteId,
-                        participantIndex, cached roster, cached artifacts state
-council.labels.v1      organizer-only: invite label map (names), never transmitted
+vault        council.root.v1: the root mnemonic, AES-GCM encrypted under a non-extractable
+             WebCrypto key that lives only in this store (council.root.key.v1)
+ceremonies   per-ceremony records: role, cid, chainId, manager, inviteId, participantIndex,
+             the approved roster hash, live mode, kit-export bookkeeping, pending actions,
+             organizer: a block at or before the committee's creation (where label scans start)
+labels       organizer-only: invite and vote label maps (names), never transmitted
 ```
 
 Local storage is a cache; the recovery kit is the source of truth. Clearing the browser loses
-nothing that the kit plus chain state cannot restore.
+nothing that the kit (or the twelve words plus the committee link) and chain state cannot
+restore. Browsers do clear it: "best-effort" site data is evicted under storage pressure, and
+Safari deletes all script-written storage of a site after about seven days of use without a visit
+to it, while a member may next open the app months after contributing. The app therefore calls
+`navigator.storage.persist()` whenever it stores a root (not awaited; Chrome decides by engagement,
+Firefox asks the person, Safari grants it only to home-screen apps; a refusal or a missing API is
+handled and only changes what the member's page says) and tells members, plainly and repeatedly,
+to keep the twelve words until the results are opened.
 
 ### 6.5 Copy rules
 
@@ -767,6 +801,46 @@ Plain language throughout; the app never says "wallet", "gas", "sign", "transact
 free for members (we cover the cost). Every irreversible step states its consequence in one
 sentence before the button. Technical detail lives behind a single "details for auditors"
 disclosure per screen, nowhere else.
+
+### 6.6 Opening results months later
+
+A committee's key is typically used long after the ceremony: a vote runs for weeks and the results
+are opened after it ends, so a member may come back three to six months after contributing (three
+months is about 650,000 blocks on Sepolia and 1.5 million on Gnosis), on a new device. Everything that
+member needs is designed to work from current state through public RPCs:
+
+- **Restore**: twelve words + the committee link → keys re-derived → `verifyRestoredIdentity`
+  (views only).
+- **Find the vote**: `getRequestCount` + `getRequestIdsPage`, then `getRequestOrigin` for each
+  request, confirmed by `getBinding`, `isAdapterAllowed`, `isCreatorAuthorized` and the
+  recomputed request id at one finalized anchor agreed by two providers (protocol §9.3 items 1 and
+  3; the user approves exactly that process id, as before).
+- **Recover the share and unlock**: roster, dealings, `PK_i` and ciphertexts from views, the
+  §9.3 snapshot, a browser proof, one relayed action.
+
+None of it reads event logs, so none of it depends on how far back a provider serves
+`eth_getLogs`, and none of it needs an archive node: every read is at the latest finalized block.
+Logs are left to labels (which invitation each member used, on the organizer's page), read through
+the SDK's paged scanner from the committee's creation block when the organizer's device recorded
+one, else from `deploymentBlock`; a scan that cannot finish leaves names out, nothing else.
+`tests/tests/long-delay.test.ts` runs this path after 700,000 mined blocks (about six months)
+through two RPC proxies that refuse `eth_getLogs` over 10,000 blocks and cap answers, and asserts
+the restored members never asked for a log; the browser journey does the same in the app.
+
+What must still exist for results to open, however late:
+
+1. **The chain state**: the CouncilManager, its views contract and both verifiers on a chain that
+   keeps running, reachable through at least two independent RPC providers that serve the
+   finalized block (no archive access needed).
+2. **The app and its circuit files**: a copy of the app pinned to the deployment (or any client
+   built from the protocol) and the six pinned circuit files at `artifactsBaseUrl` or the release
+   URL; the app checks every byte against the SDK's sha256 pins, so any mirror will do.
+3. **Someone to pay for the transactions**: the relayer (and its combine worker), or anyone
+   sending the partials and the combine directly from a funded account; the combine needs no
+   trust (§10.3 of the protocol), and a relayer restarted months later rescans its logs in
+   bounded ranges.
+4. **At least `t` members' twelve words** (or kit files) and the committee link. A member's
+   browser storage is a convenience that may be gone; the words are not optional.
 
 ## 7. Testing strategy
 
@@ -808,12 +882,14 @@ disclosure per screen, nowhere else.
    (host Foundry v1.8.3 at `~/.foundry/bin` with `E2E_FOUNDRY=host`; the
    `ghcr.io/foundry-rs/foundry:stable` image otherwise), driven by the SDK in Node: create, 16
    joins, close, 16 deals with real proofs, finalize, bind via a mock adapter, request, t partials,
-   combine, plaintext assertions; plus the abort paths and a DAVINCI round-trip using
-   `tools/davinci-test` against locally deployed registry contracts. A full run rewrites
-   `tests/GAS.md`.
+   combine, plaintext assertions; plus the abort paths, a DAVINCI round-trip using
+   `tools/davinci-test` against locally deployed registry contracts, and the long-delay test
+   (§6.6: 700,000 blocks later, restore from words and unlock through public-provider RPC limits,
+   no log read). A full run rewrites `tests/GAS.md`.
 6. **Browser e2e** (Playwright, `ui/e2e/`): organizer and participant journeys in a real browser
-   against the `make dev` stack, including kit save/restore, the live mode, and the
-   invite-fragment stripping.
+   against the `make dev` stack, including kit save/restore, the live mode, the
+   invite-fragment stripping, and a restore-and-unlock after a 700,000-block gap with every
+   device's RPC refusing `eth_getLogs` over 10,000 blocks (devices follow the chain's clock).
 7. **Testnet dress rehearsal**: one full ceremony plus one bound DAVINCI process on Sepolia with
    real humans before any production use. The headless half is scripted:
    `scripts/sepolia/deploy.sh` and `scripts/sepolia/run.sh` deploy the pinned release and drive
