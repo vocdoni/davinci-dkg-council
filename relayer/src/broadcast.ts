@@ -12,7 +12,7 @@
 
 import type { Hex } from '@vocdoni/davinci-dkg-council-sdk';
 import type { PublicClient } from 'viem';
-import { shortMessage } from './errors.js';
+import { isRevert, shortMessage } from './errors.js';
 
 export interface Endpoint {
   /** Host only, for logs: never a URL that could carry an API key. */
@@ -96,6 +96,28 @@ export function classifySendError(err: unknown): SendErrorClass {
     }
   }
   return 'unknown';
+}
+
+/**
+ * A load-balanced public RPC answered from a backend a block or two behind the one that gave the
+ * head: `eth_getLogs` up to that head is refused (-32602 "block range extends beyond current head
+ * block" on publicnode and Tenderly), or the block is unknown there.
+ */
+const BEHIND_HEAD = /beyond (the )?current head|header not found|unknown block|block not found|after last accepted block/i;
+
+/** The read hit a backend behind the head the caller saw; the same read succeeds moments later. */
+export function isBehindHead(err: unknown): boolean {
+  return !isRevert(err) && BEHIND_HEAD.test(text(err));
+}
+
+/**
+ * A read failure that says nothing about the request and clears by itself: a lagging backend, a
+ * rate limit, a timeout, a 5xx or a dropped connection. Reverts and endpoint refusals (method,
+ * plan, auth) are not: those need attention.
+ */
+export function isTransientReadError(err: unknown): boolean {
+  if (isRevert(err)) return false;
+  return isBehindHead(err) || classifySendError(err) === 'transient';
 }
 
 /** Every endpoint refused: carries the most informative refusal as its cause. */

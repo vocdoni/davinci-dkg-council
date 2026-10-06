@@ -22,6 +22,7 @@ import {
   type Point,
 } from '@vocdoni/davinci-dkg-council-sdk';
 import type { PublicClient } from 'viem';
+import { describeSendError as describeRpcError, isBehindHead, isTransientReadError } from './broadcast.js';
 import { DlogNotFoundError, type DlogSolver } from './dlog.js';
 import { RelayError, revertName, shortMessage } from './errors.js';
 import { silentLogger, type Logger } from './log.js';
@@ -58,6 +59,10 @@ interface OpenRequest {
 type RequestTuple = readonly [Hex, number, number, number, readonly (readonly bigint[])[]];
 
 const MAX_BACKOFF_MS = 5 * 60_000;
+/** Cap of the pause between passes after consecutive failed passes. */
+const MAX_TICK_BACKOFF_MS = 60_000;
+/** Consecutive transient failures logged at info before they become a warning. */
+const TRANSIENT_WARN_AFTER = 5;
 /** Blocks rescanned on every pass (reorg tolerance of request discovery). */
 const REORG_WINDOW = 64n;
 const MAX_DONE = 100_000;
@@ -84,6 +89,8 @@ export class Combiner {
   private readonly partialCache = new Map<string, Point[]>();
   private running = false;
   private timer: NodeJS.Timeout | undefined;
+  /** Consecutive failed passes (discovery), for the loop's backoff. */
+  private tickFailures = 0;
 
   constructor(opts: CombinerOptions) {
     this.client = opts.client;
@@ -108,12 +115,37 @@ export class Combiner {
     this.stop();
     const loop = (): void => {
       this.tick()
-        .catch((err: unknown) => this.log.warn('combiner tick failed', { err: shortMessage(err) }))
-        .finally(() => {
-          if (this.timer !== undefined) this.timer = setTimeout(loop, pollMs);
+        .then(
+          () => this.passSucceeded(pollMs),
+          (err: unknown) => this.passFailed(err, pollMs),
+        )
+        .then((delay) => {
+          if (this.timer !== undefined) this.timer = setTimeout(loop, delay);
         });
     };
     this.timer = setTimeout(loop, 0);
+  }
+
+  private passSucceeded(pollMs: number): number {
+    if (this.tickFailures >= TRANSIENT_WARN_AFTER) this.log.info('combiner recovered', { failures: this.tickFailures });
+    this.tickFailures = 0;
+    return pollMs;
+  }
+
+  /**
+   * A failed pass backs off exponentially. Public RPCs fail now and then (rate limits, a lagging
+   * backend, timeouts): those are logged at info until they persist; anything else warns.
+   */
+  private passFailed(err: unknown, pollMs: number): number {
+    this.tickFailures++;
+    const delay = Math.min(MAX_TICK_BACKOFF_MS, pollMs * 2 ** (this.tickFailures - 1));
+    const fields = { err: describeRpcError(err), failures: this.tickFailures, retryInMs: delay };
+    if (isTransientReadError(err) && this.tickFailures < TRANSIENT_WARN_AFTER) {
+      this.log.info('combiner pass deferred: transient rpc error', fields);
+    } else {
+      this.log.warn('combiner tick failed', fields);
+    }
+    return delay;
   }
 
   stop(): void {
@@ -132,7 +164,11 @@ export class Combiner {
         try {
           await this.process(req);
         } catch (err) {
-          this.backoff(req, err instanceof RelayError ? `${err.code}: ${err.detail}` : shortMessage(err));
+          this.backoff(
+            req,
+            err instanceof RelayError ? `${err.code}: ${err.detail}` : describeRpcError(err),
+            isTransientReadError(err),
+          );
         }
       }
     } finally {
@@ -140,30 +176,42 @@ export class Combiner {
     }
   }
 
-  private backoff(req: OpenRequest, reason: string): void {
+  private backoff(req: OpenRequest, reason: string, transient = false): void {
     req.failures++;
     req.retryAt = this.now() + Math.min(MAX_BACKOFF_MS, this.backoffMs * 2 ** (req.failures - 1));
-    this.log.warn('combine attempt failed', { requestId: req.requestId, failures: req.failures, err: reason });
+    const fields = { requestId: req.requestId, failures: req.failures, err: reason };
+    if (transient && req.failures < TRANSIENT_WARN_AFTER) this.log.info('combine attempt deferred: transient rpc error', fields);
+    else this.log.warn('combine attempt failed', fields);
   }
 
   /**
    * Scan RequestSubmitted logs up to the head. The last REORG_WINDOW blocks are scanned
    * again on every pass, so a request a short reorg moved into an already-scanned height
-   * is still found.
+   * is still found. The cursor advances chunk by chunk, so a failed chunk only repeats itself.
+   *
+   * Public endpoints are load-balanced: the backend answering eth_getLogs may be a block or two
+   * behind the one that answered eth_blockNumber, and refuses a range past its own head
+   * (-32602). That ends the pass where it is; the next pass picks the rest up.
    */
   private async discover(): Promise<void> {
     const latest = await this.client.getBlockNumber({ cacheTime: 0 });
     let from = this.nextBlock > this.startBlock + REORG_WINDOW ? this.nextBlock - REORG_WINDOW : this.startBlock;
     while (from <= latest) {
       const to = from + this.logRange - 1n < latest ? from + this.logRange - 1n : latest;
-      const logs = await this.client.getContractEvents({
-        address: this.manager,
-        abi: COUNCIL_MANAGER_ABI,
-        eventName: 'RequestSubmitted',
-        fromBlock: from,
-        toBlock: to,
-        strict: true,
-      });
+      let logs;
+      try {
+        logs = await this.client.getContractEvents({
+          address: this.manager,
+          abi: COUNCIL_MANAGER_ABI,
+          eventName: 'RequestSubmitted',
+          fromBlock: from,
+          toBlock: to,
+          strict: true,
+        });
+      } catch (err) {
+        if (isBehindHead(err)) return;
+        throw err;
+      }
       for (const l of logs) {
         const requestId = (l.args as { requestId: Hex }).requestId.toLowerCase() as Hex;
         if (this.open.has(requestId) || this.done.has(requestId)) continue;
@@ -178,6 +226,7 @@ export class Combiner {
         this.log.info('request discovered', { requestId, block: l.blockNumber });
       }
       from = to + 1n;
+      if (from > this.nextBlock) this.nextBlock = from;
     }
     this.nextBlock = latest + 1n;
   }

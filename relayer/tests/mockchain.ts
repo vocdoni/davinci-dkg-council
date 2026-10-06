@@ -264,6 +264,13 @@ export class MockChain {
   failNextCall: Error | undefined;
   /** Observe every eth_sendRawTransaction before the node handles it. */
   beforeSend: ((raw: Hex) => void) | undefined;
+  /**
+   * Blocks the backend answering eth_getLogs lags behind the one answering eth_blockNumber (a
+   * load-balanced public RPC): a range past its head is refused like publicnode and Tenderly do.
+   */
+  logsHeadLag = 0n;
+  /** Fail every request whose method this returns an error for (until cleared). */
+  failRequests: ((method: string) => Error | undefined) | undefined;
   readonly mined = new Map<string, number>();
   readonly mempool: MempoolTx[] = [];
   readonly sentRaw: Hex[] = [];
@@ -545,6 +552,10 @@ export class MockChain {
   private getLogs(filter: { address?: Hex; topics?: (Hex | Hex[] | null)[]; fromBlock?: string; toBlock?: string }): unknown[] {
     const from = filter.fromBlock && filter.fromBlock !== 'latest' ? BigInt(filter.fromBlock) : 0n;
     const to = filter.toBlock && filter.toBlock !== 'latest' ? BigInt(filter.toBlock) : this.blockNumber;
+    const head = this.blockNumber - this.logsHeadLag;
+    if (to > head) {
+      throw rpcError(-32602, `block range extends beyond current head block: requested ${to}, head ${head}`);
+    }
     const topic0 = filter.topics?.[0];
     return this.logs
       .filter((l) => l.blockNumber >= from && l.blockNumber <= to)
@@ -580,6 +591,8 @@ export class MockChain {
   }
 
   async request(method: string, params: unknown[]): Promise<unknown> {
+    const failure = this.failRequests?.(method);
+    if (failure) throw failure;
     switch (method) {
       case 'eth_chainId':
         return hex(this.chainId);

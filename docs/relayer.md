@@ -175,6 +175,18 @@ Configuration is environment-only.
 - **Funding.** Watch the balance in `/v1/health`. A relayer that runs dry fails its broadcasts;
   nothing is lost on chain, and the signed actions can be resubmitted later or sent directly.
 
+## Combine worker
+
+The worker scans `RequestSubmitted` logs in `COUNCIL_LOG_RANGE` chunks up to the head, rescanning
+the last 64 blocks on every pass, and moves its cursor chunk by chunk. Public endpoints are
+load-balanced: the backend that answers `eth_getLogs` can be a block or two behind the one that
+reported the head, and refuses the range (`-32602 block range extends beyond current head
+block` on publicnode and Tenderly). The pass then stops where it is and the next one picks the
+rest up. A failed pass waits twice as long before the next one, up to a minute. Transient RPC
+failures (that one, rate limits, timeouts, 5xx, dropped connections) log at `info` as `combiner
+pass deferred` until five in a row, then as a `combiner tick failed` warning; anything else
+warns at once.
+
 ## State
 
 One JSON file, `<COUNCIL_DATA_DIR>/<chainId>-<manager>-<relayer>.json`, written atomically:

@@ -1,18 +1,39 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COUNCIL_MANAGER_ABI, encodeAction, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
 import { decodeFunctionData, parseTransaction } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Combiner } from '../src/combiner.js';
 import { InlineDlogSolver, type DlogSolver } from '../src/dlog.js';
+import type { Logger } from '../src/log.js';
 import { TxSender } from '../src/sender.js';
-import { ceremonyIdOf, encryptAll, MANAGER, MockChain, partialOf, requestIdOf, testKey, type TestKey } from './mockchain.js';
+import {
+  ceremonyIdOf,
+  encryptAll,
+  MANAGER,
+  MockChain,
+  partialOf,
+  requestIdOf,
+  rpcError,
+  testKey,
+  type TestKey,
+} from './mockchain.js';
 import { stack } from './stack.js';
 
 /** A small BSGS table keeps the tests fast; plaintexts stay below 2^24 here. */
 const BABY_STEPS = 1 << 12;
 const TEST_BOUND = 1n << 24n;
 
-function setup(opts: { automine?: boolean; bound?: bigint; solver?: DlogSolver; budgetWei?: bigint } = {}) {
+function capture() {
+  const entries: { level: string; msg: string; fields?: Record<string, unknown> }[] = [];
+  const log: Logger = {
+    info: (msg, fields) => entries.push({ level: 'info', msg, fields }),
+    warn: (msg, fields) => entries.push({ level: 'warn', msg, fields }),
+    error: (msg, fields) => entries.push({ level: 'error', msg, fields }),
+  };
+  return { log, entries, loud: () => entries.filter((e) => e.level !== 'info') };
+}
+
+function setup(opts: { automine?: boolean; bound?: bigint; solver?: DlogSolver; budgetWei?: bigint; log?: Logger } = {}) {
   const s = stack({ automine: opts.automine, budgetWei: opts.budgetWei });
   const combiner = new Combiner({
     client: s.chain.client,
@@ -23,6 +44,7 @@ function setup(opts: { automine?: boolean; bound?: bigint; solver?: DlogSolver; 
     startBlock: 0n,
     logRange: 2n, // force chunked log scanning
     backoffMs: 1000,
+    log: opts.log,
     now: () => s.clock.t,
   });
   return { ...s, combiner };
@@ -281,5 +303,94 @@ describe('combine worker', () => {
     expect(combineCalls(chain)).toHaveLength(1);
     expect(chain.manager.requests.get(requestIdOf(7))?.plaintexts).toEqual([21n, 22n]);
     expect(combiner.watching).toEqual([]);
+  });
+});
+
+describe('combine worker on public RPCs (Railway: "combiner tick failed" every few minutes)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a log backend behind the head ends the pass quietly, and the next pass finds the request', async () => {
+    const logs = capture();
+    const { chain, combiner } = setup({ log: logs.log });
+    const key = ceremony(chain, 20, 2, 2);
+    chain.blockNumber += 6n;
+    request(chain, key, 20, 20, [9n], [1, 2]); // the request and its two partials: the last three blocks
+    // The eth_getLogs backend is three blocks behind the eth_blockNumber one: a range up to the
+    // head is refused with -32602, like publicnode and Tenderly do.
+    chain.logsHeadLag = 3n;
+    await expect(combiner.tick()).resolves.toBeUndefined();
+    expect(combiner.watching).toEqual([]);
+    chain.logsHeadLag = 0n;
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(20))?.plaintexts).toEqual([9n]);
+    expect(logs.loud()).toEqual([]);
+  });
+
+  it('keeps the chunks a failed pass already scanned', async () => {
+    const { chain, combiner } = setup();
+    const key = ceremony(chain, 21, 2, 2);
+    request(chain, key, 21, 21, [4n], [1, 2]); // an early block
+    chain.blockNumber += 200n;
+    let logCalls = 0;
+    // Rate limited after 60 chunks of 2 blocks (block 120 of about 200).
+    chain.failRequests = (method) => (method === 'eth_getLogs' && ++logCalls > 60 ? rpcError(-32005, 'rate limited') : undefined);
+    await expect(combiner.tick()).rejects.toThrow();
+    // The request in the scanned chunks was found, and the next pass resumes near the failure.
+    expect(combiner.watching).toEqual([requestIdOf(21)]);
+    logCalls = 0;
+    chain.failRequests = (method) => {
+      if (method === 'eth_getLogs') logCalls++;
+      return undefined;
+    };
+    await combiner.tick();
+    // From block 120 - 64: about 75 chunks, not the 100 of the whole range again.
+    expect(logCalls).toBeLessThan(80);
+    expect(chain.manager.requests.get(requestIdOf(21))?.plaintexts).toEqual([4n]);
+  });
+
+  it('backs off between failed passes, logging transient rpc errors at info until they persist', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const logs = capture();
+    const { chain, combiner } = setup({ log: logs.log });
+    let heads = 0;
+    let down = true;
+    chain.failRequests = (method) => {
+      if (method !== 'eth_blockNumber') return undefined;
+      heads++;
+      return down ? rpcError(-32005, 'rate limit exceeded') : undefined;
+    };
+    combiner.start(1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(heads).toBe(1);
+    // 1 s, 2 s, 4 s, 8 s between the failed passes: four more by t = 15 s, not fifteen.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(heads).toBe(5);
+    const failures = logs.entries.filter((e) => /combiner/.test(e.msg));
+    expect(failures.map((e) => e.level)).toEqual(['info', 'info', 'info', 'info', 'warn']);
+    expect(failures[0]?.msg).toBe('combiner pass deferred: transient rpc error');
+    expect(failures[0]?.fields).toMatchObject({ err: 'rate limit exceeded', failures: 1, retryInMs: 1000 });
+    expect(failures[4]?.msg).toBe('combiner tick failed');
+
+    down = false;
+    await vi.advanceTimersByTimeAsync(16_000); // the sixth pass succeeds
+    expect(logs.entries.at(-1)?.msg).toBe('combiner recovered');
+    const before = heads;
+    await vi.advanceTimersByTimeAsync(3_000); // back to the 1 s poll
+    expect(heads - before).toBe(3);
+    combiner.stop();
+  });
+
+  it('warns at once on an error that is not transient', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const logs = capture();
+    const { chain, combiner } = setup({ log: logs.log });
+    chain.failRequests = (method) =>
+      method === 'eth_blockNumber' ? rpcError(-32601, 'the method eth_blockNumber does not exist/is not available') : undefined;
+    combiner.start(1000);
+    await vi.advanceTimersByTimeAsync(0);
+    combiner.stop();
+    expect(logs.entries.map((e) => [e.level, e.msg])).toEqual([['warn', 'combiner tick failed']]);
   });
 });
