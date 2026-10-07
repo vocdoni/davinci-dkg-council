@@ -1058,7 +1058,8 @@ The optional `davinci` object pins the DAVINCI Elections connection
 `{ "registry": "0x…", "electionsOrigins": ["https://elections.davinci.vote"] }` — the DAVINCI
 ProcessRegistry the app reads `councilAdapter()` from, and the allowlisted Elections servers
 (bare `https` origins; `http` only in dev mode). A zero registry validates and leaves the
-connection off (the committed Gnosis placeholder). When pinned, the organizer dashboard's
+connection off (for deployments without an Elections server; the committed Gnosis config pins
+the production registry). When pinned, the organizer dashboard's
 "Connect to DAVINCI Elections" card (`ui/src/components/DavinciConnectCard.tsx`,
 `ui/src/lib/davinci.ts`) turns a one-use pairing code into the two grants, failing closed on any
 deployment mismatch before anything is signed.

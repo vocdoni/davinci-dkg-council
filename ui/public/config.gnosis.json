@@ -13,8 +13,7 @@
     "https://github.com/vocdoni/davinci-dkg-council/releases/download/{release}"
   ],
   "davinci": {
-    "_TODO": "replace the zero registry with the R2 DAVINCI ProcessRegistry address once deployed; until then the Elections connection is off",
-    "registry": "0x0000000000000000000000000000000000000000",
+    "registry": "0x20b96e465ca7c3536b9c733571ec1ecf42b2ea21",
     "electionsOrigins": ["https://elections.davinci.vote"]
   },
   "devMode": false

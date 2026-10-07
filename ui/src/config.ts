@@ -66,9 +66,10 @@ export interface AppConfig {
   /** Older managers on this chain still served (current first is `manager`). */
   legacyDeployments: LegacyDeployment[];
   /**
-   * The DAVINCI Elections connection. Absent (or configured with a zero registry, the committed
-   * placeholder until the registry is deployed): the pairing card is off. config.json also
-   * accepts the older key `davinciRegistry`; without `electionsOrigins` it enables nothing.
+   * The DAVINCI Elections connection. Absent (or configured with a zero registry, the
+   * off-switch for deployments without an Elections server): the pairing card is off.
+   * config.json also accepts the older key `davinciRegistry`; without `electionsOrigins`
+   * it enables nothing.
    */
   davinci?: DavinciConfig;
   /** Blocks per eth_getLogs request of those scans (default 10,000; halved when a provider refuses). */
@@ -221,7 +222,7 @@ function davinciConfig(raw: unknown, devMode: boolean): DavinciConfig | undefine
     throw new ConfigError('davinci.electionsOrigins lists the same origin twice');
   }
   const registry = d.registry.toLowerCase() as Hex;
-  // The committed placeholder until the registry is deployed: everything validated, nothing on.
+  // The zero-registry off-switch (deployments without an Elections server): validated, nothing on.
   if (registry === ZERO_ADDRESS) return undefined;
   return { registry, electionsOrigins };
 }
