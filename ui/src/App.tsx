@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { Layout } from './components/Layout';
-import { Note, Spinner } from './components/ui';
+import { Layout, Page } from './components/Layout';
+import { Loading, Note, Spinner } from './components/ui';
 import { loadConfig } from './config';
 import { captureInviteFragment } from './lib/inviteCapture';
 import { archiveAllRecords, listRecords, type CeremonyRecord } from './lib/records';
@@ -69,7 +69,7 @@ export function AppProvider({
 
   if (!ready) {
     return (
-      <div className="p-8 text-center">
+      <div className="flex min-h-screen items-center justify-center bg-paper p-8">
         <Spinner label="Opening…" />
       </div>
     );
@@ -131,14 +131,18 @@ export default function App() {
   if (error) {
     return (
       <Layout>
-        <Note tone="bad">This deployment is not set up correctly ({error}). Please tell whoever runs it.</Note>
+        <Page>
+          <Note tone="bad">This deployment is not set up correctly ({error}). Please tell whoever runs it.</Note>
+        </Page>
       </Layout>
     );
   }
   if (!deployments) {
     return (
       <Layout>
-        <Spinner label="Opening…" />
+        <Page>
+          <Loading label="Opening…" />
+        </Page>
       </Layout>
     );
   }

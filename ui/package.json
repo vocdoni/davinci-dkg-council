@@ -15,6 +15,7 @@
     "mock-relayer": "node scripts/mock-relayer.mjs"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.3.0",
     "@vocdoni/davinci-dkg-council-sdk": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
