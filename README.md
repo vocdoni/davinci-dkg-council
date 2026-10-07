@@ -11,12 +11,13 @@ price: every action is an EIP-712 signed message that a relayer forwards.
 [![Build and Test](https://github.com/vocdoni/davinci-dkg-council/actions/workflows/main.yml/badge.svg)](https://github.com/vocdoni/davinci-dkg-council/actions/workflows/main.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 
-> **Trusted-setup status.** Every published circuit release so far (`circuits-v1`) uses a
-> **development** phase-2 setup: whoever holds its toxic waste can forge dealings and partial
-> decryptions. It must never be used for a real election — rehearsals only. A production
-> deployment requires the multi-party phase-2 ceremony (a new release and a new manager; tooling
-> is being added under `circuits/scripts/ceremony/`). See
-> [docs/deployments.md](docs/deployments.md#circuit-release).
+> **Production beta on Gnosis, development trusted setup.** The Gnosis deployment is a
+> production beta (https://council-gnosis-ui-production.up.railway.app) on `circuits-v1`, the
+> only circuit release so far, whose phase 2 is a **development** setup with one contributor:
+> whoever holds its toxic waste could forge dealings and partial decryptions. The owner accepted
+> that for the beta, and the app says so on every page. A deployment without that trade-off needs
+> the multi-party phase-2 ceremony (a new release and a new manager; tooling under
+> `circuits/scripts/ceremony/`). See [docs/deployments.md](docs/deployments.md#circuit-release).
 
 ## Overview
 
@@ -130,12 +131,14 @@ daily budget.
 ### Hosting the app
 
 The app is a static bundle with a runtime `/config.json` naming the chain, the manager, two or
-more RPC providers, the relayer and a mirror of the circuit files. `ui/Dockerfile` builds it
+more RPC providers, the relayer and mirrors of the circuit files (the DAVINCI CDN,
+`https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/<release>/`, and the GitHub
+release by default). `ui/Dockerfile` builds it
 (`ghcr.io/vocdoni/davinci-dkg-council-ui`, nginx with a single-page-app fallback) and
 `ui/.do/davinci-dkg-council-ui.yaml` deploys it to DigitalOcean App Platform; both render the
 config from build arguments ([docs/deployments.md](docs/deployments.md#app-and-relayer)).
 `scripts/railway-deploy-ui.sh` and `scripts/railway-deploy-relayer.sh` host both on Railway, with
-the circuit files served by the app's own origin
+a copy of the circuit files served by the app's own origin and tried first
 ([Hosting on Railway](docs/deployments.md#hosting-on-railway)).
 
 ### Binding DAVINCI processes
@@ -186,10 +189,11 @@ keep the words until the results are opened.
 | Network | Circuit release | CouncilManager | Status |
 |---|---|---|---|
 | Sepolia | `circuits-v1` (development setup) | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | rehearsals only; protocol-v1 manager, v2 redeploy pending (`0x57ef…3070`, the first deployment, is superseded) |
-| Gnosis | `circuits-v1` (development setup) | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | **TEST** deployment, protocol v2; rehearsals and integration tests only, never a real election |
+| Gnosis | `circuits-v1` (development setup) | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | **production beta**, protocol v2, development trusted setup accepted for the beta |
 
-`circuits-v1` is a **development phase 2, never for real elections** (see the trusted-setup note
-at the top). The Sepolia app runs at
+`circuits-v1` is a **development phase 2** (see the note at the top). The Gnosis production beta
+runs at https://council-gnosis-ui-production.up.railway.app with the relayer
+https://council-gnosis-relayer-production.up.railway.app; the Sepolia rehearsal app runs at
 https://council-ui-production.up.railway.app, with a public relayer.
 [docs/deployments.md](docs/deployments.md) has every address, the release pins, the first live
 ceremony (gas, cost and timings) and how to deploy.
@@ -205,7 +209,7 @@ ceremony (gas, cost and timings) and how to deploy.
 - [docs/deployments.md](docs/deployments.md): release pins, deploying, app configuration.
 - [docs/davinci-integration.md](docs/davinci-integration.md): building a DAVINCI product on a
   Council key — davinci-sdk `keyMode: 'council'`, the grants, scheduled vs manual opening, the
-  Gnosis test deployment and a worked end-to-end example.
+  Gnosis deployment, a worked end-to-end example and the planned DAVINCI Elections connection.
 - [docs/organizer-guide.md](docs/organizer-guide.md): the organizer runbook — choosing `t` and
   `n`, decryption modes, kit custody, the pre-opening drill, monitoring.
 - [docs/hosting.md](docs/hosting.md): hosting and mirror policy — origins, artifact mirrors,

@@ -4,30 +4,42 @@
 |---|---|---|---:|---|
 | Sepolia (11155111) | `circuits-v1` (development setup) | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | 11,857,219 | **current**; rehearsals only |
 | Sepolia (11155111) | `circuits-v1` (development setup) | [`0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070`](https://sepolia.etherscan.io/address/0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070) | 11,856,029 | superseded on 2026-10-06: its affine finalize needs 17.24M gas at `n = t = 16` under Glamsterdam ([below](#superseded-first-deployment)) |
-| Gnosis (100) | `circuits-v1` (development setup) | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | 48,627,018 | **TEST** deployment on a production chain (`ALLOW_DEV_SETUP=true`); rehearsals and integration tests only ([below](#gnosis-chain-test-deployment)) |
+| Gnosis (100) | `circuits-v1` (development setup) | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | 48,627,018 | **production beta** since 2026-10-07, on the development setup the owner accepted for the beta (`ALLOW_DEV_SETUP=true`); hosted app and relayer ([below](#gnosis-chain-production-beta)) |
 
-There is no production deployment: `circuits-v1` is a development phase 2 (see
-[Circuit release](#circuit-release)), on Sepolia and on Gnosis alike. `scripts/sepolia/deployment.json`
-is the machine-readable record of the current Sepolia deployment, which `scripts/sepolia/run.sh`
-and the Railway scripts read; `scripts/gnosis/deployment.json` is the record of the Gnosis TEST
-deployment, which `scripts/gnosis/run.sh` reads.
+The Gnosis manager is the **production beta**: real committees and DAVINCI elections may use it,
+on `circuits-v1`, a development phase 2 (see [Circuit release](#circuit-release)) that the owner
+accepted for the beta on 2026-10-07. Whoever holds that setup's toxic waste could forge dealings
+and partial decryptions; the app says so on every page. A deployment without that trade-off is a
+multi-party phase 2, which means a new release and a new manager. Sepolia stays a rehearsal
+deployment. `scripts/sepolia/deployment.json` is the machine-readable record of the current
+Sepolia deployment, which `scripts/sepolia/run.sh` and the Railway scripts read;
+`scripts/gnosis/deployment.json` is the record of the Gnosis deployment, which
+`scripts/gnosis/run.sh` and the Railway scripts read for it.
 
-The Sepolia deployment has a public app and relayer on Railway
+Both deployments have a public app and relayer on Railway, one project each
 ([Hosting on Railway](#hosting-on-railway)):
 
-| Service | URL |
-|---|---|
-| App | https://council-ui-production.up.railway.app |
-| Relayer | https://council-relayer-production.up.railway.app (`/v1/health`) |
+| Network | Service | URL |
+|---|---|---|
+| Gnosis (production beta) | App | https://council-gnosis-ui-production.up.railway.app |
+| Gnosis (production beta) | Relayer | https://council-gnosis-relayer-production.up.railway.app (`/v1/health`, `/v1/metrics`) |
+| Sepolia | App | https://council-ui-production.up.railway.app |
+| Sepolia | Relayer | https://council-relayer-production.up.railway.app (`/v1/health`) |
 
-## Gnosis Chain (TEST deployment)
+The circuit files are on the DAVINCI CDN,
+`https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/circuits-v1/` (the six pinned files
+and `release.json`), and on the `circuits-v1` GitHub release.
 
-> **TEST deployment, development setup.** This manager is bound to `circuits-v1`, whose phase 2
-> had one contributor, and was deployed to a production chain with `ALLOW_DEV_SETUP=true`:
-> whoever holds that setup's toxic waste can forge dealings and partial decryptions. It is for
-> rehearsals and integration tests (the DAVINCI deployment on Gnosis uses it), never for a real
-> election. The app shows its "Test setup" banner on every page for it. A production Gnosis
-> deployment needs the multi-party ceremony release and a new manager.
+## Gnosis Chain (production beta)
+
+> **Production beta, development setup.** This manager is bound to `circuits-v1`, whose phase 2
+> had one contributor, and was deployed with `ALLOW_DEV_SETUP=true`: whoever holds that setup's
+> toxic waste can forge dealings and partial decryptions. It was deployed on 2026-10-07 as a TEST
+> deployment and became the production beta the same day, when the owner accepted the
+> development setup for the beta; the DAVINCI deployment on Gnosis binds to it. The app shows a
+> "Beta — development trusted setup" banner on every page that says so in plain words. A
+> deployment without that trade-off needs the multi-party ceremony release and a new manager.
+> The rehearsal ceremonies below stay on chain; they are tests.
 
 Deployed on 2026-10-07 at 01:22 UTC from `0x42fc20654efd78c6887ff0bd1cc50c9ec1dab589` with
 `ALLOW_DEV_SETUP=true scripts/gnosis/deploy.sh`, in blocks 48,627,016 to 48,627,018. Gnosis runs
@@ -455,9 +467,9 @@ Every deployment is bound to one circuit release (protocol §4.4): the manager's
 
 > **Development setup.** `circuits-v1` is a development phase 2 (one local snarkjs contribution
 > plus a beacon, `DEVELOPMENT_SETUP = true`): anyone holding its toxic waste could forge dealings
-> and partials. Deploy it for rehearsals only, never for a real election. A production deployment
-> needs a multi-party phase 2, which is a new release and a new manager; the ceremony tooling is
-> being added under `circuits/scripts/ceremony/`.
+> and partials. Only the Gnosis production beta runs it outside rehearsals, by the owner's
+> decision; a deployment without that trade-off needs a multi-party phase 2, which is a new
+> release and a new manager (the ceremony tooling is under `circuits/scripts/ceremony/`).
 
 | Pin | Value |
 |---|---|
@@ -471,8 +483,10 @@ Every deployment is bound to one circuit release (protocol §4.4): the manager's
 The verifier code hashes hold for the committed `solidity/foundry.toml` (solc 0.8.28, via_ir,
 `optimizer_runs = 1`, `evm_version = "cancun"`); another compiler setting is another hash, and
 the deploy script refuses it. The circuit files themselves (`deal.wasm`, `partial.wasm`, both
-`*_final.zkey`, both vkeys) are the `circuits-v1` GitHub release; the SDK pins their sha256 in
-`sdk/src/artifacts.ts`.
+`*_final.zkey`, both vkeys) are the `circuits-v1` GitHub release, copied with `release.json` to
+the DAVINCI CDN (`https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/circuits-v1/`);
+the SDK pins their sha256 in `sdk/src/artifacts.ts` and downloads them from the CDN first, the
+GitHub release second.
 
 ## Deploying
 
@@ -530,7 +544,8 @@ the addresses and update this page, `ui/public/config.sepolia.json` and
 to the first of `rpc.gnosischain.com`, publicnode and dRPC that serves chain 100, writing
 `scripts/gnosis/deployment.json` and deploying no test adapter. Chain 100 is not a test chain:
 a `DEVELOPMENT_SETUP` release is refused there unless `ALLOW_DEV_SETUP=true` is passed
-explicitly, which only a TEST deployment may do. Gnosis runs Osaka (no state gas), so leave
+explicitly, which only a TEST deployment, or a beta whose owner accepted the development setup,
+may do. Gnosis runs Osaka (no state gas), so leave
 `COUNCIL_STATE_GAS` unset everywhere. For a TEST deployment's rehearsals, deploy the test adapter
 afterwards from a key of its own, which becomes its registry (the deployer key stays free for the
 DAVINCI deployment); the record marks it `"testOnly": true`:
@@ -572,26 +587,29 @@ min on a local Anvil (B's dealing phase is at least 600 s).
 
 ## App and relayer
 
-The app reads its deployment from `/config.json` (architecture §6). The committed Sepolia
-configurations point at the deployment above, but two URLs are still placeholders (the Railway
-app below renders its own):
+The app reads its deployment from `/config.json` (architecture §6). The committed configurations
+point at the deployments above; the Sepolia ones still carry a placeholder relayer (the Railway
+apps below render their own config):
 
 | File | Deployment | Placeholders |
 |---|---|---|
-| `ui/public/config.sepolia.json` | `manager` and `deploymentBlock` of the Sepolia deployment, three `rpcUrls` | `relayerUrl` and `artifactsBaseUrl`, on the reserved `.invalid` TLD |
-| `ui/.do/davinci-dkg-council-ui.yaml` | the same values as build-time variables | `RELAYER_URL`, `ARTIFACTS_BASE_URL` |
-| `ui/public/config.gnosis.json` | the Gnosis TEST deployment: its `manager` and `deploymentBlock`, publicnode and `rpc.gnosischain.com` as `rpcUrls` | `relayerUrl` and `artifactsBaseUrl`, on the reserved `.invalid` TLD |
+| `ui/public/config.sepolia.json` | `manager` and `deploymentBlock` of the Sepolia deployment, two `rpcUrls`, the CDN and the GitHub release as `artifactsBaseUrls` | `relayerUrl`, on the reserved `.invalid` TLD |
+| `ui/.do/davinci-dkg-council-ui.yaml` | the same values as build-time variables | `RELAYER_URL` |
+| `ui/public/config.gnosis.json` | the Gnosis production beta, complete: its `manager` and `deploymentBlock`, publicnode and `rpc.gnosischain.com` as `rpcUrls`, the hosted relayer, and as `artifactsBaseUrls` the hosted app's own copy, the CDN and the GitHub release | none |
 
-`make ui-gnosis RELAYER_URL=https://… [ARTIFACTS_URL=https://…]` serves the app against the
-Gnosis TEST deployment. Its circuit release is a development setup, so the app shows the "Test
-setup — do not use for real elections" banner on every page (checked on 2026-10-07 in headless
-Chromium against `config.gnosis.json`: the banner names `circuits-v1`, read from the manager
-through both RPCs, and the committee of run A loads as live).
+`make ui-gnosis [RELAYER_URL=https://…] [ARTIFACTS_URL=https://…]` serves the app against the
+Gnosis production beta (the hosted relayer by default). Its circuit release is a development
+setup, so the app shows the "Beta — development trusted setup" banner on every page, naming
+`circuits-v1` once the manager's release id is read through both RPCs (the earlier "Test setup —
+do not use for real elections" wording was checked on 2026-10-07 in headless Chromium against
+`config.gnosis.json`, where the committee of run A loads as live).
 
-A hosted app needs a public relayer and a public mirror of the circuit files. While this
-repository is private, browsers cannot fetch the `circuits-v1` release assets: a mirror is
-required, not optional. Serve the app against the Sepolia deployment with
-`make ui-sepolia RELAYER_URL=https://… [ARTIFACTS_URL=https://…]`, or build an image for it:
+A hosted app needs a public relayer and circuit files a browser can read. A browser never reads
+the GitHub release (its downloads redirect without CORS headers, and the repository is private),
+and reads the CDN only once the bucket's CORS rule is set, so the Railway apps serve the six
+files from their own origin and list that copy first. Serve the app against the Sepolia
+deployment with `make ui-sepolia RELAYER_URL=https://… [ARTIFACTS_URL=https://…]`, or build an
+image for it:
 
 ```bash
 docker build -f ui/Dockerfile --build-arg UI_CONFIG=ui/public/config.sepolia.json \
@@ -600,9 +618,9 @@ docker build -f ui/Dockerfile --build-arg UI_CONFIG=ui/public/config.sepolia.jso
   -t davinci-dkg-council-ui .
 ```
 
-`ARTIFACTS_BASE_URL` should point at a public mirror of the six release files that allows
-cross-origin reads; with `null` the SDK fetches the GitHub release itself, which a browser can only
-do while the repository is public. The pins stay in the SDK either way. The two Sepolia
+`ARTIFACTS_BASE_URL` puts one more mirror of the six release files first; it must allow
+cross-origin reads. Without it the app uses the config's `artifactsBaseUrls` (the CDN, then the
+GitHub release). The pins stay in the SDK either way. The two Sepolia
 `rpcUrls`, publicnode and Tenderly, are independent providers for the authenticated reads, which
 refuse to read unless every listed provider reports the same finalized block. 1rpc.io was the
 third until its Sepolia endpoint stopped at block 11,856,336, the last block before the hard fork
@@ -614,12 +632,15 @@ Running the relayer for a deployment is covered in [relayer.md](relayer.md).
 
 ## Hosting on Railway
 
-The Sepolia app and a public relayer run on [Railway](https://railway.com), in the project
-`davinci-dkg-council-sepolia` (one `production` environment), since 2026-10-06. Note that this
-puts the app, the only artifact mirror **and** the only relayer on one hobby-tier project —
-acceptable for a rehearsal deployment, and exactly what [hosting.md](hosting.md) forbids for a
-real election (independent mirrors, a second app copy, a relayer standby, one origin per
-deployment).
+Each deployment's app and public relayer run on [Railway](https://railway.com), one project per
+deployment, each with one `production` environment: `davinci-dkg-council-gnosis` for the Gnosis
+production beta since 2026-10-07 ([below](#gnosis-production-beta-2026-10-07)) and
+`davinci-dkg-council-sepolia` for Sepolia since 2026-10-06. Each puts the app and the only
+relayer on one project; the circuit files also come from the DAVINCI CDN (for browsers once its
+CORS rule is set). [hosting.md](hosting.md) asks for more before elections that cannot wait for
+a redeploy: a second app copy and a relayer standby.
+
+The Sepolia services:
 
 | Service | URL | Configuration |
 |---|---|---|
@@ -656,6 +677,51 @@ relayer runs with `COUNCIL_STATE_GAS=true`, so it caps gas limits at the block g
 of 2^24 ([relayer.md](relayer.md#sizing-the-budget)). At
 1 gwei the 0.06 ETH budget sponsors about six small committees a day, fewer with decryptions;
 `DAILY_BUDGET_WEI` changes it, and the key must hold what the budget allows.
+
+### Gnosis production beta (2026-10-07)
+
+| Service | URL | Configuration |
+|---|---|---|
+| `council-gnosis-ui` | https://council-gnosis-ui-production.up.railway.app | `config.gnosis.json` as committed: the relayer below, publicnode and `rpc.gnosischain.com` for the authenticated reads; circuit files from the app's own origin (`/circuits-v1/`, baked into the image), then the CDN, then the GitHub release |
+| `council-gnosis-relayer` | https://council-gnosis-relayer-production.up.railway.app | open admission, scheduler and combine worker on (from block 48,627,018), `COUNCIL_STATE_GAS=false`, a 0.5 xDAI rolling 24 h budget, balance alert below 0.2 xDAI, CORS for the app's origin only, reads and sends through publicnode, `rpc.gnosischain.com` and dRPC, state on a volume at `/data` |
+
+The relayer's hot key,
+[`0x2694b3a89AD895c45d2356eeA6456254198A2895`](https://gnosisscan.io/address/0x2694b3a89AD895c45d2356eeA6456254198A2895),
+was generated for it (`~/.davinci-dkg-council/gnosis-prod-relayer.key` on the operator's host,
+mode 0600) and is used by nothing else. The deployer funded it with 1 xDAI
+(`0x7f8d8f65a590268a2067add34d8c6bf7b191be1a7e7cc35e9876146a321039b9`, block 48,632,679). The
+budget is half the balance so that open admission cannot empty the key within one day; at the
+fees of the rehearsals (tens of wei per gas) it is never the limit, at 1 gwei it sponsors about
+six 16-member committees a day. Top the key up when `/v1/metrics` reports the balance alert.
+Deployed from `main` with:
+
+```bash
+export RAILWAY_TOKEN_FILE=… RAILWAY_PROJECT_ID=5f476cd9-cf37-41b3-b1bb-43de6516e63f \
+  RAILWAY_ENVIRONMENT_ID=947d2457-21a6-4891-ae77-fee0ffbdb45f
+COUNCIL_KEY_FILE=~/.davinci-dkg-council/gnosis-prod-relayer.key DEPLOYMENT=scripts/gnosis/deployment.json \
+  RPC_URLS=https://gnosis-rpc.publicnode.com,https://rpc.gnosischain.com,https://gnosis.drpc.org \
+  STATE_GAS=false DAILY_BUDGET_WEI=500000000000000000 \
+  SERVICE_NAME=council-gnosis-relayer UI_SERVICE_NAME=council-gnosis-ui \
+  EXTRA_VARS=COUNCIL_ALERT_MIN_BALANCE_WEI=200000000000000000 scripts/railway-deploy-relayer.sh
+UI_CONFIG=ui/public/config.gnosis.json DEPLOYMENT=scripts/gnosis/deployment.json \
+  SERVICE_NAME=council-gnosis-ui RELAYER_SERVICE_NAME=council-gnosis-relayer scripts/railway-deploy-ui.sh
+SERVICES="council-gnosis-relayer council-gnosis-ui" scripts/railway-status.sh
+```
+
+Smoke test right after the deployment:
+
+- `/v1/health` answers `ok` with chain 100, the manager and the 1 xDAI balance; `/v1/metrics`
+  answers 200 with no alert, the three endpoints on the same finalized block, and the monitor,
+  scheduler and combine worker passing. The worker found every rehearsal request from state and
+  logs (all complete) and two bound processes with no request yet. From the app's origin the
+  relayer answers with its CORS header; another origin gets `FORBIDDEN_ORIGIN`.
+- Headless Chromium: `/` and `/new` load (the create form renders) with no console error and no
+  CSP violation; `/config.json` is the committed `config.gnosis.json`; the banner reads "Beta —
+  development trusted setup … (circuits-v1)", the tag read from the manager through both RPCs.
+- The six files hash to their pins from the app's origin and from the CDN (6/6 each), and a
+  missing file under `/circuits-v1/` is a 404. From the app's page, the CDN and the GitHub
+  release are refused by CORS (the bucket has no CORS rule yet, the release never sends one),
+  so today a browser uses the app's own copy; the SDK skips a refused mirror and tries the next.
 
 ### Deploying
 
@@ -709,11 +775,12 @@ up` runs with a project token created for the upload and deleted afterwards.
   relayer charge the left-most hop, the real client; with `100.64.0.0/10` alone it would charge
   every client to the edge's address and share one rate limit among them.
 - **Circuit files.** `railway-deploy-ui.sh` copies the six files from `COUNCIL_ARTIFACTS_DIR`
-  into the image after checking each against its pin in `sdk/src/artifacts.ts`, and sets
-  `artifactsBaseUrl` to `/circuits-v1`. The browser downloads them from the app's own origin, so
-  the CSP needs no new origin and no CORS mirror is involved; the SDK still checks every byte
-  against the same pins. `ui/nginx.conf` answers a missing circuit file with 404 instead of the
-  app's index page.
+  into the image after checking each against its pin in `sdk/src/artifacts.ts`, and lists that
+  copy first in `artifactsBaseUrls` (`https://<the app's domain>/{release}`: the app accepts only
+  absolute mirrors), then `UI_CONFIG`'s own (the CDN, then the GitHub release). The CSP already
+  allows any `https:` origin; the SDK checks every byte against the same pins whichever copy
+  answers. `ui/nginx.conf` answers a missing circuit file with 404 instead of the app's index
+  page.
 
 ### Smoke test (2026-10-06)
 

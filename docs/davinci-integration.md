@@ -2,14 +2,18 @@
 
 A builder's guide: how a product runs a DAVINCI election whose results only a Council committee
 can decrypt, with `@vocdoni/davinci-sdk` and `keyMode: 'council'`. It covers what the product
-needs, the TEST deployment on Gnosis Chain this was proven on, what voters and organizers see
-on the way to the results, and a minimal end-to-end example taken from a working run.
+needs, the Gnosis deployment this was proven on, what voters and organizers see on the way to
+the results, a minimal end-to-end example taken from a working run, and the hooks reserved for
+the DAVINCI Elections connection.
 
-> **TEST deployment, unreleased code.** Everything below runs on a Council manager built from the
-> `circuits-v1` **development** trusted setup (one-party phase 2: whoever holds its toxic waste
-> can forge dealings and partial decryptions) and on the unreleased `council` branches of
-> davinci-contracts, davinci-sdk and davinci-sequencer. Use it to build and rehearse, never for a
-> real election. [Known limits](#known-limits) lists what production still needs.
+> **Production beta, development trusted setup.** The Council manager on Gnosis is the production
+> beta (hosted app https://council-gnosis-ui-production.up.railway.app, relayer
+> https://council-gnosis-relayer-production.up.railway.app). It runs on `circuits-v1`, a
+> **development** trusted setup (one-party phase 2: whoever holds its toxic waste can forge
+> dealings and partial decryptions), which the owner accepted for the beta; the app says so on
+> every page. The runs below used a test DAVINCI registry and the then unreleased `council`
+> branches of davinci-contracts, davinci-sdk and davinci-sequencer. [Known limits](#known-limits)
+> lists what the beta still lacks.
 
 ## How it fits together
 
@@ -105,8 +109,11 @@ shows the gate open; in live mode it then unlocks by itself.
 
 ## The test deployment on Gnosis
 
-Chain id 100. Council v2, `circuits-v1` DEVELOPMENT setup; a DAVINCI registry from
-davinci-contracts `council` at `f4abc5d` (record: [`scripts/davinci-gnosis/deployment.json`](../scripts/davinci-gnosis/deployment.json)).
+Chain id 100. Council v2, `circuits-v1` DEVELOPMENT setup (the manager is now the production
+beta, [deployments.md](deployments.md#gnosis-chain-production-beta)); a test DAVINCI registry
+from davinci-contracts `council` at `f4abc5d` (record: [`scripts/davinci-gnosis/deployment.json`](../scripts/davinci-gnosis/deployment.json)).
+The production DAVINCI registry that binds this manager replaces the test registry for the beta;
+its addresses belong in davinci-contracts' deployment records.
 
 | | Address | Since block |
 |---|---|---|
@@ -129,8 +136,10 @@ Gnosisscan and Blockscout.
 - Sequencer: a test node, `davinci-sequencer-council-test`, runs on Vocdoni's prover host
   (`127.0.0.1:9095` there); it is **not publicly reachable**. Run your own against the registry
   ([below](#running-a-sequencer-for-the-test-registry)).
-- Council relayer: none is hosted for Gnosis. Run `relayer/` (`docs/relayer.md`) against the
-  manager, or `scripts/davinci-gnosis/relayer.sh`.
+- Council app and relayer: https://council-gnosis-ui-production.up.railway.app and
+  https://council-gnosis-relayer-production.up.railway.app (open admission, combine worker on;
+  [deployments.md](deployments.md#gnosis-production-beta-2026-10-07)). The runs below used their
+  own local relayer (`scripts/davinci-gnosis/relayer.sh`); any relayer for the manager works.
 
 The SDK network config:
 
@@ -319,6 +328,29 @@ writes a record (`run-*.json`, addresses, hashes, states, timings) and a 0600 se
 the recovery phrases and voter keys to `COUNCIL_RUN_DIR`; `COUNCIL_RESUME=<secrets file>` reruns
 the DAVINCI part on Live ceremonies of an earlier run.
 
+## DAVINCI Elections (planned)
+
+DAVINCI Elections will offer a Council committee as one way to hold an election's key. Its design
+is settled outside this repository; nothing below is implemented yet in the Council app, and these
+are the hooks it relies on:
+
+- **Links into the app.** `/c/<committee id>` opens a committee (members, organizer, results), as
+  today. `/new?davinci=v1&creator=0x…&label=…&return=https://…` is **reserved** for starting a
+  committee from Elections: the app ignores the query today and simply opens the create form, so
+  Elections can ship the link first. When supported, the app keeps `creator`, `label` and
+  `return` with the draft and, once the committee is Live, offers one confirmation screen with
+  both grants and then a button back to `return` with `?cid=0x…&chain=<id>&manager=0x…` (https
+  only, its origin shown first).
+- **The adapter is never taken from a link.** The app config's optional `davinciRegistry`
+  (validated now, unused so far; `DAVINCI_REGISTRY` in `scripts/render-ui-config.sh`) names the
+  DAVINCI ProcessRegistry; the app will read `councilAdapter()` from it on chain. The `creator`
+  from a link is shown in full for the organizer to compare with what Elections displays.
+- **Elections trusts nothing it is sent**: it verifies a committee on chain (phase,
+  `isAdapterAllowed`, `isCreatorAuthorized` for its own creator address, policy) before using it.
+  It needs no relayer access and no CORS entry: the app already registers every committee it
+  creates with its relayers (`POST /v1/track`, signed by the organizer), so the combine worker
+  serves its requests.
+
 ## Known limits
 
 - **Development trusted setup.** The test manager pins `circuits-v1`, a one-party phase 2: its
@@ -332,8 +364,8 @@ the DAVINCI part on Live ceremonies of an earlier run.
   major release published before the first mode-3 process exists on any chain its users index**
   (older SDKs throw `unknown key mode 3` on such a process).
 - **The test sequencer is private** and serves this run only; the census of the test processes
-  was hosted on a private address (see above). There is no hosted Council app or relayer for
-  Gnosis.
+  was hosted on a private address (see above). The hosted Council app and relayer are one
+  Railway project with no standby yet ([hosting.md](hosting.md)).
 - **Relayer sends on Gnosis.** In one rehearsal the Council relayer's dealing transactions
   (≈1.2M gas) waited one to three minutes and up to five automatic fee bumps for inclusion; in
   the final run none needed a bump. publicnode refused most of the relayer's

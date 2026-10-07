@@ -1390,8 +1390,9 @@ method and the full finding list are in [audit-2026-10.md](audit-2026-10.md). Op
 production use:
 
 - a real multi-party phase 2 (§2), which means a new `circuitReleaseId` and a new manager —
-  combined with the v2 deployment (the development setup must never serve a real election; the
-  ceremony tooling is being added under `circuits/scripts/ceremony/`);
+  combined with the v2 deployment (the ceremony tooling is under `circuits/scripts/ceremony/`).
+  Until then the development setup serves only the Gnosis production beta, whose owner accepted
+  it for the beta (`docs/deployments.md`);
 - the Sepolia **v2 redeploy** and dress rehearsal with real people: the current Sepolia manager
   (`docs/deployments.md`) is still protocol v1; `scripts/sepolia/deploy.sh` already verifies the
   v2 shape, including CouncilOps at the manager's second CREATE;
