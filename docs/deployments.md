@@ -4,11 +4,13 @@
 |---|---|---|---:|---|
 | Sepolia (11155111) | `circuits-v1` (development setup) | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | 11,857,219 | **current**; rehearsals only |
 | Sepolia (11155111) | `circuits-v1` (development setup) | [`0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070`](https://sepolia.etherscan.io/address/0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070) | 11,856,029 | superseded on 2026-10-06: its affine finalize needs 17.24M gas at `n = t = 16` under Glamsterdam ([below](#superseded-first-deployment)) |
+| Gnosis (100) | `circuits-v1` (development setup) | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | 48,627,018 | **TEST** deployment on a production chain (`ALLOW_DEV_SETUP=true`); rehearsals and integration tests only ([below](#gnosis-chain-test-deployment)) |
 
 There is no production deployment: `circuits-v1` is a development phase 2 (see
-[Circuit release](#circuit-release)). `scripts/sepolia/deployment.json` is the machine-readable
-record of the current Sepolia deployment, which `scripts/sepolia/run.sh` and the Railway scripts
-read.
+[Circuit release](#circuit-release)), on Sepolia and on Gnosis alike. `scripts/sepolia/deployment.json`
+is the machine-readable record of the current Sepolia deployment, which `scripts/sepolia/run.sh`
+and the Railway scripts read; `scripts/gnosis/deployment.json` is the record of the Gnosis TEST
+deployment, which `scripts/gnosis/run.sh` reads.
 
 The Sepolia deployment has a public app and relayer on Railway
 ([Hosting on Railway](#hosting-on-railway)):
@@ -17,6 +19,251 @@ The Sepolia deployment has a public app and relayer on Railway
 |---|---|
 | App | https://council-ui-production.up.railway.app |
 | Relayer | https://council-relayer-production.up.railway.app (`/v1/health`) |
+
+## Gnosis Chain (TEST deployment)
+
+> **TEST deployment, development setup.** This manager is bound to `circuits-v1`, whose phase 2
+> had one contributor, and was deployed to a production chain with `ALLOW_DEV_SETUP=true`:
+> whoever holds that setup's toxic waste can forge dealings and partial decryptions. It is for
+> rehearsals and integration tests (the DAVINCI deployment on Gnosis uses it), never for a real
+> election. The app shows its "Test setup" banner on every page for it. A production Gnosis
+> deployment needs the multi-party ceremony release and a new manager.
+
+Deployed on 2026-10-07 at 01:22 UTC from `0x42fc20654efd78c6887ff0bd1cc50c9ec1dab589` with
+`ALLOW_DEV_SETUP=true scripts/gnosis/deploy.sh`, in blocks 48,627,016 to 48,627,018. Gnosis runs
+Osaka: no state gas, a 2^24 gas cap per transaction and a 17M block gas limit. The test adapter
+followed in block 48,627,036, from a key of its own.
+
+| Contract | Address | EXTCODEHASH | Creation tx | Gas |
+|---|---|---|---|---:|
+| DealVerifier | [`0xa3484ed88b225f1c613fc7216cbcb822d87414ef`](https://gnosisscan.io/address/0xa3484ed88b225f1c613fc7216cbcb822d87414ef) | `0x11846f7e14acc5efe8e7c97ebc1af97a6fab6350e631aba333715e7cb0cc9c1f` | `0xb663da2f97b1b4095dd5ba23c665cd8be7d73dee5b8d0230ceaa2d1335ff7f1f` | 3,384,996 |
+| PartialVerifier | [`0x2bd8729675f9a44b4be79c8d2a4f7128ff3b1e54`](https://gnosisscan.io/address/0x2bd8729675f9a44b4be79c8d2a4f7128ff3b1e54) | `0x8599caa2240444a17eea76d829f019a7e5844a183f469f05effeea41d867a177` | `0x8e884f0e90ab2b2e25d14ea22e5b239423df564506c63162fc9e0959377f4def` | 2,667,240 |
+| CouncilManager | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | `0x897349a78514ec9e88093c5cd8ae176a406c21007fd6b63b46d0ae663c3d1918` | `0xcb1cdaefe876ec8b53806bdfcf773aa64815284a33d17ffb155858440c957ebc` | 7,625,161 |
+| CouncilViews | [`0xb6011a651bb8495a837dd9723e6e1f8fea797fcc`](https://gnosisscan.io/address/0xb6011a651bb8495a837dd9723e6e1f8fea797fcc) | `0xbed9e9837a36be1170260fb963887f1b5dc9344e87c7f9afa4f60a61ed345b86` | created by the manager's constructor (CREATE nonce 1) | – |
+| CouncilOps | [`0x0d5bab4c31bf49da98a386588085e354bd644b47`](https://gnosisscan.io/address/0x0d5bab4c31bf49da98a386588085e354bd644b47) | `0x09d25cd5b5eb40f0cf4f7b60b4129bbbd375c218f6c92b459f4c12b13c1f6c80` | created by the manager's constructor (CREATE nonce 2) | – |
+| MockCouncilAdapter (**test only**) | [`0x8f39901009c525495f3e69dc250af5dbb0b97fe7`](https://gnosisscan.io/address/0x8f39901009c525495f3e69dc250af5dbb0b97fe7) | `0xe943d2227634721c51604480017c57e86285a7498633bb9b7229fb2c49516d86` | `0x32058001c2c2b9c78b8cf776180bfc20757cc7ccb075e941175ac14e8887c3e3` | 495,808 |
+
+- **Release pins.** `circuitReleaseId()` is
+  `0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301` (`circuits-v1`) and
+  `protocolVersion()` is 2. `Deploy.s.sol` checked both verifiers' code hashes against the
+  `CouncilRelease.sol` pins before it deployed the manager; `deploy.sh` read them back, with the
+  release id and the code of CouncilViews and CouncilOps against the local build. A second check
+  read the code hashes, the release id, the protocol version and both verifier addresses at
+  finalized block 48,627,909 from publicnode, `rpc.gnosischain.com` and dRPC: all three agreed.
+- **Source verification.** All six contracts are verified on Gnosisscan (submitted through the
+  Etherscan v2 API, chain 100; gnosisscan.io is now a Blockscout instance, and
+  gnosis.blockscout.com redirects to it, so Blockscout reports all six as fully verified too) and
+  on Sourcify (exact match: creation and runtime code, runtime only for the two contracts the
+  manager's constructor creates).
+- **Cost.** 13,677,397 gas for the verifiers and the manager at 15 to 16 wei per gas
+  (0.000000000215 xDAI: Gnosis's base fee was 10 to 13 wei), and 495,808 gas for the adapter at
+  13 wei. The deployer also funded the relayer's hot key (0.3 xDAI) and the tester key (0.05
+  xDAI), 21,000 gas each at 17 wei; it sent nothing else for Council.
+- **Test adapter.** `MockCouncilAdapter`, recorded with `"testOnly": true`, is the e2e stand-in
+  for DAVINCI's `CouncilAdapter` that lets the rehearsals submit requests on their own. Its
+  `registry` is the tester key `0xc6e55867aa3b9128e6dece707324107fc04810de`, the only account that
+  can bind processes and submit requests through it. On Gnosis the real requester is the DAVINCI
+  ProcessRegistry's `CouncilAdapter`; nothing but the rehearsals uses this one.
+- **RPC providers.** The authenticated reads use publicnode (`gnosis-rpc.publicnode.com`, a
+  Nethermind node) and `rpc.gnosischain.com`, which answers as Tenderly
+  (`web3_clientVersion` is `Tenderly/1.0`), so it is the same provider as
+  `gnosis.gateway.tenderly.co` and not a third independent one. dRPC (`gnosis.drpc.org`) is the
+  third sending fallback. The three agreed on the finalized block every time they were sampled;
+  1rpc.io answered HTTP 503, Ankr needs an API key and Blast is discontinued.
+
+### Rehearsal runs (2026-10-07)
+
+`scripts/gnosis/run.sh` ran every scenario against this deployment with real proofs (snarkjs in
+Node) and a relayer it started locally from `main` (with the relayer fixes of 2026-10-07): a
+fresh hot key, [`0x23cd4d3c229a142176642329e875d85bb033e0fb`](https://gnosisscan.io/address/0x23cd4d3c229a142176642329e875d85bb033e0fb),
+funded with 0.3 xDAI from the deployer and used by nothing else, open admission, scheduler and
+combine worker on, a 0.2 xDAI rolling 24 h budget, `COUNCIL_STATE_GAS` unset. Authenticated
+reads went to publicnode and `rpc.gnosischain.com`, pinned to the finalized block both agreed on;
+every result below was read that way, through the manager and through the adapter, from both
+providers. The plaintexts include 0 and the largest value a field can hold, 2^40 − 1.
+
+| Run | Scenario | Ceremony | Result |
+|---|---|---|---|
+| 1 | A: `n = 3, t = 2`, manual close, manual opening by the organizer | `0x9145f7bea498e7edcab69a62` | passed |
+| 1 | B + C: `n = 5, t = 3`, scheduled close and opening, member 5 never deals and decrypts | `0x50c86f2874a8c9ef9c71de34` | passed |
+| 1 | E: `n = 3, t = 2`, one dealer by the deadline, aborted by the scheduler | `0x429b5624fb890369fbffeeb1` | passed |
+| 1 | D on run 1's A ceremony | `0x9145f7bea498e7edcab69a62` | stopped by a bug in the run script (below), after its first combine had gone through |
+| 2 | A again | `0xcb4aa2c05f1471881c435a19` | passed |
+| 2 | D: relayer cache dropped (single-block logs), then logs gone (re-publication) | `0xcb4aa2c05f1471881c435a19` | passed |
+
+Run 1 (02:09 to 02:38 UTC) ran A, B and E concurrently, then D. Run 2 (02:40 to 03:18 UTC) ran A
+again, then D. Each run is one `scripts/gnosis/run.sh` invocation; its JSON record and Markdown
+summary (every transaction, wait and step) stay in `~/.davinci-dkg-council/gnosis/`.
+
+**A: manual phases** (`n = 3, t = 2`). The organizer created the committee (Manual registration
+with a 24 h expiry, Manual decryption, no fallback date), three members joined from their invite
+links, the organizer closed the list, all three dealt, and the organizer sent finalize ("Finish
+the key"). After the adapter and the creator were allowed, the tester bound a process and
+submitted four ciphertexts; while the gate was closed, a member's client refused to build a
+partial (`the decryption gate is closed`). The organizer's `openDecryption` opened it (a second
+one was refused, `AlreadyOpen()`), members 1 and 3 sent their partials through the relayer, and
+its worker combined all four fields in one transaction. Plaintexts `[0, 7, 123456789,
+1099511627775]` (2^40 − 1) in both runs; also refused as expected: `openDecryption` during
+registration (`WrongPhase()`).
+
+| Step | Action | Sent via | Gas used | Run 1 tx | Run 2 tx |
+|---|---|---|---:|---|---|
+| create | createCeremony (invites=3) | relayer | 160,288 / 160,316 | `0x73ba7665d6fe79f6bbbcd9e0bf4d412a88702732fb065f815dba7c132ba8e8ad` | `0x78a8de37e10d887d4f7ee9814a7d3e0e9dada7ff1e5c30076ec25fb40372f119` |
+| join | join (3 members) | relayer | 518,012 to 523,768 | `0xef21694f…`, `0x19f2cc07…`, `0x7b323bf6…` | `0xf61c18d3…`, `0x83f328d6…`, `0xad4dcd22…` |
+| close | closeRegistration (n=3) | relayer | 112,581 / 112,555 | `0x57541362b325c0f41710f9c57772fa36ae0c535a49735bd96a68fccbb231217a` | `0x613d4da99bf7bd08d4c65738473b1dc6ac68bcfe4a9a4cf3ac2483d8898f6fcd` |
+| deal | deal (n=3, t=2), 3 dealers | relayer | 1,000,674 to 1,059,187 | `0xab92c93d…`, `0x5cdc0814…`, `0xe6f3c56d…` | `0xc3bf62c1…`, `0x9b5baa5e…`, `0xa656847f…` |
+| finalize | finalize (\|QUAL\|=3) | relayer | 33,923 | `0x1bb6989b088713e8001457660e63967c23ab50d8f376a49a16df7b51d53b1737` | `0xbc3677f6b6003673e70534f1a949bd819611ebddb8ef6c8e46fa82960453740a` |
+| authorize | allowAdapter / authorizeCreator | relayer | 58,629 to 58,804 | `0x5840cfb9…` / `0xd29115d1…` | `0xb28dbf1a…` / `0x0829cd95…` |
+| bind | bindProcess | adapter | 196,019 | `0x836818bb9e6fadc1fb51771067ce4a0c267f3855f9886625fc5c644e4a330f09` | `0x7c05e0c73f605e03fc6c60363f72d069226b6fe50c7def5643ce952de9e94685` |
+| request | submitRequest (fields=4) | adapter | 1,586,209 | `0x44c8b6090911c595402cda7cf6a3531ac57f890b30c226d95feec88e987b6ac5` | `0x75663a1b0d133236eee6a6de63aaec678e06c7bd8433a6492d212f1da02a9451` |
+| open | openDecryption | relayer | 58,201 / 58,189 | `0x8893ee1e95ea2b1fe575f121244eef962377445cb992376ab5f2742dab2b17a5` | `0x7c44acc99e7e1880476bd01a43022e6de6cc69dd50a44afad40facd3a1a1ff95` |
+| partials | submitPartial (members 1, 3; fields=4) | relayer | 807,811 to 823,766 | `0x9b05b136…`, `0x6f8d364c…` | `0x38f11763…`, `0x0659f732…` |
+| combine | combine (t=2, fields=4) | relayer (worker) | 1,659,634 | `0x8714db218f436e63399cfc38496c70a137edde962c278b73a5880d5599cdfb6f` | `0x464482eee49724c7024959f88948d549052966a6600e9fa49467e8137be0daf6` |
+| **total** | | | **10.18M** | ceremony `0x9145f7bea498e7edcab69a62`, request `0xef0ebf02ea6afa26bc81206eac2b774cf6d74d17dab6bf5dc63d1c53d42194d0` | ceremony `0xcb4aa2c05f1471881c435a19`, request `0x284386794f8a36c7dfca79dcece41334368cd54c11973288ce6033cace4faa27` |
+
+**B + C: scheduled phases, a member who never dealt decrypts** (`n = 5, t = 3`, ceremony
+`0x50c86f2874a8c9ef9c71de34`). Created with Scheduled registration (closing at 02:14:30, five
+minutes out), a 600 s dealing phase and Scheduled decryption opening at 02:27:30, three minutes
+past the earliest possible end of dealing. Before the deadline the organizer's close was refused
+(`WrongMode()`) and so was the time-based close (`RegistrationNotDue()`). Nobody called anything
+after that: the relayer's scheduler sent `closeRegistrationScheduled` 15 s after the deadline
+(it judges the close at the head), members 1 to 4 dealt, an early finalize was refused
+(`FinalizeConditionNotMet()`, `|QUAL| = 4 < n`), and the scheduler finalized 15 s after the
+dealing deadline (QUAL `0b01111`). The request was submitted before the opening date, and
+`openDecryption` was refused (`WrongMode()`). The gate then opened by predicate alone, with no
+transaction and no `DecryptionOpened` event: the finalized block of 02:26:20 still showed it
+closed, and the first finalized block past the opening date (10 s past it) showed it open, 171 s
+after the date. Member 5, which never dealt, recovered its share from chain state and sent its
+partial through the relayer, member 2 through the relayer, member 4 directly from the tester key;
+the worker combined with member set `[2, 4, 5]` (member 4's vector from a single-block log read,
+the other two from its cache). Plaintexts `[0, 1000000007, 1099511627774]`, request
+`0xdb6b45cba17a671a11d9242764bb4f4f327144d3417476ddff4bb7e9ce5c2532`.
+
+| Step | Action | Sent via | Gas used | Tx |
+|---|---|---|---:|---|
+| create | createCeremony (invites=5, scheduled) | relayer | 228,347 | `0xc55aba51cdb1d81c01d7d991a2d68698a7e38a2c7648ff247af75743cc55dd08` |
+| join | join (5 members) | relayer | 516,740 to 521,820 | `0x6dbe3e31…`, `0x01aa047e…`, `0x26a9930a…`, `0x3644823c…`, `0x6c46e8e0…` |
+| close | closeRegistrationScheduled (n=5) | relayer (scheduler) | 118,636 | `0x34983b015c9a4ae598069cb7a5735d5b58dce8975bea585ddcc4668b753d324d` |
+| deal | deal (n=5, t=3), members 1 to 4 | relayer | 1,067,771 to 1,158,186 | `0x490cd0f5…`, `0x9862cf4b…`, `0x74513fd6…`, `0x3327fa58…` |
+| finalize | finalize (\|QUAL\|=4) | relayer (scheduler) | 36,243 | `0x4fb4a3b6bfe8595140cbc62b7883299e9e3fe7317f7a72e6d80096d969e15aa5` |
+| authorize | allowAdapter / authorizeCreator | relayer | 58,629 / 58,804 | `0x28052a0a…` / `0x261f3b0f…` |
+| bind | bindProcess | adapter | 196,007 | `0x6cb40492a25039fb4c2464510e1787168f78ca7238673cae0bafb59daed1e72a` |
+| request | submitRequest (fields=3) | adapter | 1,200,362 | `0x03d918c37f087fffedd8060b8f6d6afdb9a98b09fee6e7665446c915ff417b88` |
+| partials | submitPartial (member 5, never dealt) | relayer | 828,438 | `0x2534c0f556bb065d3ea048e5ac98eabc7b4b80c14f1d1b7f955cef329ed06c25` |
+| partials | submitPartial (member 2) | relayer | 826,436 | `0xd2e762930c511f939358ffb8c870ab823015500dbcbf34cea294b9a32b233186` |
+| partials | submitPartial (member 4) | direct | 810,258 | `0x4d5cc666e2d0bb2071ff4272af45369425e0c1ca8325a663392ee57c315787c9` |
+| combine | combine (t=3, fields=3) | relayer (worker) | 1,794,495 | `0x45e70fc577e60f920a72ef13cb93d2f46f7f9e1e82404be35c95012973943ee2` |
+| **total** | | | **13.12M** | |
+
+**D: partial-data sourcing** (on run 2's A ceremony, `0xcb4aa2c05f1471881c435a19`). Two requests,
+each with the relayer restarted with its combine worker off while two members sent their partials
+through it, then stopped, its cache file for the request deleted, and restarted with the worker
+on:
+
+- D1 (request `0xd5a89da2eeb03217a2c3222164eff594b42fb347d87c003bfa2a1560b19a3dc4`, members 2
+  and 3): with no cached vector, the worker made exactly two `PartialDataPublished` log reads,
+  each over the one block stored as that member's publication block (48,628,241 and 48,628,248),
+  none over a range, and combined 16 s after the restart. Plaintexts `[0, 1099511627775, 42]`.
+- D2 (request `0xdcebb21e0b5281e994313775c66161dc47f0ce22939735130c549d9eb08c1b84`, members 1
+  and 2): the relayer's RPC proxy also answered those single-block reads with no logs, as a
+  provider that pruned them would. The worker reported both members missing and waited
+  (`combine waiting for partial data re-publication`). Both members recomputed `D` from their
+  recovered shares and re-published through the relayer, which sponsored it because it could not
+  source the data itself; their publication blocks moved from 48,628,336 / 48,628,338 to
+  48,628,344 / 48,628,346. A third re-publication was refused (`NOT_SPONSORED: this relayer
+  holds member 1's partial data`). The worker combined from the re-published vectors. Plaintexts
+  `[9, 0, 549755813893]`.
+
+| Step | Action | Sent via | Gas used | Tx |
+|---|---|---|---:|---|
+| D1 bind / request | bindProcess / submitRequest (fields=3) | adapter | 178,919 / 1,200,338 | `0x16c57563…` / `0x94d4f465…` |
+| D1 partials | submitPartial (members 2, 3) | relayer (worker off) | 819,790 / 803,236 | `0x58def999…`, `0x3eda966c…` |
+| D1 combine | combine (t=2, fields=3), vectors from single-block logs | relayer (worker) | 806,376 | `0x610fc13bdc392c8d3446aef5c6d8054ad9289dc17618cf32377e01528505159f` |
+| D2 bind / request | bindProcess / submitRequest (fields=3) | adapter | 178,919 / 1,200,326 | `0x213b24e5…` / `0xdfaeb51f…` |
+| D2 partials | submitPartial (members 1, 2) | relayer (worker off) | 819,127 / 802,686 | `0x981dbc15…`, `0x6951657b…` |
+| D2 republish | publishPartialData (member 1) | relayer | 63,990 | `0x357da627280db71a35b19cdb6bc6c8f15a600d2a76d043a706b1b53c5670e08e` |
+| D2 republish | publishPartialData (member 2) | relayer | 63,990 | `0x559c2521d91585aa0322f81c088dba3f878d5fe638230fd11267a5ac09083294` |
+| D2 combine | combine (t=2, fields=3), re-published vectors | relayer (worker) | 790,230 | `0x915ae9e2a575213c01e55486135d63dae45310996712cb3fb1208100a11b1c59` |
+| **total** | | | **7.73M** | |
+
+Run 1's D had stopped at its first check: it read the members' publication blocks at the
+finalized block while their partials were two blocks old, found none, and failed, after the worker
+had made the same two single-block reads (at 48,627,894 and 48,627,896) and combined
+(`0xa7279603767312734a746a3b06d27daf7612b61c7aaec8f354124b4a0bc0bb8e`). The script now reads those
+blocks at the head.
+
+**E: fewer than `t` dealers by the deadline** (`n = 3, t = 2`, ceremony
+`0x429b5624fb890369fbffeeb1`, a 600 s dealing phase). Three members joined, the organizer
+closed, and only member 1 dealt. Before the dealing deadline finalize (`FinalizeConditionNotMet()`)
+and abort (`AbortConditionNotMet()`) were refused. The scheduler aborted 190 s after the deadline:
+it judges an abort at the finalized block's timestamp, so it trails the deadline by the finality
+lag. A dealing sent after that was refused (`WrongPhase()`), and the finalized state shows phase
+`Aborted` with QUAL `0b001` (the accepted dealing stays).
+
+| Step | Action | Sent via | Gas used | Tx |
+|---|---|---|---:|---|
+| create | createCeremony (invites=3) | relayer | 160,316 | `0x97bab0cbc7ce0e620d5280b92b0c33b4328b8ccc897edefb23459ca80bf2493d` |
+| join | join (3 members) | relayer | 518,036 to 521,713 | `0xa01430ca…`, `0x03726010…`, `0xbf2fb94a…` |
+| close | closeRegistration (n=3) | relayer | 112,567 | `0x753944ceaa52727a7a8b8160b1b349f901f59e47b1cec008ffc003ba598bbb82` |
+| deal | deal (n=3, t=2), member 1 only | relayer | 1,059,251 | `0xa91703d6c95b98c6faeb0b0702a1058cfedf829e86a0b35a2b5206d22f79b72e` |
+| abort | abort (in Dealing, \|QUAL\| < t) | relayer (scheduler) | 34,061 | `0x09a3e040117b53db6dfc4887da1f0fc74bc7585d85520ec91d47b8c0a137a025` |
+| **total** | | | **2.93M** | |
+
+**Cost.** The two runs sent 78 transactions, 47.94M gas, for 0.0000079 xDAI. Gnosis's base fee
+was 10 to 13 wei at the deployment, rose to about 370,000 wei around block 48,627,560 (a burst of
+full blocks) and fell back to a few hundred wei; the runs paid 28 wei to 2.27M wei per gas (at
+most 0.0000023 gwei). The relayer's key spent 0.0000083 xDAI of its 0.3 (its 0.2 xDAI budget was
+never close), the tester key 0.00000036 xDAI with the adapter's deployment, and the deployer
+0.00000000022 xDAI on gas plus the 0.35 xDAI it moved to the two keys, which still hold it. At
+these prices the 0.2 xDAI daily budget is not a constraint; a base fee back at 1 gwei would make
+the same two runs about 0.048 xDAI.
+
+| Action | Count | Gas used |
+|---|---:|---:|
+| createCeremony (invites=3 / 5, scheduled) | 3 / 1 | 160,288 to 160,316 / 228,347 |
+| join | 14 | 516,740 to 523,768 |
+| closeRegistration (n=3) / closeRegistrationScheduled (n=5) | 3 / 1 | 112,555 to 112,581 / 118,636 |
+| deal (n=3, t=2) / (n=5, t=3) | 7 / 4 | 1,000,674 to 1,059,251 / 1,067,771 to 1,158,186 |
+| finalize (\|QUAL\|=3 / 4) | 2 / 1 | 33,923 / 36,243 |
+| abort (in Dealing) | 1 | 34,061 |
+| allowAdapter / authorizeCreator | 3 / 3 | 58,629 to 58,655 / 58,778 to 58,804 |
+| openDecryption | 2 | 58,189 to 58,201 |
+| bindProcess (adapter) | 6 | 178,919 to 196,019 |
+| submitRequest (adapter, fields=3 / 4) | 4 / 2 | 1,200,326 to 1,200,362 / 1,586,209 |
+| submitPartial (fields=3 / 4) | 9 / 4 | 802,686 to 828,438 / 807,811 to 823,766 |
+| publishPartialData (fields=3) | 2 | 63,990 |
+| combine (t=2, fields=3 / 4) | 3 / 2 | 790,230 to 806,412 / 1,659,634 |
+| combine (t=3, fields=3) | 1 | 1,794,495 |
+
+Gas is within 0.5% of the same script's runs on a local Anvil (Osaka).
+
+**Timings.** Gnosis's finalized head moves in 16-block (80 s) steps, 32 to 47 blocks behind the
+head: from a transaction's block to the moment both providers reported it finalized took 2.8 to
+4.0 min (median 3.4 min over 21 waits), against 11 to 18 min on Sepolia. Every authenticated step
+waits for that once. A relayed action took 4.4 to 50 s from the request to its receipt (median
+13.5 s over 56; 24 within 10 s, 21 over 20 s). Inclusion took one or two 5 s blocks; the slow
+ones spent 20 to 30 s inside the relayer before it broadcast (simulation, estimate and its one-key
+send queue, which the scheduler, the combine worker and the transaction monitor share), in run 2
+as well, where only one ceremony was active; the cause was not isolated. Proving on this host: a dealing 1.9 to 2.6 s, a partial
+(share recovery from finalized state included) 1.7 to 2.0 s. A runs in about 22 min, of which 17
+are five finality waits (the organizer's close waits for the joins to be finalized, since its
+action carries the roster keys read from finalized state); B in 25 min, bounded by its schedule
+(5 min registration, 10 min dealing, the opening 3 min later); E in 22 min; D in 16 min.
+
+**Observations.**
+
+- A DAVINCI request on this manager (`0x3cc882790761798d53c385aeb5498487d3e277e895c529e41aa2b112e72ce75f`,
+  submitted through the DAVINCI `ProcessRegistry` at `0x847a16cc56e0ef57fec28735105941a0299cdc62`)
+  was also picked up by this open relayer's worker, which lost the race to another combiner in
+  block 48,627,686: its combine reverted after 69,290 gas
+  (`0x5b452ecaad12bb1e64c8eb749ceefb520a3bcbd7cdc34689cb0101967974afce`). Simulation cannot see a
+  competing combine in the same block; the cost is one early revert. An open relayer combines
+  every request on its manager.
+- The relayer logged `fee bump rejected, rebroadcasting` and `rebroadcast failed` (`nonce too
+  low`) once per run: it bumped a transaction that had been mined before its receipt was visible.
+  Harmless.
+- `rpc.gnosischain.com` refuses `eth_getProof` beyond a recent window (`distance to target block
+  exceeds maximum proof window`), so `cast codehash --block` fails there; `eth_getCode` works.
 
 ## Sepolia
 
@@ -209,7 +456,8 @@ Every deployment is bound to one circuit release (protocol §4.4): the manager's
 > **Development setup.** `circuits-v1` is a development phase 2 (one local snarkjs contribution
 > plus a beacon, `DEVELOPMENT_SETUP = true`): anyone holding its toxic waste could forge dealings
 > and partials. Deploy it for rehearsals only, never for a real election. A production deployment
-> needs a multi-party phase 2, which is a new release and a new manager.
+> needs a multi-party phase 2, which is a new release and a new manager; the ceremony tooling is
+> being added under `circuits/scripts/ceremony/`.
 
 | Pin | Value |
 |---|---|
@@ -278,6 +526,20 @@ transaction; `FORGE_SCRIPT_ARGS` can cap the fee and the estimate margin. Commit
 the addresses and update this page, `ui/public/config.sepolia.json` and
 `ui/.do/davinci-dkg-council-ui.yaml` together.
 
+`scripts/gnosis/deploy.sh` (`make gnosis-deploy`) is the same script for Gnosis Chain, defaulting
+to the first of `rpc.gnosischain.com`, publicnode and dRPC that serves chain 100, writing
+`scripts/gnosis/deployment.json` and deploying no test adapter. Chain 100 is not a test chain:
+a `DEVELOPMENT_SETUP` release is refused there unless `ALLOW_DEV_SETUP=true` is passed
+explicitly, which only a TEST deployment may do. Gnosis runs Osaka (no state gas), so leave
+`COUNCIL_STATE_GAS` unset everywhere. For a TEST deployment's rehearsals, deploy the test adapter
+afterwards from a key of its own, which becomes its registry (the deployer key stays free for the
+DAVINCI deployment); the record marks it `"testOnly": true`:
+
+```bash
+COUNCIL_KEY_FILE=path/to/key ALLOW_DEV_SETUP=true ETHERSCAN_API_KEY_FILE=path/to/etherscan-key make gnosis-deploy
+MANAGER=0x… TEST_ADAPTER=true ALLOW_DEV_SETUP=true COUNCIL_KEY_FILE=path/to/tester-key make gnosis-deploy
+```
+
 ## Rehearsal ceremony
 
 `scripts/sepolia/run.sh` (`make sepolia-run`) drives one `n = 3, t = 2` ceremony against the
@@ -296,6 +558,18 @@ Both scripts also run against a local Anvil (`EXPECTED_CHAIN_ID=31337`,
 `anvil --hardfork osaka --block-time 1 --slots-in-an-epoch 4`, two RPC URLs such as
 `http://127.0.0.1:PORT,http://localhost:PORT`), where a whole run takes under a minute.
 
+`scripts/gnosis/run.sh` (`make gnosis-run`) runs the scenarios of the
+[Gnosis rehearsals](#rehearsal-runs-2026-10-07) against `scripts/gnosis/deployment.json`: manual
+phases (A), scheduled phases with a non-dealer decrypting (B, C), partial-data sourcing from
+single-block logs and from a member's re-publication (D) and an abort below `t` (E), A then D
+concurrently with B and E. `scripts/gnosis/ceremonies.gnosis.ts` starts the relayer itself (open
+mode, scheduler and combine worker on) behind a local JSON-RPC proxy that records its
+`eth_getLogs` and, for D, answers a request's single-block log reads with nothing; D restarts it
+and deletes its cache file. The keys come from files (`COUNCIL_RELAYER_KEY_FILE`,
+`COUNCIL_TESTER_KEY_FILE`, the test adapter's registry); `COUNCIL_SCENARIOS` picks a subset. A
+full run takes about 30 min on Gnosis, most of it finality waits and B's schedule, and about 13
+min on a local Anvil (B's dealing phase is at least 600 s).
+
 ## App and relayer
 
 The app reads its deployment from `/config.json` (architecture §6). The committed Sepolia
@@ -306,6 +580,13 @@ app below renders its own):
 |---|---|---|
 | `ui/public/config.sepolia.json` | `manager` and `deploymentBlock` of the Sepolia deployment, three `rpcUrls` | `relayerUrl` and `artifactsBaseUrl`, on the reserved `.invalid` TLD |
 | `ui/.do/davinci-dkg-council-ui.yaml` | the same values as build-time variables | `RELAYER_URL`, `ARTIFACTS_BASE_URL` |
+| `ui/public/config.gnosis.json` | the Gnosis TEST deployment: its `manager` and `deploymentBlock`, publicnode and `rpc.gnosischain.com` as `rpcUrls` | `relayerUrl` and `artifactsBaseUrl`, on the reserved `.invalid` TLD |
+
+`make ui-gnosis RELAYER_URL=https://… [ARTIFACTS_URL=https://…]` serves the app against the
+Gnosis TEST deployment. Its circuit release is a development setup, so the app shows the "Test
+setup — do not use for real elections" banner on every page (checked on 2026-10-07 in headless
+Chromium against `config.gnosis.json`: the banner names `circuits-v1`, read from the manager
+through both RPCs, and the committee of run A loads as live).
 
 A hosted app needs a public relayer and a public mirror of the circuit files. While this
 repository is private, browsers cannot fetch the `circuits-v1` release assets: a mirror is
@@ -334,7 +615,11 @@ Running the relayer for a deployment is covered in [relayer.md](relayer.md).
 ## Hosting on Railway
 
 The Sepolia app and a public relayer run on [Railway](https://railway.com), in the project
-`davinci-dkg-council-sepolia` (one `production` environment), since 2026-10-06:
+`davinci-dkg-council-sepolia` (one `production` environment), since 2026-10-06. Note that this
+puts the app, the only artifact mirror **and** the only relayer on one hobby-tier project —
+acceptable for a rehearsal deployment, and exactly what [hosting.md](hosting.md) forbids for a
+real election (independent mirrors, a second app copy, a relayer standby, one origin per
+deployment).
 
 | Service | URL | Configuration |
 |---|---|---|
