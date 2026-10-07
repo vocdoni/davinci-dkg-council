@@ -14,6 +14,16 @@
  * Signed pending transactions, recent outcomes and the spend log persist in
  * the state store, so a restart rebroadcasts evicted transactions instead of
  * reusing their nonces, and keeps answering /v1/status for what it sent.
+ *
+ * Only verified answers move a transaction on. A read that fails (a receipt or
+ * transaction lookup, the finalized nonce) is "unavailable", never "not found":
+ * it neither releases a reservation nor deletes a journal entry. A transaction
+ * is charged its mined cost when its receipt appears, and kept replayable
+ * (signed bytes, nonce, and the rest of its worst case reserved) until its
+ * block is finalized: one a reorg removes is rebroadcast at its original nonce,
+ * so later nonces never queue behind a hole, and a re-mined one is charged only
+ * the difference. A transaction is reported dropped only once its nonce is
+ * consumed at the finalized block with no receipt of any of its hashes.
  */
 
 import type { Hex } from '@vocdoni/davinci-dkg-council-sdk';
@@ -63,6 +73,11 @@ export interface SenderOptions {
   stateGas?: boolean;
   /** Fallback priority fee when the node has no eth_maxPriorityFeePerGas. */
   defaultTipWei?: bigint;
+  /**
+   * Mined transactions awaiting finality at most; beyond it new sends are refused (BUSY) until
+   * the finalized block catches up. Never evicted: each must stay replayable until final.
+   */
+  maxUnfinal?: number;
   log?: Logger;
   now?: () => number;
 }
@@ -93,14 +108,32 @@ interface TrackedTx {
   raw: Hex;
   hashes: Hex[];
   slots: string[];
+  firstSentAt: number;
   lastSentAt: number;
   state: TxState;
-  /** Ticks during which the nonce was consumed but no receipt of ours was found. */
+  /** Passes in a row the nonce was consumed at the finalized block with no receipt of ours. */
   orphanTicks: number;
+  /** Checks in a row a mined transaction's receipt was verified absent (a reorg). */
+  absentTicks: number;
+  /** When a mined transaction's receipt was last checked. */
+  checkedAt: number;
+  /** Highest worst case of any version signed for this nonce (a bump accepted behind a lost reply included). */
+  maxWorstWei: bigint;
+  /** Spend-log entries written for this nonce: what a re-mined replay is credited within the window. */
+  charges: { t: number; wei: bigint }[];
   blockNumber?: bigint;
+  blockHash?: Hex;
   minedHash?: Hex;
   revertReason?: string;
   settledAt?: number;
+}
+
+/** A sender loop's health, for /v1/metrics. */
+export interface LoopStatus {
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
+  /** Consecutive failed passes. */
+  failures: number;
 }
 
 export interface TxStatus {
@@ -111,8 +144,29 @@ export interface TxStatus {
   minedTxHash?: Hex;
 }
 
-const MAX_HISTORY = 5000;
+/** Settled outcomes kept for /v1/status: at most this many, for at most HISTORY_TTL_MS. */
+const MAX_HISTORY = 2000;
+const HISTORY_TTL_MS = 7 * 24 * 3_600_000;
+/** Passes a consumed nonce must look final and receipt-less before its transaction is dropped. */
+const DROP_AFTER = 3;
+/** Checks a mined transaction's receipt must be verified absent before it counts as reorged out. */
+const ORPHAN_AFTER = 2;
+/** A mined transaction that is not final yet has its receipt re-checked at most this often. */
+const MINED_RECHECK_MS = 15_000;
+/** Default cap on mined transactions awaiting finality before sends pause (SenderOptions.maxUnfinal). */
+const MAX_UNFINAL = 512;
 const INSUFFICIENT_FUNDS = /insufficient funds/i;
+/** A lookup that failed: not an answer (never "not found"). */
+const UNAVAILABLE = Symbol('unavailable');
+type Lookup<T> = T | undefined | typeof UNAVAILABLE;
+
+/** viem raises a named error when the node answers null (a verified absence). */
+const notFound = (err: unknown, name: string): boolean => {
+  for (let e: unknown = err; e && typeof e === 'object'; e = (e as { cause?: unknown }).cause) {
+    if ((e as { name?: unknown }).name === name) return true;
+  }
+  return false;
+};
 /** EIP-7825 (Osaka): a transaction whose gas limit exceeds 2^24 is invalid. */
 export const MAX_TX_GAS = 16_777_216n;
 const DAY_MS = 24 * 3_600_000;
@@ -149,19 +203,25 @@ export class TxSender {
 
   private readonly endpoints: Endpoint[];
   private readonly nonceRefreshMs: number;
+  private readonly maxUnfinal: number;
   private nextNonce: number | undefined;
   /** When the local nonce was last confirmed against the chain (a check or a successful send). */
   private nonceFreshAt = Number.NEGATIVE_INFINITY;
   /** Transactions seen on chain from this key that this relayer did not send. */
   foreignTransactions = 0;
   private lock: Promise<unknown> = Promise.resolve();
+  /** Unmined transactions, by nonce. */
   private readonly pending = new Map<number, TrackedTx>();
+  /** Mined, not final yet: replayable until their block is finalized. */
+  private readonly mined = new Map<number, TrackedTx>();
   /** Every hash this relayer sent (pending and settled, bounded). */
   private readonly byHash = new Map<Hex, TrackedTx>();
   private settled: TrackedTx[] = [];
   /** slot -> nonce of the pending transaction holding it. */
   private readonly slots = new Map<string, number>();
   private timer: NodeJS.Timeout | undefined;
+  private monitoring = false;
+  private readonly monitor: LoopStatus = { failures: 0 };
 
   constructor(opts: SenderOptions) {
     this.client = opts.client;
@@ -176,6 +236,7 @@ export class TxSender {
     this.store = opts.store ?? new StateStore();
     this.endpoints = opts.endpoints && opts.endpoints.length > 0 ? opts.endpoints : [{ name: 'rpc', client: opts.client }];
     this.nonceRefreshMs = opts.nonceRefreshMs ?? 15_000;
+    this.maxUnfinal = opts.maxUnfinal ?? MAX_UNFINAL;
     this.log = opts.log ?? silentLogger;
     this.now = opts.now ?? Date.now;
     this.budget = new SpendBudget(this.store, opts.budgetWei ?? 0n, opts.budgetWindowMs ?? DAY_MS, this.now);
@@ -195,9 +256,14 @@ export class TxSender {
         raw: '0x',
         hashes: h.hashes,
         slots: [],
+        firstSentAt: 0,
         lastSentAt: 0,
         state: h.state,
         orphanTicks: 0,
+        absentTicks: 0,
+        checkedAt: 0,
+        maxWorstWei: 0n,
+        charges: [],
         blockNumber: h.blockNumber !== undefined ? BigInt(h.blockNumber) : undefined,
         minedHash: h.minedHash,
         revertReason: h.revertReason,
@@ -206,30 +272,48 @@ export class TxSender {
       this.settled.push(tx);
       for (const hash of tx.hashes) this.byHash.set(hash, tx);
     }
+    this.pruneHistory();
     for (const p of s.pending) {
+      const fees = feesIn(p.fees);
       const tx: TrackedTx = {
         nonce: p.nonce,
         to: p.to,
         data: p.data,
         gas: BigInt(p.gas),
-        fees: feesIn(p.fees),
+        fees,
         raw: p.raw,
         hashes: p.hashes,
         slots: p.slots,
+        firstSentAt: p.firstSentAt ?? p.lastSentAt,
         lastSentAt: p.lastSentAt,
         state: 'pending',
         orphanTicks: 0,
+        absentTicks: 0,
+        checkedAt: 0,
+        // Files from before these fields: the reservation and the current fees bound it.
+        maxWorstWei: BigInt(p.maxWorstWei ?? maxOf(BigInt(p.reservedWei), worstCase(BigInt(p.gas), fees)).toString()),
+        charges: (p.charges ?? []).map((c) => ({ t: c.t, wei: BigInt(c.wei) })),
       };
-      this.pending.set(tx.nonce, tx);
       for (const hash of tx.hashes) this.byHash.set(hash, tx);
-      for (const slot of tx.slots) this.slots.set(slot, tx.nonce);
       this.budget.reserve(tx.nonce, BigInt(p.reservedWei));
+      if (p.mined) {
+        tx.state = p.mined.state;
+        tx.blockNumber = BigInt(p.mined.blockNumber);
+        tx.blockHash = p.mined.blockHash;
+        tx.minedHash = p.mined.hash;
+        tx.revertReason = p.mined.revertReason;
+        tx.settledAt = p.mined.settledAt;
+        this.mined.set(tx.nonce, tx);
+        continue;
+      }
+      this.pending.set(tx.nonce, tx);
+      for (const slot of tx.slots) this.slots.set(slot, tx.nonce);
     }
   }
 
   private persist(): void {
     const s = this.store.state;
-    s.pending = [...this.pending.values()].map(
+    s.pending = [...this.pending.values(), ...this.mined.values()].map(
       (t): PersistedTx => ({
         nonce: t.nonce,
         to: t.to,
@@ -239,8 +323,22 @@ export class TxSender {
         raw: t.raw,
         hashes: t.hashes,
         lastSentAt: t.lastSentAt,
+        firstSentAt: t.firstSentAt,
         slots: t.slots,
         reservedWei: this.budget.reservedFor(t.nonce).toString(),
+        maxWorstWei: t.maxWorstWei.toString(),
+        charges: t.charges.map((c) => ({ t: c.t, wei: c.wei.toString() })),
+        mined:
+          t.state === 'pending'
+            ? undefined
+            : {
+                state: t.state,
+                blockNumber: (t.blockNumber ?? 0n).toString(),
+                blockHash: t.blockHash,
+                hash: t.minedHash as Hex,
+                revertReason: t.revertReason,
+                settledAt: t.settledAt ?? 0,
+              },
       }),
     );
     s.history = this.settled.map(
@@ -275,7 +373,8 @@ export class TxSender {
    */
   private adoptNonce(chain: number, expected: number | undefined, allowLower: boolean): number {
     let next = chain;
-    for (const nonce of this.pending.keys()) if (nonce + 1 > next) next = nonce + 1;
+    // Mined but not final counts too: a reorg may hand such a nonce back, and it is replayed.
+    for (const nonce of [...this.pending.keys(), ...this.mined.keys()]) if (nonce + 1 > next) next = nonce + 1;
     if (!allowLower && this.nextNonce !== undefined && this.nextNonce > next) next = this.nextNonce;
     if (expected !== undefined && chain > expected) {
       this.foreignTransactions += chain - expected;
@@ -324,9 +423,39 @@ export class TxSender {
     });
   }
 
-  /** Number of transactions this instance is still tracking as pending. */
+  /** True while a pending transaction holds a slot starting with `prefix` (e.g. a request's combine fields). */
+  holds(prefix: string): boolean {
+    for (const slot of this.slots.keys()) if (slot.startsWith(prefix)) return true;
+    return false;
+  }
+
+  /** Number of transactions this instance is still tracking as pending (not mined). */
   get pendingCount(): number {
     return this.pending.size;
+  }
+
+  /** Mined transactions whose block is not finalized yet (kept replayable). */
+  get awaitingFinality(): number {
+    return this.mined.size;
+  }
+
+  /** How long the oldest mined transaction has awaited finality (0 when none). */
+  oldestUnfinalMs(): number {
+    let first = Number.POSITIVE_INFINITY;
+    for (const tx of this.mined.values()) if ((tx.settledAt ?? first) < first) first = tx.settledAt as number;
+    return first === Number.POSITIVE_INFINITY ? 0 : Math.max(0, this.now() - first);
+  }
+
+  /** Age of the oldest unmined transaction (0 when none). */
+  oldestPendingMs(): number {
+    let first = Number.POSITIVE_INFINITY;
+    for (const tx of this.pending.values()) if (tx.firstSentAt < first) first = tx.firstSentAt;
+    return first === Number.POSITIVE_INFINITY ? 0 : Math.max(0, this.now() - first);
+  }
+
+  /** The monitor loop's health. */
+  monitorStatus(): LoopStatus {
+    return { ...this.monitor };
   }
 
   async balance(): Promise<bigint> {
@@ -408,11 +537,18 @@ export class TxSender {
   private async checkBalance(cost: bigint): Promise<void> {
     const balance = await this.balance().catch(() => undefined);
     if (balance === undefined) return; // the broadcast will tell
-    if (balance < cost + this.budget.inFlight()) throw this.underfunded(balance, cost);
+    if (balance < cost + this.unminedExposure()) throw this.underfunded(balance, cost);
+  }
+
+  /** Worst cases of the unmined transactions: what a node holds against the key's balance. */
+  private unminedExposure(): bigint {
+    let sum = 0n;
+    for (const nonce of this.pending.keys()) sum += this.budget.reservedFor(nonce);
+    return sum;
   }
 
   private underfunded(balance: bigint | undefined, cost: bigint): RelayError {
-    const inFlight = this.budget.inFlight();
+    const inFlight = this.unminedExposure();
     this.log.error('hot key balance too low: top it up', { balanceWei: balance, needsWei: cost + inFlight, address: this.address });
     return new RelayError(
       'BUDGET_EXHAUSTED',
@@ -422,11 +558,13 @@ export class TxSender {
     );
   }
 
-  private async known(hash: Hex): Promise<boolean> {
+  /** Does the node know this transaction? A failed lookup is 'unavailable', not 'no'. */
+  private async known(hash: Hex): Promise<'yes' | 'no' | 'unavailable'> {
     try {
-      return Boolean(await this.client.getTransaction({ hash }));
-    } catch {
-      return false;
+      await this.client.getTransaction({ hash });
+      return 'yes';
+    } catch (err) {
+      return notFound(err, 'TransactionNotFoundError') ? 'no' : 'unavailable';
     }
   }
 
@@ -451,6 +589,17 @@ export class TxSender {
             `a conflicting action for ${slot} is pending (${tx.hashes[tx.hashes.length - 1]}); retry once it settles`,
           );
         }
+      }
+      if (this.mined.size >= this.maxUnfinal) {
+        // Each must stay replayable until final; refusing new work is the only safe bound.
+        this.log.error('sponsorship paused: too many transactions await finality', {
+          awaitingFinality: this.mined.size,
+          hint: 'the rpc reports no advancing finalized block',
+        });
+        throw new RelayError(
+          'BUSY',
+          `sponsorship paused: ${this.mined.size} sent transactions await finality (the finalized block does not advance); retry later`,
+        );
       }
       let undo: (() => void) | undefined;
       let reserved = false;
@@ -481,8 +630,20 @@ export class TxSender {
             await this.broadcast(raw);
           } catch (err) {
             // A failed response may hide an accepted transaction (lost reply, retried
-            // request): keep it rather than paying for the same action twice.
-            if (await this.known(hash)) return this.sent(hash, nonce, gas);
+            // request): keep it rather than paying for the same action twice. Only a node
+            // that verifiably does not know it frees the journal entry; when the lookup
+            // fails too, the signed transaction keeps its nonce, slots and reservation and
+            // the monitor rebroadcasts it.
+            const seen = await this.known(hash);
+            if (seen === 'yes') return this.sent(hash, nonce, gas);
+            if (seen === 'unavailable') {
+              this.log.warn('broadcast outcome unknown: the transaction stays journaled and the monitor rebroadcasts it', {
+                hash,
+                nonce,
+                err: shortMessage(err),
+              });
+              return this.sent(hash, nonce, gas);
+            }
             this.untrack(nonce);
             // Any failed send reconciles the nonce. If the chain is past the nonce we
             // tried (the key was used elsewhere), retry once even when no endpoint said
@@ -490,7 +651,7 @@ export class TxSender {
             const kind = err instanceof BroadcastError ? err.kind : classifySendError(err);
             const chain = await this.chainNonce().catch(() => undefined);
             if (chain !== undefined) {
-              if (chain > nonce && (await this.known(hash))) {
+              if (chain > nonce && (await this.known(hash)) !== 'no') {
                 this.track(nonce, to, data, gas, fees, raw, hash, slots, cost);
                 return this.sent(hash, nonce, gas);
               }
@@ -536,9 +697,14 @@ export class TxSender {
       raw,
       hashes: [hash],
       slots,
+      firstSentAt: this.now(),
       lastSentAt: this.now(),
       state: 'pending',
       orphanTicks: 0,
+      absentTicks: 0,
+      checkedAt: 0,
+      maxWorstWei: cost,
+      charges: [],
     };
     this.pending.set(nonce, tracked);
     this.byHash.set(hash, tracked);
@@ -547,13 +713,13 @@ export class TxSender {
     this.persist();
   }
 
-  /** A journaled transaction the node definitively refused: forget it. */
+  /** A journaled transaction the node verifiably does not have and refused: forget it. */
   private untrack(nonce: number): void {
     const tx = this.pending.get(nonce);
     if (!tx) return;
     this.pending.delete(nonce);
     for (const h of tx.hashes) if (this.byHash.get(h) === tx) this.byHash.delete(h);
-    for (const slot of tx.slots) if (this.slots.get(slot) === nonce) this.slots.delete(slot);
+    this.releaseSlots(tx);
     this.budget.release(nonce);
     this.persist();
   }
@@ -563,35 +729,46 @@ export class TxSender {
     return hash;
   }
 
-  /** Remove a transaction from the pending set: release its slots, archive its outcome. */
-  private close(tx: TrackedTx): void {
-    this.pending.delete(tx.nonce);
+  private releaseSlots(tx: TrackedTx): void {
     for (const slot of tx.slots) if (this.slots.get(slot) === tx.nonce) this.slots.delete(slot);
-    tx.settledAt = this.now();
+  }
+
+  /** A final outcome: release what is left of its reservation, keep only what /v1/status reports. */
+  private archive(tx: TrackedTx): void {
+    this.budget.release(tx.nonce);
+    tx.settledAt ??= this.now();
+    tx.raw = '0x';
+    tx.data = '0x';
     this.settled.push(tx);
-    while (this.settled.length > MAX_HISTORY) {
+    this.pruneHistory();
+  }
+
+  private pruneHistory(): void {
+    const expired = this.now() - HISTORY_TTL_MS;
+    while (this.settled.length > MAX_HISTORY || (this.settled.length > 0 && (this.settled[0]?.settledAt ?? 0) < expired)) {
       const old = this.settled.shift() as TrackedTx;
       for (const h of old.hashes) if (this.byHash.get(h) === old) this.byHash.delete(h);
     }
-    // Settled entries keep only what /v1/status reports.
-    tx.raw = '0x';
-    tx.data = '0x';
   }
 
-  private async receiptOf(hash: Hex): Promise<TransactionReceipt | undefined> {
+  /** A receipt, verified absent (undefined), or UNAVAILABLE when the lookup failed. */
+  private async receiptOf(hash: Hex): Promise<Lookup<TransactionReceipt>> {
     try {
       return await this.client.getTransactionReceipt({ hash });
-    } catch {
-      return undefined;
+    } catch (err) {
+      return notFound(err, 'TransactionReceiptNotFoundError') ? undefined : UNAVAILABLE;
     }
   }
 
-  private async findReceipt(tx: TrackedTx): Promise<TransactionReceipt | undefined> {
+  /** The receipt of any of the transaction's hashes; absent only if every lookup said so. */
+  private async findReceipt(tx: TrackedTx): Promise<Lookup<TransactionReceipt>> {
+    let unavailable = false;
     for (let i = tx.hashes.length - 1; i >= 0; i--) {
       const r = await this.receiptOf(tx.hashes[i] as Hex);
-      if (r) return r;
+      if (r === UNAVAILABLE) unavailable = true;
+      else if (r) return r;
     }
-    return undefined;
+    return unavailable ? UNAVAILABLE : undefined;
   }
 
   /** Replay one of our reverted transactions at its parent block to recover the error (monitor only). */
@@ -605,19 +782,89 @@ export class TxSender {
     }
   }
 
-  private async settle(tx: TrackedTx, receipt: TransactionReceipt): Promise<void> {
-    if (tx.state !== 'pending') return;
+  /** What this nonce was charged inside the current budget window (older charges left it). */
+  private credit(tx: TrackedTx): bigint {
+    const since = this.now() - this.budget.windowMs;
+    tx.charges = tx.charges.filter((c) => c.t > since);
+    return tx.charges.reduce((sum, c) => sum + c.wei, 0n);
+  }
+
+  /** What a replay of any signed version could still cost beyond the credited charge. */
+  private residual(tx: TrackedTx, worst: bigint = tx.maxWorstWei): bigint {
+    const rest = worst - this.credit(tx);
+    return rest > 0n ? rest : 0n;
+  }
+
+  /**
+   * Record a receipt: charge what it cost beyond what this nonce was already charged in the
+   * window (a re-mined transaction pays the difference only), keep the rest of its highest
+   * signed worst case reserved until it is final (a reorg may replay it), set the outcome.
+   */
+  private async record(tx: TrackedTx, receipt: TransactionReceipt): Promise<void> {
+    const actual = receipt.gasUsed * receipt.effectiveGasPrice;
+    const credit = this.credit(tx);
+    if (actual > credit) {
+      this.budget.charge(actual - credit);
+      tx.charges.push({ t: this.now(), wei: actual - credit });
+    }
+    this.budget.reserve(tx.nonce, this.residual(tx));
+    const moved = tx.blockHash !== receipt.blockHash || tx.minedHash !== receipt.transactionHash;
     tx.blockNumber = receipt.blockNumber;
+    tx.blockHash = receipt.blockHash;
     tx.minedHash = receipt.transactionHash;
-    this.budget.settle(tx.nonce, receipt.gasUsed * receipt.effectiveGasPrice);
+    tx.absentTicks = 0;
+    tx.checkedAt = this.now();
+    tx.settledAt ??= this.now();
     if (receipt.status === 'success') {
       tx.state = 'confirmed';
+      tx.revertReason = undefined;
     } else {
       tx.state = 'failed';
-      tx.revertReason = await this.replayRevert(tx.to, tx.data, receipt.blockNumber);
-      this.log.warn('tx reverted on chain', { hash: receipt.transactionHash, reason: tx.revertReason });
+      if (moved || tx.revertReason === undefined) {
+        tx.revertReason = await this.replayRevert(tx.to, tx.data, receipt.blockNumber);
+        this.log.warn('tx reverted on chain', { hash: receipt.transactionHash, reason: tx.revertReason });
+      }
     }
-    this.close(tx);
+  }
+
+  /** First receipt: report the outcome and free the slots, but keep it replayable until final. */
+  private async settle(tx: TrackedTx, receipt: TransactionReceipt): Promise<void> {
+    if (tx.state !== 'pending') return;
+    this.pending.delete(tx.nonce);
+    this.releaseSlots(tx);
+    await this.record(tx, receipt);
+    this.mined.set(tx.nonce, tx);
+  }
+
+  /**
+   * A mined transaction whose receipt is gone (its block was reorged out): pending again at its
+   * original nonce, reserved for what a replay may cost beyond its charge, and rebroadcast, so a
+   * node that did not keep it cannot leave a hole that later nonces queue behind.
+   */
+  private async orphan(tx: TrackedTx): Promise<void> {
+    this.mined.delete(tx.nonce);
+    tx.state = 'pending';
+    tx.blockNumber = undefined;
+    tx.blockHash = undefined;
+    tx.minedHash = undefined;
+    tx.revertReason = undefined;
+    tx.settledAt = undefined;
+    tx.absentTicks = 0;
+    tx.orphanTicks = 0;
+    this.pending.set(tx.nonce, tx);
+    for (const slot of tx.slots) if (!this.slots.has(slot)) this.slots.set(slot, tx.nonce);
+    this.budget.reserve(tx.nonce, this.residual(tx));
+    this.persist();
+    this.log.warn('tx reorged out of the chain: rebroadcasting it at its nonce', {
+      nonce: tx.nonce,
+      hash: tx.hashes[tx.hashes.length - 1],
+    });
+    tx.lastSentAt = this.now();
+    try {
+      await this.broadcast(tx.raw);
+    } catch (err) {
+      this.log.warn('rebroadcast failed', { nonce: tx.nonce, err: shortMessage(err) });
+    }
   }
 
   private async bump(tx: TrackedTx): Promise<void> {
@@ -642,9 +889,10 @@ export class TxSender {
       if (gasPrice > this.maxFeeWei) gasPrice = this.maxFeeWei;
       if (gasPrice * 10n >= tx.fees.gasPrice * 11n) next = { type: 'legacy', gasPrice };
     }
-    // A bump raises the worst case; it must still fit the budget, else rebroadcast as is.
+    // A bump raises the worst case; it must still fit the budget, else rebroadcast as is. A
+    // replay of a reorged-out transaction is credited what it was already charged.
     if (next) {
-      const extra = worstCase(tx.gas, next) - this.budget.reservedFor(tx.nonce);
+      const extra = this.residual(tx, maxOf(tx.maxWorstWei, worstCase(tx.gas, next))) - this.budget.reservedFor(tx.nonce);
       if (extra > 0n && !this.budget.fits(extra)) next = undefined;
     }
     tx.lastSentAt = this.now();
@@ -656,7 +904,8 @@ export class TxSender {
       const hash = keccak256(raw);
       tx.hashes.push(hash);
       this.byHash.set(hash, tx);
-      this.budget.reserve(tx.nonce, maxOf(this.budget.reservedFor(tx.nonce), worstCase(tx.gas, next)));
+      tx.maxWorstWei = maxOf(tx.maxWorstWei, worstCase(tx.gas, next));
+      this.budget.reserve(tx.nonce, maxOf(this.budget.reservedFor(tx.nonce), this.residual(tx)));
       this.persist();
       try {
         await this.broadcast(raw);
@@ -677,53 +926,142 @@ export class TxSender {
     }
   }
 
-  /** One monitor pass: settle mined transactions, bump or rebroadcast stuck ones. */
+  /**
+   * One monitor pass: settle mined transactions, follow mined ones to finality (replaying any a
+   * reorg removed), drop transactions whose nonce another transaction consumed for good, and
+   * bump or rebroadcast stuck ones. A lookup that fails decides nothing.
+   */
   tick(): Promise<void> {
     return this.serialize(async () => {
-      if (this.pending.size === 0) return;
-      const mined = await this.client.getTransactionCount({ address: this.address, blockTag: 'latest' });
+      if (this.pending.size === 0 && this.mined.size === 0) return;
       let changed = false;
-      for (const tx of [...this.pending.values()].sort((a, b) => a.nonce - b.nonce)) {
-        const receipt = await this.findReceipt(tx);
-        if (receipt) {
-          await this.settle(tx, receipt);
-          changed = true;
-          continue;
-        }
-        if (mined > tx.nonce) {
-          // The nonce is used but none of our hashes has a receipt: give a
-          // lagging node a few passes, then report the transaction as dropped.
-          if (++tx.orphanTicks >= 3) {
-            tx.state = 'failed';
-            tx.revertReason = 'replaced or dropped';
-            this.budget.release(tx.nonce);
-            this.close(tx);
-            changed = true;
-            this.foreignTransactions++;
-            this.log.warn('tx dropped: its nonce was consumed by a transaction this relayer did not send', {
-              nonce: tx.nonce,
-              hashes: tx.hashes,
-              hint: 'give the relayer a key nothing else uses',
-            });
-          }
-          continue;
-        }
-        if (this.now() - tx.lastSentAt >= this.bumpAfterMs) await this.bump(tx);
-      }
+      if (this.pending.size > 0) changed = await this.followPending();
+      // After the pending pass, so a transaction mined in an already finalized block is archived at once.
+      if (this.mined.size > 0) changed = (await this.followMined()) || changed;
       if (changed) this.persist();
     });
   }
 
+  /**
+   * Mined, not final: finalize, re-record a re-mined one, replay one a reorg removed. A receipt is
+   * re-checked once its block is final, and every MINED_RECHECK_MS before that (public RPCs
+   * should not see one receipt read per transaction per pass over a 13-minute finality lag).
+   */
+  private async followMined(): Promise<boolean> {
+    let changed = false;
+    const fin = await this.client
+      .getBlock({ blockTag: 'finalized' })
+      .then((b) => b.number ?? undefined)
+      .catch(() => undefined);
+    for (const tx of [...this.mined.values()].sort((a, b) => a.nonce - b.nonce)) {
+      const final = fin !== undefined && tx.blockNumber !== undefined && fin >= tx.blockNumber;
+      if (!final && this.now() - tx.checkedAt < MINED_RECHECK_MS) continue;
+      tx.checkedAt = this.now();
+      const receipt = await this.findReceipt(tx);
+      if (receipt === UNAVAILABLE) continue;
+      if (receipt === undefined) {
+        if (++tx.absentTicks >= ORPHAN_AFTER) {
+          await this.orphan(tx);
+          changed = true;
+        }
+        continue;
+      }
+      if (receipt.blockHash !== tx.blockHash || receipt.transactionHash !== tx.minedHash || tx.absentTicks > 0) {
+        await this.record(tx, receipt);
+        changed = true;
+      }
+      if (fin !== undefined && fin >= receipt.blockNumber) {
+        this.mined.delete(tx.nonce);
+        this.archive(tx);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /** Unmined: settle on a receipt, drop on a nonce consumed for good, else bump when stuck. */
+  private async followPending(): Promise<boolean> {
+    let changed = false;
+    const latest = await this.client
+      .getTransactionCount({ address: this.address, blockTag: 'latest' })
+      .catch(() => undefined);
+    let finalized: number | undefined | null = null; // read once, when needed
+    for (const tx of [...this.pending.values()].sort((a, b) => a.nonce - b.nonce)) {
+      const receipt = await this.findReceipt(tx);
+      if (receipt === UNAVAILABLE) continue; // no answer: nothing is concluded, nothing is sent
+      if (receipt) {
+        await this.settle(tx, receipt);
+        changed = true;
+        continue;
+      }
+      if (latest !== undefined && latest > tx.nonce) {
+        // The nonce is used but none of our hashes has a receipt: either a node that has not
+        // indexed it yet or another transaction. Only the finalized nonce, seen over a few
+        // passes, says it is gone for good; until then the reservation stays.
+        if (finalized === null) {
+          finalized = await this.client
+            .getTransactionCount({ address: this.address, blockTag: 'finalized' })
+            .catch(() => undefined);
+        }
+        if (finalized === undefined || finalized <= tx.nonce) {
+          tx.orphanTicks = 0;
+          continue;
+        }
+        if (++tx.orphanTicks < DROP_AFTER) continue;
+        this.pending.delete(tx.nonce);
+        this.releaseSlots(tx);
+        tx.state = 'failed';
+        tx.revertReason = 'replaced or dropped';
+        this.budget.release(tx.nonce);
+        this.archive(tx);
+        changed = true;
+        this.foreignTransactions++;
+        this.log.warn('tx dropped: its nonce was consumed by a transaction this relayer did not send', {
+          nonce: tx.nonce,
+          hashes: tx.hashes,
+          hint: 'give the relayer a key nothing else uses',
+        });
+        continue;
+      }
+      tx.orphanTicks = 0;
+      if (this.now() - tx.lastSentAt >= this.bumpAfterMs) await this.bump(tx);
+    }
+    return changed;
+  }
+
+  /**
+   * Run the monitor every `intervalMs` after the previous pass completed: passes never queue up
+   * behind a slow RPC (they would delay every send sharing the queue).
+   */
   start(intervalMs: number): void {
     this.stop();
-    this.timer = setInterval(() => {
-      this.tick().catch((err: unknown) => this.log.warn('tx monitor failed', { err: shortMessage(err) }));
-    }, intervalMs);
+    this.monitoring = true;
+    const loop = (): void => {
+      this.tick()
+        .then(
+          () => {
+            this.monitor.lastSuccessAt = this.now();
+            this.monitor.failures = 0;
+          },
+          (err: unknown) => {
+            this.monitor.lastFailureAt = this.now();
+            this.monitor.failures++;
+            this.log.warn('tx monitor failed', { err: shortMessage(err), failures: this.monitor.failures });
+          },
+        )
+        .finally(() => {
+          if (!this.monitoring) return;
+          this.timer = setTimeout(loop, intervalMs);
+          this.timer.unref();
+        });
+    };
+    this.timer = setTimeout(loop, intervalMs);
     this.timer.unref();
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.monitoring = false;
+    if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
   }
 

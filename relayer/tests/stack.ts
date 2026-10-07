@@ -1,6 +1,8 @@
 /** A relayer stack (sender, policy, sponsor) over a MockChain, with a controllable clock. */
 
 import { privateKeyToAccount } from 'viem/accounts';
+import type { Hex } from '@vocdoni/davinci-dkg-council-sdk';
+import type { PartialVectorStore } from '../src/partials.js';
 import { Sponsor, SponsorPolicy, type PolicyConfig } from '../src/policy.js';
 import { TxSender } from '../src/sender.js';
 import { StateStore } from '../src/state.js';
@@ -22,6 +24,8 @@ export interface StackOptions {
   maxFeeWei?: bigint;
   store?: StateStore;
   clock?: { t: number };
+  /** The D-vector cache (default: in memory). */
+  partials?: (chainId: bigint, manager: Hex) => PartialVectorStore;
 }
 
 export function stack(opts: StackOptions = {}) {
@@ -45,6 +49,7 @@ export function stack(opts: StackOptions = {}) {
     manager: MANAGER,
     store,
     config: { ...OPEN_POLICY, ...opts.policy },
+    partials: opts.partials?.(chain.chainId, MANAGER),
     now,
   });
   const sponsor = new Sponsor(policy, sender, MANAGER);

@@ -1,9 +1,9 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodeAction, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
-import { parseTransaction } from 'viem';
+import { keccak256, parseTransaction } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { RelayError } from '../src/errors.js';
 import { MAX_TX_GAS, TxSender } from '../src/sender.js';
@@ -424,5 +424,329 @@ describe('persistence', () => {
     expect((await second.sender.status(a)).status).toBe('confirmed');
     expect((await second.sender.status(b)).status).toBe('confirmed');
     expect(JSON.parse(readFileSync(file, 'utf8')).pending).toHaveLength(0);
+  });
+});
+
+describe('bounded history', () => {
+  it('forgets settled outcomes after a week, so the state file stays bounded', async () => {
+    const { chain, sender, store, advance } = stack();
+    dealing(chain, 2);
+    const old = await sender.send(MANAGER, finalizeData(1));
+    await sender.tick();
+    expect(store.state.history).toHaveLength(1);
+    advance(7 * 24 * 3_600_000 + 1);
+    const recent = await sender.send(MANAGER, finalizeData(2));
+    await sender.tick();
+    expect(store.state.history.map((h) => h.hashes[0])).toEqual([recent]);
+    expect((await errorOf(sender.status(old))).code).toBe('NOT_FOUND');
+  });
+});
+
+describe('budget and journal under RPC uncertainty (audit: unavailable is not "not found")', () => {
+  const transient = () => rpcError(-32005, 'rate limit exceeded');
+
+  it('never releases a reservation or reports a drop while receipt lookups fail; charges the mined cost when it appears', async () => {
+    const { chain, sender } = stack({ automine: false, budgetWei: 10n ** 18n });
+    dealing(chain, 1);
+    const hash = await sender.send(MANAGER, finalizeData(1));
+    chain.mine(); // mined: the nonce moved on, but the provider cannot serve receipts
+    chain.failRequests = (m) => (m === 'eth_getTransactionReceipt' ? transient() : undefined);
+    for (let i = 0; i < 6; i++) await sender.tick();
+    expect((await sender.status(hash)).status).toBe('pending');
+    expect(sender.budget.inFlight()).toBe(WORST);
+    expect(sender.budget.spent()).toBe(0n);
+    expect(sender.foreignTransactions).toBe(0);
+    chain.failRequests = undefined;
+    await sender.tick();
+    expect((await sender.status(hash)).status).toBe('confirmed');
+    expect(sender.budget.spent()).toBe(ACTUAL);
+    expect(sender.budget.inFlight()).toBe(0n);
+  });
+
+  it('keeps the journal entry of a broadcast whose outcome cannot be verified, and never pays for the action twice', async () => {
+    const { chain, sender, store } = stack({ automine: false, budgetWei: 10n ** 18n });
+    dealing(chain, 2);
+    // The node accepts the transaction but the reply is lost, and the lookup that would tell fails too.
+    chain.loseNextResponse = rpcError(-32603, 'request timed out');
+    chain.failRequests = (m) => (m === 'eth_getTransactionByHash' ? transient() : undefined);
+    const hash = await sender.send(MANAGER, finalizeData(1));
+    chain.failRequests = undefined;
+    expect(chain.sentRaw).toHaveLength(1);
+    expect(keccak256(chain.sentRaw[0] as Hex)).toBe(hash);
+    expect(store.state.pending.map((p) => p.hashes)).toEqual([[hash]]);
+    expect(sender.budget.inFlight()).toBe(WORST);
+    // The same action again resolves to the journaled transaction instead of a second payment.
+    expect(await sender.send(MANAGER, finalizeData(1))).toBe(hash);
+    await sender.send(MANAGER, finalizeData(2));
+    expect(chain.sentRaw.map((raw) => parseTransaction(raw).nonce)).toEqual([0, 1]);
+    chain.mine();
+    await sender.tick();
+    expect((await sender.status(hash)).status).toBe('confirmed');
+  });
+
+  it('a refused broadcast with an unavailable lookup stays journaled; the monitor rebroadcasts it', async () => {
+    const { chain, sender, advance } = stack({ automine: false, budgetWei: 10n ** 18n });
+    dealing(chain, 1);
+    chain.failNextSend = rpcError(-32603, 'request timed out');
+    chain.failRequests = (m) => (m === 'eth_getTransactionByHash' ? transient() : undefined);
+    const hash = await sender.send(MANAGER, finalizeData(1));
+    chain.failRequests = undefined;
+    expect(chain.mempool).toHaveLength(0); // it never reached the node
+    expect(sender.pendingCount).toBe(1);
+    advance(10_000);
+    await sender.tick(); // stuck: rebroadcast (or bumped) at the same nonce
+    expect(chain.mempool.map((t) => t.nonce)).toEqual([0]);
+    chain.mine();
+    await sender.tick();
+    expect((await sender.status(hash)).status).toBe('confirmed');
+  });
+
+  it('reports a transaction dropped only once another transaction consumed its nonce at the finalized block', async () => {
+    const { chain, sender } = stack({ automine: false, budgetWei: 10n ** 18n });
+    dealing(chain, 1);
+    const hash = await sender.send(MANAGER, finalizeData(1));
+    chain.holdFinalized();
+    // Someone else uses the key's nonce 0; ours is gone from the mempool.
+    chain.mempool.splice(0, chain.mempool.length);
+    const foreign = await account.signTransaction({
+      chainId: 31337,
+      type: 'eip1559',
+      nonce: 0,
+      to: account.address,
+      gas: 21_000n,
+      maxFeePerGas: 3_000_000_000n,
+      maxPriorityFeePerGas: 1n,
+    });
+    await chain.request('eth_sendRawTransaction', [foreign]);
+    chain.mine();
+    for (let i = 0; i < 5; i++) await sender.tick();
+    // Consumed at the head only: a reorg could still bring ours back, so the reservation stays.
+    expect((await sender.status(hash)).status).toBe('pending');
+    expect(sender.budget.inFlight()).toBe(WORST);
+    chain.releaseFinalized();
+    await sender.tick();
+    await sender.tick();
+    expect((await sender.status(hash)).status).toBe('pending'); // a few passes, not one
+    await sender.tick();
+    expect(await sender.status(hash)).toMatchObject({ status: 'failed', revertReason: 'replaced or dropped' });
+    expect(sender.budget.inFlight()).toBe(0n);
+    expect(sender.foreignTransactions).toBe(1);
+  });
+});
+
+describe('reorgs (audit: keep replayable mined transactions until finality)', () => {
+  it('rebroadcasts a reorged-out transaction at its original nonce, so later nonces are not stuck; charges it once', async () => {
+    const { chain, sender, store, advance } = stack({ automine: false, budgetWei: 10n ** 18n });
+    dealing(chain, 2);
+    chain.holdFinalized();
+    const a = await sender.send(MANAGER, finalizeData(1));
+    chain.mine();
+    await sender.tick();
+    expect((await sender.status(a)).status).toBe('confirmed');
+    expect(sender.awaitingFinality).toBe(1);
+    expect(sender.budget.inFlight()).toBe(WORST - ACTUAL); // replayable until final
+    // Mined, not final: still replayable from the state file.
+    const [kept] = store.state.pending;
+    expect(kept?.mined?.hash).toBe(a);
+    expect(kept?.raw).not.toBe('0x');
+    expect(sender.budget.spent()).toBe(ACTUAL);
+
+    const b = await sender.send(MANAGER, finalizeData(2));
+    expect(parseTransaction(chain.sentRaw.at(-1) as Hex).nonce).toBe(1);
+    // A reorg removes A's block, and the node does not keep A: B (nonce 1) can never mine alone.
+    chain.reorg();
+    chain.mine();
+    expect(chain.receipts.size).toBe(0);
+    // Not final: re-checked every 15 s; absent on two checks, it is replayed at nonce 0.
+    advance(15_000);
+    await sender.tick();
+    expect((await sender.status(a)).status).toBe('confirmed');
+    advance(15_000);
+    await sender.tick();
+    expect(chain.mempool.map((t) => t.nonce).sort()).toEqual([0, 1]);
+    expect((await sender.status(a)).status).toBe('pending');
+    expect(sender.budget.inFlight()).toBeGreaterThanOrEqual(WORST + (WORST - ACTUAL)); // B, and A beyond its charge
+    chain.mine();
+    await sender.tick();
+    expect((await sender.status(a)).status).toBe('confirmed');
+    expect((await sender.status(b)).status).toBe('confirmed');
+    expect(chain.manager.calls.map((c) => c.args[0])).toEqual([ceremonyIdOf(1), ceremonyIdOf(1), ceremonyIdOf(2)]);
+    // Charged exactly what the canonical receipts cost: A once (not again when re-mined), B once.
+    const canonical = [...chain.receipts.values()].reduce(
+      (sum, r) => sum + BigInt(r.gasUsed as string) * BigInt(r.effectiveGasPrice as string),
+      0n,
+    );
+    expect(chain.receipts.size).toBe(2);
+    expect(sender.budget.spent()).toBe(canonical);
+    // Mined, not final: the rest of each worst case stays reserved until finality.
+    expect(sender.budget.inFlight()).toBeGreaterThan(0n);
+    chain.releaseFinalized();
+    await sender.tick();
+    expect(sender.awaitingFinality).toBe(0);
+    expect(sender.budget.inFlight()).toBe(0n);
+    expect(store.state.pending).toEqual([]);
+  });
+
+  it('a mined transaction survives a restart until final, and is replayed after a reorg', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'davinci-dkg-council-relayer-'));
+    const file = path.join(dir, 'state.json');
+    const chain = new MockChain({ automine: false });
+    dealing(chain, 1);
+    chain.holdFinalized();
+    const clock = { t: 1_000_000 };
+    const first = stack({ chain, store: new StateStore(file), clock, budgetWei: 10n ** 18n });
+    const a = await first.sender.send(MANAGER, finalizeData(1));
+    chain.mine();
+    await first.sender.tick();
+    chain.reorg();
+    const second = stack({ chain, store: new StateStore(file), clock, budgetWei: 10n ** 18n });
+    expect((await second.sender.status(a)).status).toBe('confirmed');
+    expect(second.sender.awaitingFinality).toBe(1);
+    await second.sender.tick();
+    second.advance(15_000);
+    await second.sender.tick();
+    chain.mine();
+    await second.sender.tick();
+    expect((await second.sender.status(a)).status).toBe('confirmed');
+    expect(second.sender.budget.spent()).toBe(ACTUAL);
+    expect(chain.receipts.size).toBe(1);
+  });
+});
+
+describe('reorg accounting (review follow-ups)', () => {
+  const bumpedWorst = 120_000n * ((3_000_000_000n * 1125n) / 1000n + 1n);
+
+  it('never evicts a transaction before finality; pauses new sends past the cap instead', async () => {
+    const chain = new MockChain();
+    dealing(chain, 3);
+    chain.holdFinalized();
+    const sender = new TxSender({ client: chain.client, account, chainId: 31337n, maxFeeWei: 10n ** 11n, bumpAfterMs: 10_000, maxUnfinal: 2 });
+    await sender.send(MANAGER, finalizeData(1));
+    await sender.send(MANAGER, finalizeData(2));
+    await sender.tick();
+    expect(sender.awaitingFinality).toBe(2);
+    expect((await errorOf(sender.send(MANAGER, finalizeData(3)))).code).toBe('BUSY');
+    expect(sender.awaitingFinality).toBe(2); // both still replayable
+    chain.releaseFinalized();
+    await sender.tick();
+    expect(sender.awaitingFinality).toBe(0);
+    await sender.send(MANAGER, finalizeData(3));
+  });
+
+  it('keeps the highest signed worst case reserved when a bump accepted behind a lost reply is the one mined', async () => {
+    const { chain, sender, advance } = stack({ automine: false, budgetWei: 10n ** 18n });
+    dealing(chain, 1);
+    chain.holdFinalized();
+    await sender.send(MANAGER, finalizeData(1));
+    advance(10_000);
+    chain.loseNextResponse = rpcError(-32603, 'request timed out');
+    await sender.tick(); // the replacement reaches the node; the sender never hears so
+    chain.mine();
+    await sender.tick();
+    const [r] = [...chain.receipts.values()];
+    const actual = BigInt(r?.gasUsed as string) * BigInt(r?.effectiveGasPrice as string);
+    expect(sender.budget.spent()).toBe(actual);
+    expect(sender.budget.inFlight()).toBe(bumpedWorst - actual);
+  });
+
+  it('charges a replay re-mined after the budget window again, in the new window', async () => {
+    const { chain, sender, advance } = stack({ automine: false, budgetWei: 10n ** 18n });
+    dealing(chain, 1);
+    chain.holdFinalized();
+    await sender.send(MANAGER, finalizeData(1));
+    chain.mine();
+    await sender.tick();
+    expect(sender.budget.spent()).toBe(ACTUAL);
+    advance(24 * 3_600_000 + 1); // the charge leaves the window; finality never came
+    expect(sender.budget.spent()).toBe(0n);
+    chain.reorg();
+    await sender.tick();
+    advance(15_000);
+    await sender.tick(); // replayed
+    expect(sender.budget.inFlight()).toBe(WORST); // nothing left to credit
+    chain.mine();
+    await sender.tick();
+    expect(sender.budget.spent()).toBe(ACTUAL);
+  });
+
+  it('bumps a replayed transaction within a tight budget, crediting what it was already charged', async () => {
+    const { chain, sender, advance } = stack({ automine: false, budgetWei: bumpedWorst + 1n });
+    dealing(chain, 1);
+    chain.holdFinalized();
+    await sender.send(MANAGER, finalizeData(1));
+    chain.mine();
+    await sender.tick();
+    chain.reorg();
+    advance(15_000);
+    await sender.tick();
+    advance(15_000);
+    await sender.tick(); // replayed at its fees; the node keeps it pending
+    expect(chain.sentRaw).toHaveLength(2);
+    advance(10_000);
+    await sender.tick(); // stuck: bumped, which fits once the earlier charge is credited
+    expect(chain.sentRaw).toHaveLength(3);
+    expect(parseTransaction(chain.sentRaw[2] as Hex).maxFeePerGas).toBe((3_000_000_000n * 1125n) / 1000n + 1n);
+    expect(sender.budget.spent() + sender.budget.inFlight()).toBe(bumpedWorst);
+  });
+
+  it('loads a state file written before this release (no finality, exposure or tracking fields)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'davinci-dkg-council-relayer-'));
+    const file = path.join(dir, 'state.json');
+    const chain = new MockChain({ automine: false });
+    dealing(chain, 1);
+    const first = stack({ chain, store: new StateStore(file), budgetWei: 10n ** 18n });
+    const hash = await first.sender.send(MANAGER, finalizeData(1), { slots: ['cer:1:phase'] });
+    const legacy = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> & { pending: Record<string, unknown>[] };
+    delete legacy.tracked;
+    for (const p of legacy.pending) {
+      delete p.firstSentAt;
+      delete p.maxWorstWei;
+      delete p.charges;
+    }
+    writeFileSync(file, JSON.stringify(legacy));
+    const second = stack({ chain, store: new StateStore(file), budgetWei: 10n ** 18n });
+    expect(second.store.state.tracked).toEqual([]);
+    expect(second.sender.pendingCount).toBe(1);
+    expect(second.sender.budget.inFlight()).toBe(WORST);
+    expect((await errorOf(second.sender.send(MANAGER, abortData(1), { slots: ['cer:1:phase'] }))).code).toBe('CONFLICT');
+    chain.mine();
+    await second.sender.tick();
+    expect((await second.sender.status(hash)).status).toBe('confirmed');
+    expect(second.sender.budget.spent()).toBe(ACTUAL);
+  });
+});
+
+describe('monitor loop (audit: no queued passes)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('schedules the next pass only after the previous one completed', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const { chain, sender } = stack({ automine: false });
+    dealing(chain, 1);
+    await sender.send(MANAGER, finalizeData(1));
+    let passes = 0;
+    let release: (() => void) | undefined;
+    const orig = chain.request.bind(chain);
+    chain.request = async (method, params) => {
+      if (method === 'eth_getTransactionCount' && params[1] === 'latest') {
+        passes++;
+        if (passes === 1) await new Promise<void>((r) => (release = r)); // a very slow RPC
+      }
+      return orig(method, params);
+    };
+    sender.start(100);
+    await vi.advanceTimersByTimeAsync(2_000); // twenty intervals while the first pass hangs
+    expect(passes).toBe(1);
+    release?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(passes).toBe(1); // nothing queued behind it
+    await vi.advanceTimersByTimeAsync(100);
+    expect(passes).toBe(2);
+    sender.stop();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(passes).toBe(2);
+    expect(sender.monitorStatus()).toMatchObject({ failures: 0 });
   });
 });

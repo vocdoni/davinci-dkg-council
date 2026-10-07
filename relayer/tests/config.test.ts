@@ -31,6 +31,42 @@ describe('config', () => {
     expect(loadConfig({ ...BASE, COUNCIL_NONCE_REFRESH_MS: '0' }).nonceRefreshMs).toBe(0);
   });
 
+  it('the scheduler and the combine worker are opt-in', () => {
+    const c = loadConfig(BASE);
+    expect(c.schedulerEnabled).toBe(false);
+    expect(c.combinerEnabled).toBe(false);
+    expect(c.schedulerPollMs).toBe(15_000);
+    const on = loadConfig({ ...BASE, COUNCIL_SCHEDULER_ENABLED: 'true', COUNCIL_SCHEDULER_POLL_MS: '2000' });
+    expect(on.schedulerEnabled).toBe(true);
+    expect(on.schedulerPollMs).toBe(2000);
+  });
+
+  it('monitoring thresholds: defaults tied to the budget, overridable', () => {
+    const c = loadConfig(BASE);
+    expect(c.alertMinBalanceWei).toBe(10n ** 18n); // one more day of the budget
+    expect(c.alertBudgetPercent).toBe(20);
+    expect(c.alertPendingMs).toBe(600_000);
+    expect(c.alertStaleMs).toBe(600_000);
+    expect(c.alertRpcLagBlocks).toBe(64n);
+    expect(loadConfig({ ...BASE, COUNCIL_DAILY_BUDGET_WEI: '0' }).alertMinBalanceWei).toBe(10n ** 17n);
+    const set = loadConfig({
+      ...BASE,
+      COUNCIL_ALERT_MIN_BALANCE_WEI: '5',
+      COUNCIL_ALERT_BUDGET_PERCENT: '50',
+      COUNCIL_ALERT_PENDING_MS: '60000',
+      COUNCIL_ALERT_STALE_MS: '120000',
+      COUNCIL_ALERT_RPC_LAG_BLOCKS: '8',
+    });
+    expect([set.alertMinBalanceWei, set.alertBudgetPercent, set.alertPendingMs, set.alertStaleMs, set.alertRpcLagBlocks]).toEqual([
+      5n,
+      50,
+      60_000,
+      120_000,
+      8n,
+    ]);
+    expect(() => loadConfig({ ...BASE, COUNCIL_ALERT_BUDGET_PERCENT: '101' })).toThrow(/at most 100/);
+  });
+
   it('parses admission, proxies and limits', () => {
     const c = loadConfig({
       ...BASE,
@@ -53,6 +89,8 @@ describe('config', () => {
     ['a missing manager', { COUNCIL_MANAGER_ADDRESS: '' }, /required/],
     ['a per-transaction gas cap below 21000', { COUNCIL_MAX_TX_GAS: '20999' }, /MAX_TX_GAS/],
     ['a state-gas flag that is not a boolean', { COUNCIL_STATE_GAS: 'maybe' }, /STATE_GAS/],
+    ['a scheduler flag that is not a boolean', { COUNCIL_SCHEDULER_ENABLED: 'on' }, /SCHEDULER_ENABLED/],
+    ['a scheduler poll below 100 ms', { COUNCIL_SCHEDULER_POLL_MS: '10' }, /SCHEDULER_POLL_MS/],
   ])('refuses %s', (_name, env, message) => {
     expect(() => loadConfig({ ...BASE, ...env })).toThrow(message);
   });

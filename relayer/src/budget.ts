@@ -1,8 +1,10 @@
 /**
  * Global spending circuit breaker: a rolling-window wei budget for everything the hot key
  * sponsors (relayed actions and the combine worker alike). A transaction reserves its
- * worst case (gas limit × max fee) when it is sent; settlement replaces the reservation with
- * the actual cost (gasUsed × effectiveGasPrice); a dropped transaction releases it.
+ * worst case (gas limit × max fee) when it is sent; its first receipt replaces the reservation
+ * with the actual cost (gasUsed × effectiveGasPrice); a transaction verified dropped releases it.
+ * A reorged-out transaction is reserved again for what its replay may cost beyond what was
+ * already charged, and a re-mined one is charged only the difference (sender.ts).
  */
 
 import { RelayError } from './errors.js';
@@ -59,10 +61,22 @@ export class SpendBudget {
     return this.reserved.get(nonce) ?? 0n;
   }
 
+  /** Remaining room in the window (spent and in flight counted); undefined when disabled. */
+  remaining(): bigint | undefined {
+    if (this.limitWei === 0n) return undefined;
+    const left = this.limitWei - this.spent() - this.inFlight();
+    return left > 0n ? left : 0n;
+  }
+
+  /** Write a mined cost to the spend log (the caller flushes the store). */
+  charge(wei: bigint): void {
+    if (wei > 0n) this.store.state.spend.push({ t: this.now(), wei: wei.toString() });
+  }
+
   /** Replace a reservation with the actual cost (the caller flushes the store). */
   settle(nonce: number, actualWei: bigint): void {
     this.reserved.delete(nonce);
-    if (actualWei > 0n) this.store.state.spend.push({ t: this.now(), wei: actualWei.toString() });
+    this.charge(actualWei);
   }
 
   release(nonce: number): void {

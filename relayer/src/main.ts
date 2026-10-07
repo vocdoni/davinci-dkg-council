@@ -1,16 +1,22 @@
 /** Relayer entry point: `node dist/main.js`, configured by COUNCIL_* env vars (see README.md). */
 
+import { COUNCIL_MANAGER_ABI, PROTOCOL_VERSION } from '@vocdoni/davinci-dkg-council-sdk';
 import { createPublicClient, fallback, http, type PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { ChainState } from './chainstate.js';
 import { Combiner } from './combiner.js';
 import { loadConfig } from './config.js';
 import { WorkerDlogSolver } from './dlog.js';
-import { shortMessage } from './errors.js';
+import { isRevert, shortMessage } from './errors.js';
 import { jsonLogger as log } from './log.js';
+import { Metrics } from './metrics.js';
+import { PartialVectorStore } from './partials.js';
 import { Sponsor, SponsorPolicy } from './policy.js';
+import { Scheduler } from './scheduler.js';
 import { TxSender } from './sender.js';
 import { createRelayerServer } from './server.js';
 import { StateStore } from './state.js';
+import { trackCeremony } from './track.js';
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -25,6 +31,20 @@ async function main(): Promise<void> {
   const code = await client.getCode({ address: config.manager });
   if (code === undefined || code === '0x') {
     throw new Error(`no contract at COUNCIL_MANAGER_ADDRESS ${config.manager} on chain ${chainId}`);
+  }
+  // A deployment's protocol is its manager's protocolVersion(), never guessed (protocol §5.3):
+  // this release encodes v2 actions only, which a v1 manager would refuse one by one.
+  const version = await client
+    .readContract({ address: config.manager, abi: COUNCIL_MANAGER_ABI, functionName: 'protocolVersion' })
+    .catch((err: unknown) => {
+      if (isRevert(err)) return undefined; // a v1 manager has no such view
+      throw err;
+    });
+  if (version !== PROTOCOL_VERSION) {
+    throw new Error(
+      `COUNCIL_MANAGER_ADDRESS ${config.manager} is not a protocol v${PROTOCOL_VERSION} CouncilManager ` +
+        `(protocolVersion ${version ?? 'missing'}); run the relayer release matching that manager`,
+    );
   }
 
   const account = privateKeyToAccount(config.privateKey);
@@ -53,11 +73,18 @@ async function main(): Promise<void> {
   await sender.recover();
   sender.start(config.txPollMs);
 
+  // Contract reads and calldata rebuilds, and the D-vector cache (protocol §10.4), shared by the
+  // sponsor, the combine worker and the scheduler.
+  const chain = new ChainState(client, config.manager);
+  const partialsDir = PartialVectorStore.dirFor(config.dataDir, chainId, config.manager);
+  const partials = new PartialVectorStore(chainId, config.manager, partialsDir);
   const policy = new SponsorPolicy({
     client,
     chainId,
     manager: config.manager,
     store,
+    chain,
+    partials,
     config: {
       organizerAllowlist: config.organizerAllowlist,
       apiTokens: config.apiTokens,
@@ -67,7 +94,63 @@ async function main(): Promise<void> {
     },
   });
   const sponsor = new Sponsor(policy, sender, config.manager);
+  // Prune terminal counters, expired records and backoffs (bounded state file).
+  policy.startGc(10 * 60_000, log);
 
+  let combiner: Combiner | undefined;
+  let solver: WorkerDlogSolver | undefined;
+  if (config.combinerEnabled) {
+    solver = new WorkerDlogSolver(new URL('./dlog-worker.js', import.meta.url), config.bsgsBabySteps);
+    solver.warm();
+    combiner = new Combiner({
+      client,
+      chainId,
+      manager: config.manager,
+      sponsor,
+      sender,
+      solver,
+      chain,
+      partials,
+      startBlock: config.startBlock,
+      logRange: config.logRange,
+      store,
+      log,
+    });
+    combiner.start(config.combinerPollMs);
+  }
+
+  let scheduler: Scheduler | undefined;
+  if (config.schedulerEnabled) {
+    scheduler = new Scheduler({
+      client,
+      manager: config.manager,
+      sponsor,
+      sender,
+      store,
+      chain,
+      onDecryptionOpen: (cid) => combiner?.wake(cid),
+      log,
+    });
+    scheduler.start(config.schedulerPollMs);
+  }
+
+  const metrics = new Metrics({
+    chainId,
+    manager: config.manager,
+    sender,
+    scheduler,
+    combiner,
+    endpoints,
+    store,
+    thresholds: {
+      minBalanceWei: config.alertMinBalanceWei,
+      minBudgetPercent: config.alertBudgetPercent,
+      maxPendingMs: config.alertPendingMs,
+      maxStaleMs: config.alertStaleMs,
+      maxRpcLagBlocks: config.alertRpcLagBlocks,
+    },
+  });
+  const worker = combiner;
   const server = createRelayerServer({
     chainId,
     manager: config.manager,
@@ -78,26 +161,13 @@ async function main(): Promise<void> {
     ingressRatePerIp: config.ingressRatePerIp,
     maxConcurrent: config.maxConcurrentRequests,
     trustedProxies: config.trustedProxies,
+    metrics: () => metrics.collect(),
+    track: worker
+      ? (body, token) =>
+          trackCeremony({ chainId, manager: config.manager, chain, policy, track: (cid) => worker.track(cid) }, body, token)
+      : undefined,
     log,
   });
-
-  let combiner: Combiner | undefined;
-  let solver: WorkerDlogSolver | undefined;
-  if (config.combinerEnabled) {
-    solver = new WorkerDlogSolver(new URL('./dlog-worker.js', import.meta.url), config.bsgsBabySteps);
-    solver.warm();
-    combiner = new Combiner({
-      client,
-      manager: config.manager,
-      sponsor,
-      sender,
-      solver,
-      startBlock: config.startBlock,
-      logRange: config.logRange,
-      log,
-    });
-    combiner.start(config.combinerPollMs);
-  }
 
   await new Promise<void>((resolve) => server.listen(config.port, config.host, resolve));
   log.info('relayer listening', {
@@ -106,6 +176,7 @@ async function main(): Promise<void> {
     manager: config.manager,
     relayer: sender.address,
     combiner: config.combinerEnabled,
+    scheduler: config.schedulerEnabled,
     restricted: policy.restricted,
     dailyBudgetWei: config.dailyBudgetWei,
     stateGas: config.stateGas,
@@ -116,7 +187,10 @@ async function main(): Promise<void> {
   const shutdown = (signal: string): void => {
     log.info('shutting down', { signal });
     combiner?.stop();
+    scheduler?.stop();
     sender.stop();
+    policy.stopGc();
+    store.close();
     server.close();
     void solver?.close();
     setTimeout(() => process.exit(0), 2000).unref();

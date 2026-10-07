@@ -13,6 +13,7 @@ export interface RelayerConfig {
   host: string;
   dataDir: string;
   combinerEnabled: boolean;
+  schedulerEnabled: boolean;
   maxFeeWei: bigint;
   /** Undefined: no per-transaction cap below the block gas limit (state-gas chains). */
   maxTxGas: bigint | undefined;
@@ -32,10 +33,17 @@ export interface RelayerConfig {
   startBlock: bigint;
   logRange: bigint;
   combinerPollMs: number;
+  schedulerPollMs: number;
   bsgsBabySteps: number;
   bumpAfterMs: number;
   txPollMs: number;
   nonceRefreshMs: number;
+  /** /v1/metrics alert thresholds (docs/relayer.md, "Monitoring"). */
+  alertMinBalanceWei: bigint;
+  alertBudgetPercent: number;
+  alertPendingMs: number;
+  alertStaleMs: number;
+  alertRpcLagBlocks: bigint;
 }
 
 type Env = Record<string, string | undefined>;
@@ -113,6 +121,10 @@ export function loadConfig(env: Env): RelayerConfig {
     if (t.length < 16) throw new Error('config: COUNCIL_API_TOKENS entries must be at least 16 characters');
   }
 
+  const dailyBudgetWei = big(env, 'COUNCIL_DAILY_BUDGET_WEI', 1_000_000_000_000_000_000n);
+  const alertBudgetPercent = int(env, 'COUNCIL_ALERT_BUDGET_PERCENT', 20);
+  if (alertBudgetPercent > 100) throw new Error('config: COUNCIL_ALERT_BUDGET_PERCENT must be at most 100');
+
   return {
     rpcUrls,
     manager: manager.toLowerCase() as Hex,
@@ -121,10 +133,11 @@ export function loadConfig(env: Env): RelayerConfig {
     host: (env.COUNCIL_HOST ?? '').trim() || '0.0.0.0',
     dataDir: (env.COUNCIL_DATA_DIR ?? '').trim() || './data',
     combinerEnabled: bool(env, 'COUNCIL_COMBINER_ENABLED'),
+    schedulerEnabled: bool(env, 'COUNCIL_SCHEDULER_ENABLED'),
     maxFeeWei: big(env, 'COUNCIL_MAX_FEE_WEI', 100_000_000_000n),
     maxTxGas,
     stateGas,
-    dailyBudgetWei: big(env, 'COUNCIL_DAILY_BUDGET_WEI', 1_000_000_000_000_000_000n),
+    dailyBudgetWei,
     corsOrigins: list(env.COUNCIL_CORS_ORIGINS),
     rateLimitPerIp: int(env, 'COUNCIL_RATE_LIMIT', 60, 1),
     rateLimitPerCeremony: int(env, 'COUNCIL_CEREMONY_RATE_LIMIT', 120, 1),
@@ -138,9 +151,16 @@ export function loadConfig(env: Env): RelayerConfig {
     startBlock: big(env, 'COUNCIL_START_BLOCK', 0n),
     logRange: big(env, 'COUNCIL_LOG_RANGE', 5000n),
     combinerPollMs: int(env, 'COUNCIL_COMBINER_POLL_MS', 5000, 100),
+    schedulerPollMs: int(env, 'COUNCIL_SCHEDULER_POLL_MS', 15_000, 100),
     bsgsBabySteps: int(env, 'COUNCIL_BSGS_BABY_STEPS', 1 << 20, 1),
     bumpAfterMs: int(env, 'COUNCIL_TX_BUMP_AFTER_MS', 30_000, 1000),
     txPollMs: int(env, 'COUNCIL_TX_POLL_MS', 3000, 100),
     nonceRefreshMs: int(env, 'COUNCIL_NONCE_REFRESH_MS', 15_000, 0),
+    // A key that cannot cover one more day of spending; 0.1 native units without a budget.
+    alertMinBalanceWei: big(env, 'COUNCIL_ALERT_MIN_BALANCE_WEI', dailyBudgetWei > 0n ? dailyBudgetWei : 100_000_000_000_000_000n),
+    alertBudgetPercent,
+    alertPendingMs: int(env, 'COUNCIL_ALERT_PENDING_MS', 600_000, 1000),
+    alertStaleMs: int(env, 'COUNCIL_ALERT_STALE_MS', 600_000, 1000),
+    alertRpcLagBlocks: big(env, 'COUNCIL_ALERT_RPC_LAG_BLOCKS', 64n),
   };
 }

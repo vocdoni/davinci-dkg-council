@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodeAction, G, IDENTITY, relayRequestBody, type Action, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
+import { encodeAction, G, IDENTITY, relayRequestBody, type Action, type Hex, type Point } from '@vocdoni/davinci-dkg-council-sdk';
 import { RelayError } from '../src/errors.js';
 import { parseRelayRequest } from '../src/wire.js';
 
@@ -18,8 +18,12 @@ const actions: Action[] = [
       organizer: ADDR,
       nonce: 0xffff_ffff_ffff_ffffn,
       threshold: 3,
+      registrationMode: 1,
       registrationDeadline: 1_900_000_000n,
       dealingDuration: 600n,
+      decryptionMode: 0,
+      decryptionOpenAt: 0n,
+      manualDecryptionFallbackAt: 1_950_000_000n,
       inviteKeys: [ADDR, MANAGER],
       validUntil: 1_900_000_000n,
     },
@@ -65,8 +69,40 @@ const actions: Action[] = [
   },
   { kind: 'finalize', ceremonyId: CID },
   { kind: 'abort', ceremonyId: CID },
-  { kind: 'combine', requestId: RID, memberSet: [1, 3, 5], fieldIndexes: [0, 2], plaintexts: [0n, (1n << 40n) - 1n] },
+  {
+    kind: 'combine',
+    requestId: RID,
+    memberSet: [1, 3, 5],
+    fieldIndexes: [0, 2],
+    plaintexts: [0n, (1n << 40n) - 1n],
+    partialVectors: [1, 3, 5].map((i) => Array.from({ length: 16 }, (_, k) => (k < 3 ? { x: G.x, y: BigInt(i) } : IDENTITY))),
+  },
+  { kind: 'closeRegistrationScheduled', ceremonyId: CID },
+  { kind: 'openDecryption', message: { ceremonyId: CID, validUntil: 9n }, signature: SIG },
+  {
+    kind: 'publishPartialData',
+    requestId: RID,
+    participantIndex: 3,
+    D: Array.from({ length: 16 }, (_, k) => (k < 2 ? G : IDENTITY)),
+  },
 ];
+
+/** The points the relayer rebuilds from state (never on the wire), filled in for encoding. */
+function completed(action: Action): Action {
+  const pts = (n: number): Point[] => Array.from({ length: n }, () => G);
+  switch (action.kind) {
+    case 'closeRegistration':
+    case 'closeRegistrationScheduled':
+    case 'deal':
+      return { ...action, rosterKeys: pts(5) };
+    case 'submitPartial':
+      return { ...action, C1: pts(2) };
+    case 'combine':
+      return { ...action, C2: pts(action.fieldIndexes.length) };
+    default:
+      return action;
+  }
+}
 
 /** A JSON round trip, as the body travels over HTTP. */
 const wire = (action: Action): Record<string, unknown> =>
@@ -88,7 +124,18 @@ describe('relay wire format (§5.1)', () => {
     expect(parsed.chainId).toBe(31337n);
     expect(parsed.manager).toBe(MANAGER);
     expect(parsed.action).toEqual(action);
-    expect(encodeAction(parsed.action)).toBe(encodeAction(action));
+    expect(encodeAction(completed(parsed.action))).toBe(encodeAction(completed(action)));
+  });
+
+  it('never takes the points the relayer rebuilds from state off the wire', () => {
+    const roster = { ...wire(actions[2] as Action), rosterKeys: [['1', '2']] };
+    expect(errorOf(() => parseRelayRequest(roster)).code).toBe('INVALID_ACTION');
+    const c2 = wire(actions[10] as Action);
+    (c2.payload as Record<string, unknown>).C2 = [['1', '2']];
+    expect(errorOf(() => parseRelayRequest(c2)).detail).toBe('payload.C2: unknown field');
+    const c1 = wire(actions[7] as Action);
+    (c1.payload as Record<string, unknown>).C1 = [['1', '2']];
+    expect(errorOf(() => parseRelayRequest(c1)).detail).toBe('payload.C1: unknown field');
   });
 
   it('scopes rate limits by ceremony (createCeremony derives the id) or request', () => {
@@ -96,6 +143,9 @@ describe('relay wire format (§5.1)', () => {
     expect(parseRelayRequest(wire(actions[0] as Action)).scope).toMatch(/^ceremony:0x[0-9a-f]{24}$/);
     expect(parseRelayRequest(wire(actions[10] as Action)).scope).toBe(`request:${RID}`);
     expect(parseRelayRequest(wire(actions[5] as Action)).scope).toBe(`ceremony:${CID}`);
+    expect(parseRelayRequest(wire(actions[11] as Action)).scope).toBe(`ceremony:${CID}`);
+    expect(parseRelayRequest(wire(actions[12] as Action)).scope).toBe(`ceremony:${CID}`);
+    expect(parseRelayRequest(wire(actions[13] as Action)).scope).toBe(`request:${RID}`);
   });
 
   it('carries chainId as a decimal string and accepts small struct ints as JSON numbers', () => {
@@ -140,6 +190,17 @@ describe('relay wire format (§5.1)', () => {
     ['combine plaintext/field mismatch', mutate(10, (b) => b.payload.plaintexts.pop())],
     ['combine fractional member', mutate(10, (b) => (b.payload.memberSet[0] = 1.5))],
     ['combine plaintext above uint64', mutate(10, (b) => (b.payload.plaintexts[0] = (1n << 64n).toString()))],
+    ['combine without partial vectors', mutate(10, (b) => delete b.payload.partialVectors)],
+    ['combine vector count/member mismatch', mutate(10, (b) => b.payload.partialVectors.pop())],
+    ['combine vector of 15 points', mutate(10, (b) => b.payload.partialVectors[1].pop())],
+    ['scheduled close with a message', mutate(11, (b) => (b.message = {}))],
+    ['scheduled close with roster keys', mutate(11, (b) => (b.payload.rosterKeys = []))],
+    ['openDecryption with a payload', mutate(12, (b) => (b.payload = {}))],
+    ['openDecryption missing validUntil', mutate(12, (b) => delete b.message.validUntil)],
+    ['publish fractional index', mutate(13, (b) => (b.payload.participantIndex = 1.5))],
+    ['publish index as a string', mutate(13, (b) => (b.payload.participantIndex = '3'))],
+    ['publish 17 points', mutate(13, (b) => b.payload.D.push(['0', '1']))],
+    ['publish with signatures', mutate(13, (b) => (b.signatures = []))],
     ['zero chain id', mutate(8, (b) => (b.chainId = '0'))],
     ['chain id as a JSON number', mutate(8, (b) => (b.chainId = 31337))],
     ['chain id with a leading zero', mutate(8, (b) => (b.chainId = '031337'))],

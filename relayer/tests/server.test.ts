@@ -100,6 +100,7 @@ describe('relayer HTTP API', () => {
     const err = await relayError(client.relay(31337n, MANAGER, finalize(1)));
     expect(err.code).toBe('RATE_LIMITED');
     expect(err.httpStatus).toBe(429);
+    chain.addCeremony(ceremonyIdOf(4), { phase: 2, threshold: 2, n: 3, qual: 0 }); // abortable: nobody dealt
     await client.relay(31337n, MANAGER, { kind: 'abort', ceremonyId: ceremonyIdOf(4) }); // own bucket
   });
 
@@ -226,8 +227,12 @@ describe('relayer HTTP API', () => {
         organizer: '0x00000000000000000000000000000000000000b2',
         nonce: 1n,
         threshold: 1,
+        registrationMode: 1,
         registrationDeadline: 2_000_000_000n,
         dealingDuration: 600n,
+        decryptionMode: 1,
+        decryptionOpenAt: 2_100_000_000n,
+        manualDecryptionFallbackAt: 0n,
         inviteKeys: ['0x0000000000000000000000000000000000001000'],
         validUntil: 2_000_000_000n,
       },

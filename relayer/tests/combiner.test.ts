@@ -1,23 +1,29 @@
+import { mkdtempSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { COUNCIL_MANAGER_ABI, encodeAction, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
-import { decodeFunctionData, parseTransaction } from 'viem';
+import { compressPoint, COUNCIL_MANAGER_ABI, encodeAction, type Hex, type Point } from '@vocdoni/davinci-dkg-council-sdk';
+import { decodeFunctionData, encodeFunctionData, parseTransaction, toFunctionSelector, type AbiFunction } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Combiner } from '../src/combiner.js';
 import { InlineDlogSolver, type DlogSolver } from '../src/dlog.js';
 import type { Logger } from '../src/log.js';
+import { PartialVectorStore } from '../src/partials.js';
 import { TxSender } from '../src/sender.js';
+import { StateStore } from '../src/state.js';
 import {
   ceremonyIdOf,
   encryptAll,
   MANAGER,
   MockChain,
+  pad,
   partialOf,
   requestIdOf,
   rpcError,
   testKey,
   type TestKey,
 } from './mockchain.js';
-import { stack } from './stack.js';
+import { stack, type StackOptions } from './stack.js';
 
 /** A small BSGS table keeps the tests fast; plaintexts stay below 2^24 here. */
 const BABY_STEPS = 1 << 12;
@@ -33,17 +39,31 @@ function capture() {
   return { log, entries, loud: () => entries.filter((e) => e.level !== 'info') };
 }
 
-function setup(opts: { automine?: boolean; bound?: bigint; solver?: DlogSolver; budgetWei?: bigint; log?: Logger } = {}) {
-  const s = stack({ automine: opts.automine, budgetWei: opts.budgetWei });
+function setup(
+  opts: {
+    automine?: boolean;
+    bound?: bigint;
+    solver?: DlogSolver;
+    budgetWei?: bigint;
+    log?: Logger;
+    stack?: StackOptions;
+    store?: StateStore;
+  } = {},
+) {
+  const s = stack({ automine: opts.automine, budgetWei: opts.budgetWei, store: opts.store, ...opts.stack });
   const combiner = new Combiner({
     client: s.chain.client,
+    chainId: s.chain.chainId,
     manager: MANAGER,
     sponsor: s.sponsor,
     sender: s.sender,
     solver: opts.solver ?? new InlineDlogSolver(BABY_STEPS, opts.bound ?? TEST_BOUND),
     startBlock: 0n,
     logRange: 2n, // force chunked log scanning
+    chain: s.policy.chain,
+    partials: s.policy.partials,
     backoffMs: 1000,
+    store: s.store,
     log: opts.log,
     now: () => s.clock.t,
   });
@@ -106,7 +126,12 @@ describe('combine worker', () => {
   it('survives losing a race to another combiner (FieldCompleted) and finishes the rest', async () => {
     const { chain, combiner } = setup();
     const key = ceremony(chain, 3, 2, 3);
-    request(chain, key, 3, 3, [5n, 6n, 7n, 8n, 9n, 10n], [1, 3]);
+    const c1s = request(chain, key, 3, 3, [5n, 6n, 7n, 8n, 9n, 10n], [1, 3]);
+    const vectors = [1, 3].map((i) => pad(partialOf(key.shares.get(i) as bigint, c1s)));
+    const c2 = (k: number): Point => {
+      const row = chain.manager.requests.get(requestIdOf(3))?.cts[k] as bigint[];
+      return { x: row[2] as bigint, y: row[3] as bigint };
+    };
     // Another combiner completes field 0 and field 5 before us.
     const other = new TxSender({
       client: chain.client,
@@ -121,7 +146,15 @@ describe('combine worker', () => {
     ] as const) {
       await other.send(
         MANAGER,
-        encodeAction({ kind: 'combine', requestId: requestIdOf(3), memberSet: [1, 3], fieldIndexes: [field], plaintexts: [m] }),
+        encodeAction({
+          kind: 'combine',
+          requestId: requestIdOf(3),
+          memberSet: [1, 3],
+          fieldIndexes: [field],
+          plaintexts: [m],
+          partialVectors: vectors,
+          C2: [c2(field)],
+        }),
       );
     }
     await combiner.tick();
@@ -242,6 +275,7 @@ describe('combine worker', () => {
     const s = stack({ policy: { organizerAllowlist: ['0x00000000000000000000000000000000000000a1'] } });
     const combiner = new Combiner({
       client: s.chain.client,
+      chainId: s.chain.chainId,
       manager: MANAGER,
       sponsor: s.sponsor,
       sender: s.sender,
@@ -260,10 +294,11 @@ describe('combine worker', () => {
     request(s.chain, key, 14, 14, [8n], [1, 2]);
 
     const getCeremony = s.chain.request.bind(s.chain);
+    const admission = encodeFunctionData({ abi: COUNCIL_MANAGER_ABI, functionName: 'getCeremony', args: [ceremonyIdOf(14)] });
     let failed = false;
     s.chain.request = async (method, params) => {
       // The first getCeremony of ceremony 14 fails like a dropped connection.
-      if (!failed && method === 'eth_call' && JSON.stringify(params).includes(ceremonyIdOf(14).slice(2))) {
+      if (!failed && method === 'eth_call' && (params[0] as { data?: Hex }).data === admission) {
         failed = true;
         throw new Error('fetch failed: socket hang up');
       }
@@ -333,6 +368,7 @@ describe('combine worker on public RPCs (Railway: "combiner tick failed" every f
     const s = stack({});
     const combiner = new Combiner({
       client: s.chain.client,
+      chainId: s.chain.chainId,
       manager: MANAGER,
       sponsor: s.sponsor,
       sender: s.sender,
@@ -352,34 +388,47 @@ describe('combine worker on public RPCs (Railway: "combiner tick failed" every f
   });
 
   it('keeps the chunks a failed pass already scanned', async () => {
-    const { chain, combiner } = setup();
+    const { chain, combiner, advance } = setup();
     const key = ceremony(chain, 21, 2, 2);
     request(chain, key, 21, 21, [4n], [1, 2]); // an early block
     chain.blockNumber += 200n;
     let logCalls = 0;
     // Rate limited after 60 chunks of 2 blocks (block 120 of about 200).
     chain.failRequests = (method) => (method === 'eth_getLogs' && ++logCalls > 60 ? rpcError(-32005, 'rate limited') : undefined);
-    await expect(combiner.tick()).rejects.toThrow();
-    // The request in the scanned chunks was found, and the next pass resumes near the failure.
+    await combiner.tick(); // discovery fails part way; the pass itself does not
+    // The request in the scanned chunks was found, and the next scan resumes near the failure.
     expect(combiner.watching).toEqual([requestIdOf(21)]);
     logCalls = 0;
     chain.failRequests = (method) => {
       if (method === 'eth_getLogs') logCalls++;
       return undefined;
     };
+    advance(1000); // past the discovery backoff
     await combiner.tick();
     // From block 120 - 64: about 75 chunks, not the 100 of the whole range again.
     expect(logCalls).toBeLessThan(80);
     expect(chain.manager.requests.get(requestIdOf(21))?.plaintexts).toEqual([4n]);
   });
 
-  it('backs off between failed passes, logging transient rpc errors at info until they persist', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  it('backs off request discovery on its own, logging transient rpc errors at info until they persist', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const logs = capture();
-    const { chain, combiner } = setup({ log: logs.log });
+    const s = stack({});
+    const combiner = new Combiner({
+      client: s.chain.client,
+      chainId: s.chain.chainId,
+      manager: MANAGER,
+      sponsor: s.sponsor,
+      sender: s.sender,
+      solver: new InlineDlogSolver(BABY_STEPS, TEST_BOUND),
+      startBlock: 0n,
+      logRange: 2n,
+      backoffMs: 1000,
+      log: logs.log,
+    });
     let heads = 0;
     let down = true;
-    chain.failRequests = (method) => {
+    s.chain.failRequests = (method) => {
       if (method !== 'eth_blockNumber') return undefined;
       heads++;
       return down ? rpcError(-32005, 'rate limit exceeded') : undefined;
@@ -387,33 +436,347 @@ describe('combine worker on public RPCs (Railway: "combiner tick failed" every f
     combiner.start(1000);
     await vi.advanceTimersByTimeAsync(0);
     expect(heads).toBe(1);
-    // 1 s, 2 s, 4 s, 8 s between the failed passes: four more by t = 15 s, not fifteen.
+    // 1 s, 2 s, 4 s, 8 s between the failed scans: four more by t = 15 s, not fifteen.
     await vi.advanceTimersByTimeAsync(15_000);
     expect(heads).toBe(5);
-    const failures = logs.entries.filter((e) => /combiner/.test(e.msg));
+    const failures = logs.entries.filter((e) => /discovery/.test(e.msg));
     expect(failures.map((e) => e.level)).toEqual(['info', 'info', 'info', 'info', 'warn']);
-    expect(failures[0]?.msg).toBe('combiner pass deferred: transient rpc error');
+    expect(failures[0]?.msg).toBe('request discovery deferred: transient rpc error');
     expect(failures[0]?.fields).toMatchObject({ err: 'rate limit exceeded', failures: 1, retryInMs: 1000 });
-    expect(failures[4]?.msg).toBe('combiner tick failed');
+    expect(failures[4]?.msg).toBe('request discovery failed');
+    // The passes themselves never failed: known requests kept being served every second.
+    expect(combiner.status()).toMatchObject({ failures: 0, discovery: { failures: 5 } });
 
     down = false;
-    await vi.advanceTimersByTimeAsync(16_000); // the sixth pass succeeds
-    expect(logs.entries.at(-1)?.msg).toBe('combiner recovered');
+    await vi.advanceTimersByTimeAsync(17_000); // the sixth scan succeeds
+    expect(logs.entries.at(-1)?.msg).toBe('request discovery recovered');
     const before = heads;
-    await vi.advanceTimersByTimeAsync(3_000); // back to the 1 s poll
+    await vi.advanceTimersByTimeAsync(3_000); // back to every pass
     expect(heads - before).toBe(3);
     combiner.stop();
   });
 
-  it('warns at once on an error that is not transient', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  it('warns at once on a discovery error that is not transient', async () => {
     const logs = capture();
     const { chain, combiner } = setup({ log: logs.log });
     chain.failRequests = (method) =>
       method === 'eth_blockNumber' ? rpcError(-32601, 'the method eth_blockNumber does not exist/is not available') : undefined;
-    combiner.start(1000);
-    await vi.advanceTimersByTimeAsync(0);
-    combiner.stop();
-    expect(logs.entries.map((e) => [e.level, e.msg])).toEqual([['warn', 'combiner tick failed']]);
+    await combiner.tick();
+    expect(logs.entries.map((e) => [e.level, e.msg])).toEqual([['warn', 'request discovery failed']]);
+  });
+});
+
+describe('combine worker v2: partial-data sourcing and the decryption gate (protocol §10.3–§10.4, §8.7)', () => {
+  /** eth_getLogs calls for PartialDataPublished at one block (the §10.4 single-block read). */
+  function spyLogs(chain: MockChain) {
+    const reads: { from: bigint; to: bigint }[] = [];
+    const orig = chain.request.bind(chain);
+    chain.request = async (method, params) => {
+      if (method === 'eth_getLogs') {
+        const f = params[0] as { fromBlock: Hex; toBlock: Hex; topics?: unknown[] };
+        if (f.topics?.[1] !== undefined) reads.push({ from: BigInt(f.fromBlock), to: BigInt(f.toBlock) });
+      }
+      return orig(method, params);
+    };
+    return reads;
+  }
+
+  it('re-supplies t padded vectors (from the single-block log, then its cache) and C2 from state', async () => {
+    const { chain, combiner } = setup();
+    const key = ceremony(chain, 30, 2, 3);
+    const c1s = request(chain, key, 30, 30, [12n, 13n, 14n], [2, 3]);
+    const req = chain.manager.requests.get(requestIdOf(30));
+    const reads = spyLogs(chain);
+    await combiner.tick();
+    // One getLogs per member, each at exactly its stored publication block.
+    expect(reads).toEqual([2, 3].map((i) => ({ from: req?.published.get(i), to: req?.published.get(i) })));
+    const [call] = chain.sentRaw.map((raw) => decodeFunctionData({ abi: COUNCIL_MANAGER_ABI, data: parseTransaction(raw).data as Hex }));
+    const [, memberSet, fields, , vectors, c2] = call?.args as unknown as [Hex, number[], number[], bigint[], bigint[][][], bigint[][]];
+    expect(memberSet).toEqual([2, 3]);
+    expect(vectors).toEqual([2, 3].map((i) => pad(partialOf(key.shares.get(i) as bigint, c1s)).map((p) => [p.x, p.y])));
+    expect(c2).toEqual(fields.map((k) => [req?.cts[k]?.[2], req?.cts[k]?.[3]]));
+    expect(req?.plaintexts).toEqual([12n, 13n, 14n]);
+  });
+
+  it('keeps the vectors it read in its data directory, so a restarted worker needs no log', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'council-partials-'));
+    const first = setup({ stack: { partials: (chainId) => new PartialVectorStore(chainId, MANAGER, dir) } });
+    const key = ceremony(first.chain, 31, 2, 2);
+    request(first.chain, key, 31, 31, [5n, 6n], [1, 2]);
+    first.chain.manager.forced.set('combine', 'CombineCheckFailed'); // stop before completion
+    await first.combiner.tick();
+    expect(readdirSync(dir)).toEqual([`${requestIdOf(31)}.json`]);
+    first.chain.manager.forced.delete('combine');
+    first.chain.dropPublishedLogs(); // months later: the provider no longer serves those blocks
+
+    const second = setup({ stack: { chain: first.chain, partials: (chainId) => new PartialVectorStore(chainId, MANAGER, dir) } });
+    const reads = spyLogs(second.chain);
+    await second.combiner.tick();
+    expect(reads).toEqual([]);
+    expect(second.chain.manager.requests.get(requestIdOf(31))?.plaintexts).toEqual([5n, 6n]);
+    await second.combiner.tick(); // complete at the finalized block: forgotten, its file removed
+    expect(second.combiner.watching).toEqual([]);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('never uses a cached vector that does not hash to the stored commitment', async () => {
+    const { chain, combiner, policy } = setup();
+    const key = ceremony(chain, 32, 2, 2);
+    request(chain, key, 32, 32, [9n], [1, 2]);
+    const req = chain.manager.requests.get(requestIdOf(32));
+    // A corrupted cache entry under member 1's key: ignored, the log supplies the real one.
+    policy.partials.put(requestIdOf(32), 1, req?.hashes.get(1) as Hex, pad([{ x: 0n, y: 1n }]));
+    await combiner.tick();
+    expect(req?.plaintexts).toEqual([9n]);
+  });
+
+  it('waits for re-publication when no copy of a vector is left, then combines', async () => {
+    const logs = capture();
+    const { chain, combiner, advance } = setup({ log: logs.log });
+    const key = ceremony(chain, 33, 2, 2);
+    const c1s = request(chain, key, 33, 33, [21n], [1, 2]);
+    chain.dropPublishedLogs();
+    await combiner.tick();
+    expect(combineCalls(chain)).toHaveLength(0);
+    expect(logs.entries.at(-1)).toMatchObject({ level: 'info', msg: 'combine waiting for partial data re-publication' });
+    expect(String(logs.entries.at(-1)?.fields?.err)).toMatch(/members 1, 2/);
+    // Both members return (months later, from their words) and re-publish D = s_i·C1 directly.
+    const member = new TxSender({
+      client: chain.client,
+      account: privateKeyToAccount(`0x${'59'.repeat(32)}`),
+      chainId: chain.chainId,
+      maxFeeWei: 10n ** 11n,
+      bumpAfterMs: 60_000,
+    });
+    for (const i of [1, 2]) {
+      const D = pad(partialOf(key.shares.get(i) as bigint, c1s));
+      await member.send(MANAGER, encodeAction({ kind: 'publishPartialData', requestId: requestIdOf(33), participantIndex: i, D }));
+    }
+    advance(1000);
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(33))?.plaintexts).toEqual([21n]);
+    expect(logs.loud()).toEqual([]);
+  });
+
+  it('combines with the t lowest members whose vectors it can source', async () => {
+    const { chain, combiner } = setup();
+    const key = ceremony(chain, 34, 2, 4);
+    const c1s = request(chain, key, 34, 34, [3n], [1]);
+    chain.dropPublishedLogs(); // member 1's vector is gone
+    for (const i of [2, 3, 4]) chain.addPartial(requestIdOf(34), i, partialOf(key.shares.get(i) as bigint, c1s));
+    await combiner.tick();
+    expect(combineCalls(chain).map((c) => c[1])).toEqual([[2, 3]]);
+    expect(chain.manager.requests.get(requestIdOf(34))?.plaintexts).toEqual([3n]);
+  });
+
+  it('parks a request while its decryption gate is closed: no search, no transaction', async () => {
+    let solves = 0;
+    const inner = new InlineDlogSolver(BABY_STEPS, TEST_BOUND);
+    const { chain, combiner } = setup({ solver: { solve: (M) => (solves++, inner.solve(M)), close: () => inner.close() } });
+    const key = ceremony(chain, 35, 2, 2);
+    request(chain, key, 35, 35, [17n], [1, 2]);
+    // A reorg (say) leaves accepted partials behind a gate that is closed again at the head.
+    const c = chain.manager.ceremonies.get(ceremonyIdOf(35));
+    if (c) c.decryptionOpenAt = chain.now + 3600n;
+    await combiner.tick();
+    await combiner.tick();
+    expect(solves).toBe(0);
+    expect(chain.sentRaw).toHaveLength(0);
+    expect(combiner.watching).toEqual([requestIdOf(35)]);
+    chain.setTime(chain.now + 3600n);
+    await combiner.tick(); // parked work is not backed off: the next pass after opening combines
+    expect(chain.manager.requests.get(requestIdOf(35))?.plaintexts).toEqual([17n]);
+  });
+
+  it('wake() retries a backed-off request of a ceremony at once', async () => {
+    const { chain, combiner } = setup();
+    const key = ceremony(chain, 36, 2, 2);
+    request(chain, key, 36, 36, [2n], [1, 2]);
+    chain.manager.forced.set('combine', 'CombineCheckFailed');
+    await combiner.tick();
+    chain.manager.forced.delete('combine');
+    await combiner.tick(); // backing off
+    expect(chain.manager.requests.get(requestIdOf(36))?.completed).toBe(0);
+    combiner.wake(ceremonyIdOf(36));
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(36))?.plaintexts).toEqual([2n]);
+  });
+});
+
+describe('combine worker without logs (audit M-02: request ids from contract state)', () => {
+  /** eth_call count of one view function while `fn` runs. */
+  async function calls(chain: MockChain, fn: string, run: () => Promise<unknown>): Promise<number> {
+    const item = COUNCIL_MANAGER_ABI.find((x) => x.type === 'function' && x.name === fn) as AbiFunction;
+    const selector = toFunctionSelector(item);
+    let n = 0;
+    const orig = chain.request.bind(chain);
+    chain.request = async (method, params) => {
+      if (method === 'eth_call' && (params[0] as { data?: string }).data?.startsWith(selector)) n++;
+      return orig(method, params);
+    };
+    try {
+      await run();
+    } finally {
+      chain.request = orig;
+    }
+    return n;
+  }
+
+  it('keeps combining the requests it knows while log discovery fails', async () => {
+    const logs = capture();
+    const { chain, combiner } = setup({ log: logs.log });
+    const key = ceremony(chain, 40, 2, 3);
+    const c1s = request(chain, key, 40, 40, [12n, 13n], [1]); // one partial: not combinable yet
+    await combiner.tick();
+    expect(combiner.watching).toEqual([requestIdOf(40)]);
+    // Discovery now fails on every pass (a provider that refuses the scan for good).
+    chain.failRequests = (m) => (m === 'eth_blockNumber' ? rpcError(-32000, 'pruned history unavailable') : undefined);
+    chain.addPartial(requestIdOf(40), 3, partialOf(key.shares.get(3) as bigint, c1s));
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(40))?.plaintexts).toEqual([12n, 13n]);
+    expect(logs.entries.some((e) => e.msg === 'request discovery failed')).toBe(true);
+  });
+
+  it('finds the requests of a supplied ceremony from state alone, later ones at the next re-read of its count', async () => {
+    const { chain, combiner, advance } = setup();
+    chain.logsPrunedBelow = chain.blockNumber + 1n; // a scan from the start block is refused for good
+    const key = ceremony(chain, 41, 2, 2);
+    request(chain, key, 41, 41, [5n], [1, 2]);
+    request(chain, key, 41, 42, [6n, 7n], [1, 2]);
+    await combiner.tick();
+    expect(combiner.watching).toEqual([]); // nothing known, nothing found
+    combiner.track(ceremonyIdOf(41)); // the app or organizer registered it (POST /v1/track)
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(41))?.plaintexts).toEqual([5n]);
+    expect(chain.manager.requests.get(requestIdOf(42))?.plaintexts).toEqual([6n, 7n]);
+    // A later request of the same ceremony is found at the next re-read of its count.
+    request(chain, key, 41, 43, [8n], [1, 2]);
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(43))?.completed).toBe(0); // within the minute
+    advance(60_000);
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(43))?.plaintexts).toEqual([8n]);
+  });
+
+  it('a decryption gate the scheduler saw open enumerates the ceremony from state', async () => {
+    const { chain, combiner } = setup();
+    chain.logsPrunedBelow = chain.blockNumber + 1n;
+    const key = ceremony(chain, 44, 2, 2);
+    request(chain, key, 44, 44, [3n], [1, 2]);
+    combiner.wake(ceremonyIdOf(44));
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(44))?.plaintexts).toEqual([3n]);
+  });
+
+  it('tracks ceremonies across a restart (state file), re-reading each count once a minute', async () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'council-combiner-')), 'state.json');
+    const first = setup({ store: new StateStore(file) });
+    first.chain.logsPrunedBelow = first.chain.blockNumber + 1n;
+    const key = ceremony(first.chain, 1, 2, 2);
+    request(first.chain, key, 1, 50, [9n], [1, 2]);
+    first.combiner.track(ceremonyIdOf(1));
+    await first.combiner.tick();
+    expect(first.chain.manager.requests.get(requestIdOf(50))?.plaintexts).toEqual([9n]);
+    first.store.flush();
+
+    const second = setup({ store: new StateStore(file), stack: { chain: first.chain, clock: first.clock } });
+    expect(second.combiner.tracking).toEqual([ceremonyIdOf(1)]);
+    request(first.chain, key, 1, 51, [10n], [1, 2]);
+    await second.combiner.tick();
+    expect(first.chain.manager.requests.get(requestIdOf(51))?.plaintexts).toEqual([10n]);
+    // Re-read once a minute (the head count and the finalized boundary), not on every pass; no
+    // page below the finalized count is read again.
+    expect(await calls(first.chain, 'getRequestCount', () => second.combiner.tick())).toBe(0);
+    second.advance(60_000);
+    expect(await calls(first.chain, 'getRequestCount', () => second.combiner.tick())).toBe(2);
+    second.advance(60_000);
+    expect(await calls(first.chain, 'getRequestIdsPage', () => second.combiner.tick())).toBe(0);
+  });
+
+  it('finds a request a reorg put at an offset it already read (same count, logs refused)', async () => {
+    const { chain, combiner, advance } = setup();
+    chain.logsPrunedBelow = chain.blockNumber + 1n;
+    const key = ceremony(chain, 46, 2, 2);
+    chain.holdFinalized(); // nothing of what follows is final
+    chain.addRequest(requestIdOf(46), ceremonyIdOf(46), encryptAll(key.P, [1n]).cts);
+    combiner.track(ceremonyIdOf(46));
+    await combiner.tick();
+    expect(combiner.watching).toEqual([requestIdOf(46)]);
+    // A reorg replaces the binding at offset 0 with another request: the count stays 1.
+    chain.manager.requests.delete(requestIdOf(46));
+    request(chain, key, 46, 47, [2n], [1, 2]);
+    advance(60_000);
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(47))?.plaintexts).toEqual([2n]);
+  });
+
+  it('steps over an interior block the provider keeps refusing, even when the chunks before it are served', async () => {
+    const logs = capture();
+    const { chain, combiner, advance } = setup({ log: logs.log }); // 2-block chunks, 64-block rewind
+    chain.blockNumber += 300n;
+    chain.logsRefusedAt = 250n;
+    const key = ceremony(chain, 48, 2, 2);
+    for (let i = 0; i < 4; i++) {
+      await combiner.tick();
+      advance(10_000);
+    }
+    expect(logs.entries.filter((e) => /skips blocks/.test(e.msg)).map((e) => e.fields?.fromBlock)).toEqual(['250']);
+    request(chain, key, 48, 48, [7n], [1, 2]); // after the refused block
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(48))?.plaintexts).toEqual([7n]);
+    // Later scans step over the skipped range instead of failing on it again.
+    const failures = logs.entries.filter((e) => /discovery (failed|deferred)/.test(e.msg)).length;
+    for (let i = 0; i < 3; i++) {
+      advance(10_000);
+      await combiner.tick();
+    }
+    expect(logs.entries.filter((e) => /discovery (failed|deferred)/.test(e.msg)).length).toBe(failures);
+  });
+
+  it('moves past a range the provider keeps refusing, so new requests are still found in its logs', async () => {
+    const logs = capture();
+    const { chain, combiner, advance } = setup({ log: logs.log });
+    chain.blockNumber += 300n;
+    chain.logsPrunedBelow = 200n; // blocks below 200 are gone from this provider
+    const key = ceremony(chain, 45, 2, 2);
+    for (let i = 0; i < 3; i++) {
+      await combiner.tick();
+      advance(10_000);
+    }
+    expect(logs.entries.some((e) => /skips blocks the rpc keeps refusing/.test(e.msg))).toBe(true);
+    request(chain, key, 45, 45, [4n], [1, 2]); // a new request near the head
+    advance(10_000);
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(45))?.plaintexts).toEqual([4n]);
+    expect(combiner.tracking).toEqual([ceremonyIdOf(45)]); // its ceremony is tracked from now on
+  });
+});
+
+describe('combine worker and malformed stored points (a corrupted rpc answer)', () => {
+  it('refuses the request with a malformed C2 word without a search or a transaction, serves the others, and retries', async () => {
+    let solves = 0;
+    const inner = new InlineDlogSolver(BABY_STEPS, TEST_BOUND);
+    const counting: DlogSolver = { solve: (M) => (solves++, inner.solve(M)), close: () => inner.close() };
+    const logs = capture();
+    const { chain, combiner, advance } = setup({ solver: counting, log: logs.log });
+    const key = ceremony(chain, 60, 2, 2);
+    request(chain, key, 60, 60, [11n], [1, 2]);
+    request(chain, key, 60, 61, [12n], [1, 2]);
+    const good = chain.manager.requests.get(requestIdOf(60))?.cts[0] as [bigint, bigint, bigint, bigint];
+    // The rpc serves an odd-parity zero-root word (y = p) for request 60's C2.
+    const zeroRootX = 18930368022820495955728484915491405972470733850014661777449844430438130630919n;
+    chain.manager.wordOverride.request.set(requestIdOf(60), [
+      [compressPoint({ x: good[0], y: good[1] }), zeroRootX | (1n << 255n)],
+    ]);
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(61))?.plaintexts).toEqual([12n]);
+    expect(chain.manager.requests.get(requestIdOf(60))?.completed).toBe(0);
+    expect(solves).toBe(1); // request 61 only
+    expect(combineCalls(chain).map((c) => c[0])).toEqual([requestIdOf(61)]);
+    expect(logs.entries.find((e) => e.msg === 'combine refused a malformed stored point')?.fields?.err).toMatch(/zeroRootOddParity/);
+    chain.manager.wordOverride.request.clear();
+    advance(1000);
+    await combiner.tick();
+    expect(chain.manager.requests.get(requestIdOf(60))?.plaintexts).toEqual([11n]);
   });
 });

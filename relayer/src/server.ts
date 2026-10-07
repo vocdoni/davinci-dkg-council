@@ -3,7 +3,9 @@
  *
  *   POST /v1/relay           -> 200 { txHash } | 4xx/5xx { error, detail, revertData? }
  *   GET  /v1/status/:txHash  -> { status, blockNumber?, revertReason? }   (hashes this relayer sent)
- *   GET  /v1/health          -> { ok, chainId, manager, relayer, balanceWei }
+ *   GET  /v1/health          -> { ok, chainId, manager, relayer, balanceWei }   (liveness)
+ *   GET  /v1/metrics         -> 200 | 503 { ok, alerts, budget, transactions, … }   (metrics.ts)
+ *   POST /v1/track           -> 200 { ceremonyId, tracked }   (track.ts; with the combine worker)
  *
  * Ingress: a per-IP rate limit over every route, a cap on concurrent requests, and an Origin
  * check on every request (a disallowed Origin is refused, not merely left without CORS
@@ -36,6 +38,10 @@ export interface ServerOptions {
   maxConcurrent?: number;
   /** Peers (IPs or CIDRs) whose X-Forwarded-For is honoured. */
   trustedProxies?: string[];
+  /** GET /v1/metrics (absent: 404). */
+  metrics?: () => Promise<{ status: number; body: Record<string, unknown> }>;
+  /** POST /v1/track (absent: 404): authenticate, validate and track a ceremony. */
+  track?: (body: unknown, token?: string) => Promise<unknown>;
   log?: Logger;
   now?: () => number;
 }
@@ -207,18 +213,34 @@ export function createRelayerServer(opts: ServerOptions): Server {
         res.end();
         return;
       }
-      if (req.method === 'POST' && path === '/v1/relay') {
+      const jsonBody = async (): Promise<unknown> => {
         const type = req.headers['content-type'] ?? '';
         if (!JSON_TYPE.test(type)) {
           throw new RelayError('UNSUPPORTED_MEDIA_TYPE', 'the body must be sent as application/json');
         }
         const text = await readBody(req);
-        let body: unknown;
         try {
-          body = JSON.parse(text);
+          return JSON.parse(text) as unknown;
         } catch {
           throw new RelayError('INVALID_ACTION', 'body is not valid JSON');
         }
+      };
+      if (req.method === 'POST' && path === '/v1/track' && opts.track) {
+        if (!limiter.take(`ip:${ip}:track`, opts.rateLimitPerIp)) {
+          throw new RelayError('RATE_LIMITED', 'too many track requests from this address');
+        }
+        const result = await opts.track(await jsonBody(), bearer(req));
+        log.info('ceremony tracked', { result, ip });
+        send(res, 200, result, headers);
+        return;
+      }
+      if (req.method === 'GET' && path === '/v1/metrics' && opts.metrics) {
+        const m = await opts.metrics();
+        send(res, m.status, m.body, headers);
+        return;
+      }
+      if (req.method === 'POST' && path === '/v1/relay') {
+        const body = await jsonBody();
         const txHash = await relay(opts, limiter, ip, body, bearer(req));
         log.info('relayed', { action: (body as { action?: unknown }).action, txHash, ip });
         send(res, 200, { txHash }, headers);

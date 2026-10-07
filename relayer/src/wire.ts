@@ -3,8 +3,10 @@
  * `Action`. Shapes only — the contract is the validator, reached through
  * simulation. `chainId`, field elements and every other unsigned integer are
  * canonical decimal strings (small uint8/uint32 struct fields also accept
- * JSON integers); ids, addresses and signatures are 0x-hex; `memberSet` and
- * `fieldIndexes` are JSON integers.
+ * JSON integers); ids, addresses and signatures are 0x-hex; `memberSet`,
+ * `fieldIndexes` and `participantIndex` are JSON integers. The points the
+ * contract stores compressed (rosterKeys, C1, C2) never travel here: the
+ * relayer rebuilds them from state (chainstate.ts).
  */
 
 import {
@@ -23,14 +25,17 @@ export const ACTION_NAMES = [
   'createCeremony',
   'addInvites',
   'closeRegistration',
+  'closeRegistrationScheduled',
   'join',
   'deal',
   'allowAdapter',
   'authorizeCreator',
+  'openDecryption',
   'submitPartial',
   'finalize',
   'abort',
   'combine',
+  'publishPartialData',
 ] as const;
 
 export type ActionName = (typeof ACTION_NAMES)[number];
@@ -42,6 +47,7 @@ const SIMPLE_SIGNED: Partial<Record<ActionName, StructName>> = {
   createCeremony: 'CreateCeremony',
   addInvites: 'AddInvites',
   closeRegistration: 'CloseRegistration',
+  openDecryption: 'OpenDecryption',
   allowAdapter: 'AllowAdapter',
   authorizeCreator: 'AuthorizeCreator',
 };
@@ -262,15 +268,33 @@ export function parseRelayRequest(body: unknown): ParsedRelay {
       };
     }
     case 'finalize':
-    case 'abort': {
+    case 'abort':
+    case 'closeRegistrationScheduled': {
       absent(body, ['message', 'signatures'], kind);
       const p = object(body.payload, 'payload', ['ceremonyId']);
       const ceremonyId = hexBytes(p.ceremonyId, 12, 'payload.ceremonyId');
+      // closeRegistrationScheduled: the relayer rebuilds rosterKeys from state.
       return { chainId, manager, action: { kind, ceremonyId }, scope: `ceremony:${ceremonyId}` };
+    }
+    case 'publishPartialData': {
+      absent(body, ['message', 'signatures'], kind);
+      const p = object(body.payload, 'payload', ['requestId', 'participantIndex', 'D']);
+      const requestId = hexBytes(p.requestId, 32, 'payload.requestId');
+      return {
+        chainId,
+        manager,
+        action: {
+          kind,
+          requestId,
+          participantIndex: smallInt(p.participantIndex, 'payload.participantIndex', 0, 255),
+          D: points(p.D, 16, 'payload.D'),
+        },
+        scope: `request:${requestId}`,
+      };
     }
     case 'combine': {
       absent(body, ['message', 'signatures'], kind);
-      const p = object(body.payload, 'payload', ['requestId', 'memberSet', 'fieldIndexes', 'plaintexts']);
+      const p = object(body.payload, 'payload', ['requestId', 'memberSet', 'fieldIndexes', 'plaintexts', 'partialVectors']);
       const requestId = hexBytes(p.requestId, 32, 'payload.requestId');
       const memberSet = array(p.memberSet, 'payload.memberSet', 1, 16).map((v, i) =>
         smallInt(v, `payload.memberSet[${i}]`, 0, 255),
@@ -282,10 +306,15 @@ export function parseRelayRequest(body: unknown): ParsedRelay {
         uint(v, 64, `payload.plaintexts[${i}]`),
       );
       if (plaintexts.length !== fieldIndexes.length) invalid('payload.plaintexts: one plaintext per field index');
+      // One full padded D vector per member (protocol §10.3); C2 is rebuilt from state.
+      const partialVectors = array(p.partialVectors, 'payload.partialVectors', 1, 16).map((v, i) =>
+        points(v, 16, `payload.partialVectors[${i}]`),
+      );
+      if (partialVectors.length !== memberSet.length) invalid('payload.partialVectors: one vector per member');
       return {
         chainId,
         manager,
-        action: { kind, requestId, memberSet, fieldIndexes, plaintexts },
+        action: { kind, requestId, memberSet, fieldIndexes, plaintexts, partialVectors },
         scope: `request:${requestId}`,
       };
     }
