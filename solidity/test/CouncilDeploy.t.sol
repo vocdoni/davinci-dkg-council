@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {CouncilManager} from "../src/CouncilManager.sol";
 import {CouncilViews} from "../src/CouncilViews.sol";
+import {CouncilOps} from "../src/CouncilOps.sol";
 import {DealVerifier} from "../src/verifiers/DealVerifier.sol";
 import {PartialVerifier} from "../src/verifiers/PartialVerifier.sol";
 import {MockDealVerifier, MockPartialVerifier} from "./mocks/MockVerifiers.sol";
@@ -13,13 +14,17 @@ import {CouncilRelease} from "../script/CouncilRelease.sol";
 /// @notice The deployment is bound to one circuit release: the pins of CouncilRelease against
 ///         the released files and the compiled verifiers, each verifier's code against its own
 ///         vkey, and every refusal of script/Deploy.s.sol (stale or swapped verifiers,
-///         accept-all overrides, mock mode off the local chain, mismatched vkey files).
+///         accept-all overrides, mock mode off the local chain, mismatched vkey files, a
+///         DEVELOPMENT_SETUP release off the test chains).
 contract CouncilDeployTest is Test {
     string internal constant RELEASE = "../circuits/release/";
     string internal constant DEAL_VKEY = "../circuits/release/deal_vkey.json";
     string internal constant PARTIAL_VKEY = "../circuits/release/partial_vkey.json";
     /// @dev Anvil's first default account: a public test key.
     uint256 internal constant KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+    uint256 internal constant GNOSIS = 100;
+    bytes internal constant DEV_REFUSED =
+        "Deploy: DEVELOPMENT_SETUP release refused on a production chain (ALLOW_DEV_SETUP)";
 
     Deploy internal script;
 
@@ -53,6 +58,9 @@ contract CouncilDeployTest is Test {
             vm.parseJsonBytes32(rel, ".partial.vkey.sha256"), CouncilRelease.PARTIAL_VKEY_SHA256, "partial vkey pin"
         );
         assertEq(vm.parseJsonBytes32(rel, ".circuitReleaseId"), CouncilRelease.CIRCUIT_RELEASE_ID, "release id pin");
+        // build.sh (a DEV setup) writes no flag; the multi-party ceremony writes false
+        bool dev = vm.keyExistsJson(rel, ".developmentSetup") ? vm.parseJsonBool(rel, ".developmentSetup") : true;
+        assertEq(CouncilRelease.DEVELOPMENT_SETUP, dev, "development setup pin");
         assertEq(sha256(vm.readFileBinary(DEAL_VKEY)), CouncilRelease.DEAL_VKEY_SHA256, "deal vkey file");
         assertEq(sha256(vm.readFileBinary(PARTIAL_VKEY)), CouncilRelease.PARTIAL_VKEY_SHA256, "partial vkey file");
         assertEq(
@@ -125,11 +133,14 @@ contract CouncilDeployTest is Test {
 
     // ─── The deploy script ────────────────────────────────────────────────────────────────
 
-    function _assertDeployed(CouncilManager m) internal view {
+    function _assertDeployed(CouncilManager m) internal {
         assertEq(m.circuitReleaseId(), CouncilRelease.CIRCUIT_RELEASE_ID);
         assertEq(m.dealVerifier().codehash, CouncilRelease.DEAL_VERIFIER_CODEHASH);
         assertEq(m.partialVerifier().codehash, CouncilRelease.PARTIAL_VERIFIER_CODEHASH);
         assertEq(keccak256(m.views().code), keccak256(type(CouncilViews).runtimeCode));
+        // CouncilOps is the manager's second CREATE and carries the same release id
+        address ops = vm.computeCreateAddress(address(m), 2);
+        assertEq(ops.codehash, address(new CouncilOps(CouncilRelease.CIRCUIT_RELEASE_ID)).codehash, "CouncilOps code");
     }
 
     function test_Deploy_PinnedReleaseLocal() public {
@@ -139,8 +150,10 @@ contract CouncilDeployTest is Test {
 
     function test_Deploy_PinnedReleaseOnAnotherChain() public {
         if (!_release()) return;
-        vm.chainId(100);
-        _assertDeployed(script.deploy(_cfg()));
+        vm.chainId(GNOSIS);
+        Deploy.Config memory c = _cfg();
+        c.allowDevSetup = CouncilRelease.DEVELOPMENT_SETUP; // a no-op for a ceremony release
+        _assertDeployed(script.deploy(c));
     }
 
     function test_Deploy_RunFromEnvironment() public {
@@ -154,7 +167,8 @@ contract CouncilDeployTest is Test {
         Deploy.Config memory c = _cfg();
         c.dealVerifier = address(new DealVerifier());
         c.partialVerifier = address(new PartialVerifier());
-        vm.chainId(100);
+        c.allowDevSetup = true;
+        vm.chainId(GNOSIS);
         CouncilManager m = script.deploy(c);
         assertEq(m.dealVerifier(), c.dealVerifier);
         assertEq(m.partialVerifier(), c.partialVerifier);
@@ -198,15 +212,17 @@ contract CouncilDeployTest is Test {
         vm.etch(stale, code);
         Deploy.Config memory c = _cfg();
         c.dealVerifier = stale;
-        vm.chainId(100);
+        c.allowDevSetup = true; // the override never relaxes the verifier pins
+        vm.chainId(GNOSIS);
         vm.expectRevert(bytes("Deploy: deal verifier code is not the pinned release"));
         script.deploy(c);
     }
 
     function test_Deploy_RejectsAcceptAllOverrideOnNonLocalChain() public {
         if (!_release()) return;
-        vm.chainId(100);
+        vm.chainId(GNOSIS);
         Deploy.Config memory c = _cfg();
+        c.allowDevSetup = true;
         c.dealVerifier = address(new MockDealVerifier());
         vm.expectRevert(bytes("Deploy: deal verifier code is not the pinned release"));
         script.deploy(c);
@@ -214,8 +230,9 @@ contract CouncilDeployTest is Test {
 
     function test_Deploy_RejectsAcceptAllPartialOverride() public {
         if (!_release()) return;
-        vm.chainId(100);
+        vm.chainId(GNOSIS);
         Deploy.Config memory c = _cfg();
+        c.allowDevSetup = true;
         c.partialVerifier = address(new MockPartialVerifier());
         vm.expectRevert(bytes("Deploy: partial verifier code is not the pinned release"));
         script.deploy(c);
@@ -231,7 +248,7 @@ contract CouncilDeployTest is Test {
     }
 
     function test_Deploy_RejectsMockModeOffLocalChain() public {
-        vm.chainId(100);
+        vm.chainId(GNOSIS);
         Deploy.Config memory c = _cfg();
         c.mock = true;
         vm.expectRevert(bytes("Deploy: mock verifiers only on the local chain 31337"));
@@ -270,5 +287,94 @@ contract CouncilDeployTest is Test {
         c.expectedReleaseId = keccak256("davinci-dkg-council/v1/test-vector/other-release");
         vm.expectRevert(bytes("Deploy: CIRCUIT_RELEASE_ID differs from the pinned release"));
         script.deploy(c);
+    }
+
+    // ─── DEVELOPMENT_SETUP policy (audit H-01) ────────────────────────────────────────────
+
+    /// @dev The regression: the pinned DEV release on Gnosis (chain 100) is refused by
+    ///      `preflight`, a view that runs before `vm.startBroadcast`, so nothing is sent; the
+    ///      deployer's nonce is untouched. A ceremony release deploys there as is.
+    function test_Deploy_DevReleaseOnChain100RejectedBeforeBroadcast() public {
+        if (!_release()) return;
+        vm.chainId(GNOSIS);
+        Deploy.Config memory c = _cfg();
+        uint64 nonce = vm.getNonce(vm.addr(KEY));
+        if (!CouncilRelease.DEVELOPMENT_SETUP) {
+            _assertDeployed(script.deploy(c));
+            return;
+        }
+        vm.expectRevert(DEV_REFUSED);
+        script.preflight(c);
+        vm.expectRevert(DEV_REFUSED);
+        script.deploy(c);
+        assertEq(vm.getNonce(vm.addr(KEY)), nonce, "nothing broadcast");
+    }
+
+    /// @dev Refused before the vkey files are even read.
+    function test_Deploy_DevReleaseRefusedBeforeReadingTheRelease() public {
+        vm.chainId(GNOSIS);
+        Deploy.Config memory c = _cfg();
+        c.dealVkey = "nonexistent";
+        if (!CouncilRelease.DEVELOPMENT_SETUP) return;
+        vm.expectRevert(DEV_REFUSED);
+        script.preflight(c);
+    }
+
+    /// @dev The only test that sets ALLOW_DEV_SETUP (the process environment is shared by the
+    ///      tests, which run in parallel): unset or false refuses, true deploys.
+    function test_Deploy_DevReleaseRunFromEnvironmentOnChain100() public {
+        if (!_release() || !CouncilRelease.DEVELOPMENT_SETUP) return;
+        vm.setEnv("PRIVATE_KEY", vm.toString(bytes32(KEY)));
+        vm.chainId(GNOSIS);
+        vm.setEnv("ALLOW_DEV_SETUP", "false");
+        assertFalse(script.configFromEnv().allowDevSetup);
+        vm.expectRevert(DEV_REFUSED);
+        script.run();
+        vm.setEnv("ALLOW_DEV_SETUP", "true");
+        assertTrue(script.configFromEnv().allowDevSetup);
+        _assertDeployed(script.run());
+        vm.setEnv("ALLOW_DEV_SETUP", "false");
+    }
+
+    function test_Deploy_DevReleaseOnTestChains() public {
+        if (!_release()) return;
+        uint256[3] memory chains = [uint256(31337), 11155111, 10200];
+        for (uint256 i; i < chains.length; ++i) {
+            vm.chainId(chains[i]);
+            _assertDeployed(script.deploy(_cfg()));
+        }
+    }
+
+    function test_Deploy_DevReleaseOnChain100WithExplicitOverride() public {
+        if (!_release()) return;
+        vm.chainId(GNOSIS);
+        Deploy.Config memory c = _cfg();
+        c.allowDevSetup = true;
+        _assertDeployed(script.deploy(c));
+    }
+
+    function test_SetupPolicy_TestChains() public view {
+        assertTrue(script.isTestChain(31337));
+        assertTrue(script.isTestChain(11155111));
+        assertTrue(script.isTestChain(10200));
+        assertFalse(script.isTestChain(GNOSIS));
+        assertFalse(script.isTestChain(1));
+        assertFalse(script.isTestChain(1337));
+    }
+
+    /// @dev A DEV release: refused off the test chains unless explicitly allowed.
+    function testFuzz_SetupPolicy_DevRelease(uint256 chainId) public {
+        script.checkSetupPolicy(true, chainId, true);
+        if (script.isTestChain(chainId)) {
+            script.checkSetupPolicy(true, chainId, false);
+        } else {
+            vm.expectRevert(DEV_REFUSED);
+            script.checkSetupPolicy(true, chainId, false);
+        }
+    }
+
+    /// @dev A ceremony (non-DEV) release deploys anywhere, override or not.
+    function testFuzz_SetupPolicy_CeremonyRelease(uint256 chainId, bool allow) public view {
+        script.checkSetupPolicy(false, chainId, allow);
     }
 }

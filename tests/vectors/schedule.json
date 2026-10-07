@@ -1,0 +1,1694 @@
+{
+  "description": "Phase policies (§8.1 create-time validation; §8.2/§8.3 join and the two registration closes; §8.4 finalize/abort; §8.7 decryption opening) at -1 / equal / +1 of every timestamp. Error names and precedence are the CouncilManager's: create checks BadDuration (dealingDuration outside [600 s, 365 days]) before every BadSchedule rule; closeRegistration: WrongMode, RegistrationEnded, BelowThreshold; closeRegistrationScheduled: WrongMode, RegistrationNotDue, Expired, BelowThreshold; openDecryption (Live, valid signature): WrongMode, AlreadyOpen. Registration cases assume phase Registration, a free roster slot and participantCount == joined; dealing cases a member that has not dealt; decryption cases a Live ceremony. Timestamps and durations are decimal strings",
+  "phaseModes": {
+    "Manual": 0,
+    "Scheduled": 1
+  },
+  "minDealingDuration": 600,
+  "maxDealingDuration": 31536000,
+  "create": [
+    {
+      "name": "manualManualNoExpiryNoFallback",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "manualManualExpiryFallback",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1901000000",
+      "expect": "ok"
+    },
+    {
+      "name": "scheduledScheduled",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900100000",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "manualScheduled",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900100000",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "scheduledManualNoFallback",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "scheduledManualFallback",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1901000000",
+      "expect": "ok"
+    },
+    {
+      "name": "registrationModeByte2",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 2,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "registrationModeByte2WithDeadline",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 2,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "decryptionModeByte2",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 2,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "decryptionModeByte2WithOpenAt",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 2,
+      "decryptionOpenAt": "1900100000",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "decryptionModeByte255",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 255,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "dealingDuration599",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "599",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadDuration"
+    },
+    {
+      "name": "dealingDuration600",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "600",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "dealingDuration599BeatsBadSchedule",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 2,
+      "registrationDeadline": "0",
+      "dealingDuration": "599",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadDuration"
+    },
+    {
+      "name": "dealingDuration365Days",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "31536000",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "dealingDuration365DaysPlus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "31536001",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadDuration"
+    },
+    {
+      "name": "dealingDuration365DaysPlus1BeatsBadSchedule",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 2,
+      "registrationDeadline": "0",
+      "dealingDuration": "31536001",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadDuration"
+    },
+    {
+      "name": "scheduledDeadlineNowMinus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1849999999",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "scheduledDeadlineNow",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1850000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "scheduledDeadlineNowPlus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1850000001",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "scheduledDeadlineZero",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "manualExpiryNowMinus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "1849999999",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "manualExpiryNow",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "1850000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "manualExpiryNowPlus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "1850000001",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "manualNoExpiryMaxDuration",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "18446744073709551615",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadDuration"
+    },
+    {
+      "name": "scheduledSumOverflows",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "18446744073709551016",
+      "dealingDuration": "600",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "scheduledSumFits",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "18446744073709551015",
+      "dealingDuration": "600",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "manualExpirySumOverflows",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "18446744073709551016",
+      "dealingDuration": "600",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "manualExpirySumFits",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "18446744073709551015",
+      "dealingDuration": "600",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "scheduledOpenAtNowMinus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1849999999",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "scheduledOpenAtNow",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1850000000",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "scheduledOpenAtNowPlus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1850000001",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "scheduledOpenAtZero",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "scheduledWithFallback",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900100000",
+      "manualDecryptionFallbackAt": "1901000000",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "manualWithOpenAt",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "1900100000",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "manualFallbackNowMinus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1849999999",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "manualFallbackNow",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1850000000",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "manualFallbackNowPlus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1850000001",
+      "expect": "ok"
+    },
+    {
+      "name": "crossOpenAtEndMinus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900086399",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "crossOpenAtEnd",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900086400",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "crossOpenAtEndPlus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900086401",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "crossFallbackEndMinus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1900086399",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "crossFallbackEnd",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1900086400",
+      "expect": "BadSchedule"
+    },
+    {
+      "name": "crossFallbackEndPlus1",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1900086401",
+      "expect": "ok"
+    },
+    {
+      "name": "manualExpiryOpenAtBeforeEnd",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900086400",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "manualExpiryOpenAtBeforeDeadline",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1899999999",
+      "manualDecryptionFallbackAt": "0",
+      "expect": "ok"
+    },
+    {
+      "name": "manualExpiryFallbackAtEnd",
+      "now": "1850000000",
+      "threshold": 2,
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1900086400",
+      "expect": "ok"
+    }
+  ],
+  "registration": [
+    {
+      "name": "scheduled_joined1_deadlineMinus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1899999999",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "RegistrationNotDue",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined1_deadline",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900000000",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "BelowThreshold",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined1_deadlinePlus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900000001",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "BelowThreshold",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined1_endMinus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900086399",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "BelowThreshold",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined1_end",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900086400",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "BelowThreshold",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined1_endPlus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900086401",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "Expired",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined2_deadlineMinus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1899999999",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "RegistrationNotDue",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined2_deadline",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900000000",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined2_deadlinePlus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900000001",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined2_endMinus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900086399",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined2_end",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900086400",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined2_endPlus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900086401",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "Expired",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined3_deadlineMinus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1899999999",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "RegistrationNotDue",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined3_deadline",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900000000",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined3_deadlinePlus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900000001",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined3_endMinus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900086399",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined3_end",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900086400",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "scheduled_joined3_endPlus1",
+      "registrationMode": 1,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900086401",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "WrongMode",
+        "closeRegistrationScheduled": "Expired",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined1_deadlineMinus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1899999999",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "BelowThreshold",
+        "closeRegistrationScheduled": "RegistrationNotDue",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined1_deadline",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900000000",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "BelowThreshold",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined1_deadlinePlus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900000001",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "BelowThreshold",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined1_endMinus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900086399",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "BelowThreshold",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined1_end",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900086400",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "BelowThreshold",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined1_endPlus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900086401",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "Expired",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined2_deadlineMinus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1899999999",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "ok",
+        "closeRegistrationScheduled": "RegistrationNotDue",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": "1900086399",
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined2_deadline",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900000000",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined2_deadlinePlus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900000001",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined2_endMinus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900086399",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined2_end",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900086400",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined2_endPlus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900086401",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "Expired",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined3_deadlineMinus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1899999999",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "ok",
+        "closeRegistrationScheduled": "RegistrationNotDue",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": "1900086399",
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined3_deadline",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900000000",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined3_deadlinePlus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900000001",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined3_endMinus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900086399",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined3_end",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900086400",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "ok",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": true,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": "1900086400"
+        }
+      }
+    },
+    {
+      "name": "manualExpiry_joined3_endPlus1",
+      "registrationMode": 0,
+      "registrationDeadline": "1900000000",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 3,
+      "now": "1900086401",
+      "expect": {
+        "join": "RegistrationEnded",
+        "closeRegistration": "RegistrationEnded",
+        "closeRegistrationScheduled": "Expired",
+        "abort": "ok",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualNoExpiry_joined1_early",
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1850000100",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "BelowThreshold",
+        "closeRegistrationScheduled": "WrongMode",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualNoExpiry_joined1_atR",
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900000000",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "BelowThreshold",
+        "closeRegistrationScheduled": "WrongMode",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualNoExpiry_joined1_afterEnd",
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 1,
+      "now": "1900086401",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "BelowThreshold",
+        "closeRegistrationScheduled": "WrongMode",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": null,
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualNoExpiry_joined2_early",
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1850000100",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "ok",
+        "closeRegistrationScheduled": "WrongMode",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": "1850086500",
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualNoExpiry_joined2_atR",
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900000000",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "ok",
+        "closeRegistrationScheduled": "WrongMode",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": "1900086400",
+          "closeRegistrationScheduled": null
+        }
+      }
+    },
+    {
+      "name": "manualNoExpiry_joined2_afterEnd",
+      "registrationMode": 0,
+      "registrationDeadline": "0",
+      "dealingDuration": "86400",
+      "threshold": 2,
+      "joined": 2,
+      "now": "1900086401",
+      "expect": {
+        "join": "ok",
+        "closeRegistration": "ok",
+        "closeRegistrationScheduled": "WrongMode",
+        "abort": "AbortConditionNotMet",
+        "scheduledRegistrationCloseDue": false,
+        "dealingDeadline": {
+          "closeRegistration": "1900172801",
+          "closeRegistrationScheduled": null
+        }
+      }
+    }
+  ],
+  "dealing": [
+    {
+      "name": "dealt1_deadlineMinus1",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 1,
+      "now": "1900086399",
+      "expect": {
+        "deal": "ok",
+        "finalize": "FinalizeConditionNotMet",
+        "abort": "AbortConditionNotMet"
+      }
+    },
+    {
+      "name": "dealt1_deadline",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 1,
+      "now": "1900086400",
+      "expect": {
+        "deal": "ok",
+        "finalize": "FinalizeConditionNotMet",
+        "abort": "AbortConditionNotMet"
+      }
+    },
+    {
+      "name": "dealt1_deadlinePlus1",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 1,
+      "now": "1900086401",
+      "expect": {
+        "deal": "Expired",
+        "finalize": "FinalizeConditionNotMet",
+        "abort": "ok"
+      }
+    },
+    {
+      "name": "dealt2_deadlineMinus1",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 2,
+      "now": "1900086399",
+      "expect": {
+        "deal": "ok",
+        "finalize": "FinalizeConditionNotMet",
+        "abort": "AbortConditionNotMet"
+      }
+    },
+    {
+      "name": "dealt2_deadline",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 2,
+      "now": "1900086400",
+      "expect": {
+        "deal": "ok",
+        "finalize": "FinalizeConditionNotMet",
+        "abort": "AbortConditionNotMet"
+      }
+    },
+    {
+      "name": "dealt2_deadlinePlus1",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 2,
+      "now": "1900086401",
+      "expect": {
+        "deal": "Expired",
+        "finalize": "ok",
+        "abort": "AbortConditionNotMet"
+      }
+    },
+    {
+      "name": "dealt3_deadlineMinus1",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 3,
+      "now": "1900086399",
+      "expect": {
+        "deal": "ok",
+        "finalize": "ok",
+        "abort": "AbortConditionNotMet"
+      }
+    },
+    {
+      "name": "dealt3_deadline",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 3,
+      "now": "1900086400",
+      "expect": {
+        "deal": "ok",
+        "finalize": "ok",
+        "abort": "AbortConditionNotMet"
+      }
+    },
+    {
+      "name": "dealt3_deadlinePlus1",
+      "dealingDeadline": "1900086400",
+      "threshold": 2,
+      "n": 3,
+      "dealt": 3,
+      "now": "1900086401",
+      "expect": {
+        "deal": "Expired",
+        "finalize": "ok",
+        "abort": "AbortConditionNotMet"
+      }
+    }
+  ],
+  "decryption": [
+    {
+      "name": "scheduled_openAtMinus1",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900100000",
+      "manualDecryptionFallbackAt": "0",
+      "manualOpenedAt": "0",
+      "now": "1900099999",
+      "expect": {
+        "isDecryptionOpen": false,
+        "openDecryption": "WrongMode"
+      }
+    },
+    {
+      "name": "scheduled_openAt",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900100000",
+      "manualDecryptionFallbackAt": "0",
+      "manualOpenedAt": "0",
+      "now": "1900100000",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "WrongMode"
+      }
+    },
+    {
+      "name": "scheduled_openAtPlus1",
+      "decryptionMode": 1,
+      "decryptionOpenAt": "1900100000",
+      "manualDecryptionFallbackAt": "0",
+      "manualOpenedAt": "0",
+      "now": "1900100001",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "WrongMode"
+      }
+    },
+    {
+      "name": "manualFallback_fallbackMinus1",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1901000000",
+      "manualOpenedAt": "0",
+      "now": "1900999999",
+      "expect": {
+        "isDecryptionOpen": false,
+        "openDecryption": "ok"
+      }
+    },
+    {
+      "name": "manualFallback_fallback",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1901000000",
+      "manualOpenedAt": "0",
+      "now": "1901000000",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "AlreadyOpen"
+      }
+    },
+    {
+      "name": "manualFallback_fallbackPlus1",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1901000000",
+      "manualOpenedAt": "0",
+      "now": "1901000001",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "AlreadyOpen"
+      }
+    },
+    {
+      "name": "manualNoFallback_notOpened_early",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "manualOpenedAt": "0",
+      "now": "1900200000",
+      "expect": {
+        "isDecryptionOpen": false,
+        "openDecryption": "ok"
+      }
+    },
+    {
+      "name": "manualNoFallback_notOpened_late",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "manualOpenedAt": "0",
+      "now": "1950000000",
+      "expect": {
+        "isDecryptionOpen": false,
+        "openDecryption": "ok"
+      }
+    },
+    {
+      "name": "manualNoFallback_opened_sameBlock",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "manualOpenedAt": "1900200000",
+      "now": "1900200000",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "AlreadyOpen"
+      }
+    },
+    {
+      "name": "manualNoFallback_opened_later",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "0",
+      "manualOpenedAt": "1900200000",
+      "now": "1950000000",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "AlreadyOpen"
+      }
+    },
+    {
+      "name": "manualFallback_openedBefore_sameBlock",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1901000000",
+      "manualOpenedAt": "1900200000",
+      "now": "1900200000",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "AlreadyOpen"
+      }
+    },
+    {
+      "name": "manualFallback_openedBefore_fallbackMinus1",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1901000000",
+      "manualOpenedAt": "1900200000",
+      "now": "1900999999",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "AlreadyOpen"
+      }
+    },
+    {
+      "name": "manualFallback_openedBefore_fallbackPlus1",
+      "decryptionMode": 0,
+      "decryptionOpenAt": "0",
+      "manualDecryptionFallbackAt": "1901000000",
+      "manualOpenedAt": "1900200000",
+      "now": "1901000001",
+      "expect": {
+        "isDecryptionOpen": true,
+        "openDecryption": "AlreadyOpen"
+      }
+    }
+  ]
+}

@@ -138,17 +138,17 @@ contract CouncilRealVerifiersTest is VectorReplay {
         d.masked[1] = addmod(d.masked[1], 1, P);
         _signRealDeal(d, 1, ctx);
         vm.expectRevert(ProofInvalid.selector);
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC);
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC, _roster());
 
         // dealer 1's honest dealing re-labelled as member 2's (dealerIndex is a public input)
         d.masked[1] = masked[1];
         _signRealDeal(d, 2, ctx);
         vm.expectRevert(ProofInvalid.selector);
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC);
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC, _roster());
 
         // the honest submission still goes through
         _signRealDeal(d, 1, ctx);
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC);
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC, _roster());
         assertEq(manager.getQual(cid), 1);
     }
 
@@ -164,6 +164,7 @@ contract CouncilRealVerifiersTest is VectorReplay {
         _replayDealing();
         _replayFinalize();
         _replayRequest();
+        _replayOpening();
         PartialCall memory p;
         p.D = _points16(partialFx, ".partials[1].D"); // member 2
         _proof(partialFx, ".partials[1].proof");
@@ -172,17 +173,17 @@ contract CouncilRealVerifiersTest is VectorReplay {
         (p.D[0], p.D[1]) = (p.D[1], p.D[0]);
         _signRealPartial(p, 2);
         vm.expectRevert(ProofInvalid.selector);
-        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC);
+        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC, _c1());
 
         // member 2's honest partial re-labelled as member 3's (PK_3 is the public key input)
         (p.D[0], p.D[1]) = (p.D[1], p.D[0]);
         _signRealPartial(p, 3);
         vm.expectRevert(ProofInvalid.selector);
-        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC);
+        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC, _c1());
 
         _signRealPartial(p, 2);
-        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC);
-        (,,, uint16 partials,) = manager.getRequest(requestId);
+        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC, _c1());
+        (,,, uint16 partials) = manager.getRequestMeta(requestId);
         assertEq(partials, 2);
     }
 
@@ -228,12 +229,12 @@ contract CouncilRealVerifiersTest is VectorReplay {
         // the manager refuses it even when the payload hash signs the aliased words
         _signRealDeal(d, 1, ctx);
         vm.expectRevert(NonCanonical.selector);
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC);
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC, _roster());
         assertEq(manager.getQual(cid), 0);
 
         pA[1] = y;
         _signRealDeal(d, 1, ctx);
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC);
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC, _roster());
         assertEq(manager.getQual(cid), 1);
     }
 
@@ -242,6 +243,7 @@ contract CouncilRealVerifiersTest is VectorReplay {
         _replayDealing();
         _replayFinalize();
         _replayRequest();
+        _replayOpening();
         PartialCall memory p;
         p.D = _points16(partialFx, ".partials[0].D");
         uint256[67] memory pub;
@@ -256,14 +258,14 @@ contract CouncilRealVerifiersTest is VectorReplay {
         assertTrue(pv.verifyProof(pA, pB, pC, pub), "alias verifies at the raw verifier");
         _signRealPartial(p, 1);
         vm.expectRevert(NonCanonical.selector);
-        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC);
-        (,,, uint16 partials,) = manager.getRequest(requestId);
+        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC, _c1());
+        (,,, uint16 partials) = manager.getRequestMeta(requestId);
         assertEq(partials, 0);
 
         pA[1] = y;
         _signRealPartial(p, 1);
-        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC);
-        (,,, partials,) = manager.getRequest(requestId);
+        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC, _c1());
+        (,,, partials) = manager.getRequestMeta(requestId);
         assertEq(partials, 1);
     }
 }

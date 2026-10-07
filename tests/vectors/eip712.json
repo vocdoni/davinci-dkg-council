@@ -1,23 +1,27 @@
 {
-  "description": "EIP-712 (§7): domain separator and one digest + deterministic (RFC 6979, low-s) signature per §7.2 struct, scenario A. Deal/Partial payload hashes use the placeholder proof words of dealing.json/combine.json",
+  "description": "EIP-712 (§7), domain version \"2\": domain separator and one digest + deterministic (RFC 6979, low-s) signature per §7.2 struct, scenario A (its v2 phase policy in CreateCeremony). Deal/Partial payload hashes use the placeholder proof words of dealing.json/combine.json",
   "domain": {
     "name": "DAVINCI DKG Council",
-    "version": "1",
+    "version": "2",
     "chainId": "31337",
     "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
-    "domainSeparator": "0x800c5eceb6ae1ddc1429a6d6ad904bb76dca9e6949924161b8e3629f520ff7bf"
+    "domainSeparator": "0xfd03fc686ef286189d1c6f0f097ba3dee8ba66649b711accab8d35ecf1b6085e"
   },
   "actions": [
     {
       "struct": "CreateCeremony",
-      "encodeType": "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint64 registrationDeadline,uint64 dealingDuration,address[] inviteKeys,uint64 validUntil)",
-      "typeHash": "0xab84d72e8dd1ac8228bb315c83347851790090033d565e87588ff828d2c6aee3",
+      "encodeType": "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint8 registrationMode,uint64 registrationDeadline,uint64 dealingDuration,uint8 decryptionMode,uint64 decryptionOpenAt,uint64 manualDecryptionFallbackAt,address[] inviteKeys,uint64 validUntil)",
+      "typeHash": "0xff1f7fd4377fb36c51f983f22b7c4ae1fa2fa6a9d943efd90d3c77bc449d3c55",
       "message": {
         "organizer": "0xfd1ab56861b55576073f43573fef490247167585",
         "nonce": "1",
         "threshold": 2,
+        "registrationMode": 0,
         "registrationDeadline": "1900000000",
         "dealingDuration": "86400",
+        "decryptionMode": 0,
+        "decryptionOpenAt": "0",
+        "manualDecryptionFallbackAt": "1901000000",
         "inviteKeys": [
           "0x7b744495182ed50dbcd934710620e9bd6db8a6e0",
           "0x094112b2cc1d2b489a560b75fa0aa759a55f989b",
@@ -25,10 +29,10 @@
         ],
         "validUntil": "2000000000"
       },
-      "structHash": "0x19dfe02b8b0b25e7416d64718eea1607a3e91f91f610eaa39196f892c9c88cef",
-      "digest": "0x039055ebb9a1f96e5ab4b824c3b4d46517b5bdb87037ea02a00c844a64637d99",
+      "structHash": "0x0b654d1b205419c5ebf90fa9a9f78277a572c6ba846e718ddb26a440aa46c78c",
+      "digest": "0x05f2cc7eb00bc29076b1ffe6fe66bdff209e461b35dace3d17c78e78f1499c63",
       "signer": "0xfd1ab56861b55576073f43573fef490247167585",
-      "signature": "0xb5c20d478a278ee53dfc291c836b16eff7b4176c5e00f9f830c56d771a9ea00b509d098ed31af99ab48e6927d77c532929b6c88b716f2b20747bd22bcc626b071c"
+      "signature": "0x44b5d702ead08e5a9f3795decd90c70bb02ec8af5b1d434b656d77a506017bc22bcc427a15f75eb936b78ea2514da1449d5b2d739ff20a0e721b57f5a6173de91b"
     },
     {
       "struct": "AddInvites",
@@ -44,9 +48,9 @@
         "validUntil": "2000000000"
       },
       "structHash": "0xb1ab4b8a190b2c9fecda51ed02f4a5fcf9bdacd9a47b6980d8bd3846a4983b78",
-      "digest": "0x94d948324c1435f96c5cece9ee4420d1a33a641e9bce1b3c357096c77b6a2639",
+      "digest": "0xdfe69b1d2d7156d288b7e74501ce2fae9bd21648cc8eec152ecaa7d8eb4e0570",
       "signer": "0xfd1ab56861b55576073f43573fef490247167585",
-      "signature": "0xd1a1dd33980999482ac1415cfb56ddee72d62d0980d038c59cb20c624dfad5ac1cb39cb9683208a496ae69bd0fee2d27cfbe85dc864a64c5be853c0e3e276a2b1b"
+      "signature": "0xcd2ef5993a8c9babe65be5edd795ed65a6b3c3ff27f6ee814a47980f46489ce033b3d99ba36da6f42eab942e80bee85fcda7449584584198bc6af9eb46bd34ac1b"
     },
     {
       "struct": "Invite",
@@ -61,9 +65,9 @@
         "validUntil": "2000000000"
       },
       "structHash": "0xadcd1e786e7e391d2db13313379196d21647707d8bc27a73a6df3d0690ba2ffa",
-      "digest": "0x9e5e15d16530934835e29cf790812bb3d31502367ba07deb024f784ab6d0a2a7",
+      "digest": "0x338dda9722f522e650b2058cb52f5a7aa223f5c9ff53c1bb5d07d9c03aa9bdd3",
       "signer": "0x7b744495182ed50dbcd934710620e9bd6db8a6e0",
-      "signature": "0x5d5b9c156b5bdeda2a87e0924d922208afc0c81036b27af3f6f0129df2751be650cd02da4b28a5a17dd7dadb246fa1d3ec38dae5b28a7e232c4ffc52d47a3bab1b"
+      "signature": "0x4bd704ef5e5aa8f100353447a845f483e310ad67750fe90d6437a5ba3e35b2203bdb953e361596812020e12c451370afb8ff581ca67570e68038e7f1c0ec2d9c1b"
     },
     {
       "struct": "Join",
@@ -81,9 +85,9 @@
         "validUntil": "2000000000"
       },
       "structHash": "0x878a2e9f5e856a930c6c341986ada50f895e08162bc3a25989698f0d44889451",
-      "digest": "0x8d279d14382b625e037ffa8fdeb02fa5c009b7ddfff765bbfe6e9eb5059db3b4",
+      "digest": "0x2d4113d06011ec5ba1e8cb33e49f9f1b589347db5f028ca78142e8ded27a001f",
       "signer": "0x974a3a0f5d18478bd7ce08c5bf316831426d719c",
-      "signature": "0x008f2ce8e01851117a20f753e01eb6ccc3546db9de3d5ce6a4f6ef2e3b7b924c472d335a9d81400e8058d67996702abae46b5a3c5d874dbb45d51e5afab80fa21c"
+      "signature": "0x8855f925466474a5b38e88731e5ce4302585d5e73eb91ace056a5d65adefd86d0825575776eee43afbfa9f1723150625cc6fb33fd92050669c33edcf2f89069b1b"
     },
     {
       "struct": "CloseRegistration",
@@ -95,9 +99,9 @@
         "validUntil": "2000000000"
       },
       "structHash": "0xa676bfec8b9671854ea0d100d644d87b87af2bd7c3e918a7b5c1bc0bbd4947a3",
-      "digest": "0x9eeef76fd0cc765d59cfe70b3b07ddfa667bfe73d7737e7298e504f839418549",
+      "digest": "0x30a4efa07e347d7c6c1b2e43347a3ea9e49d902074a6be70ce6e79c5caeaed60",
       "signer": "0xfd1ab56861b55576073f43573fef490247167585",
-      "signature": "0x0c1ed426f436622f35262e43fefcb257508081bb5fd2fd983eaf99bd9c618d4a659cc48dbe35fbc850a1897987bd0feef607b43a82f9a63cfe1714a6b135c0931c"
+      "signature": "0x6ef6153e492a7bcdf48c2931d230421640d18eaf29f4ee316f3294928896945f04589599672c9e1ad87ba9668ef385638885551b968bb093b28c747994a17cfe1c"
     },
     {
       "struct": "AllowAdapter",
@@ -109,9 +113,9 @@
         "validUntil": "2000000000"
       },
       "structHash": "0x0cb92c1b394bd364a395ce68202499c9a14611af11f5e5d0feaa57f5f3b82610",
-      "digest": "0x064f3d3f674d68e5c5010b3ba4eab073a2ccdfca76af10a79cd2453b09f48639",
+      "digest": "0x9125032ccdb9e3c50e6eacbcebb316bedd491ba439a9d4f18fae41f0a5b7517a",
       "signer": "0xfd1ab56861b55576073f43573fef490247167585",
-      "signature": "0xbff720f3639e6897641605f393baa7788a2babd3b2cf7ecb6976b5f7936304f34749a271a6cb44bb21c6d7040ed42490dde44d69c9d786eb6f2d3cdb0a581a741b"
+      "signature": "0xce45b6f5fd312b418ee694aea122145f81aca3be0c2f68d5c5fad607d056c029191ddfcf8d65166dabbbce0330c73fa504f5c8aaef547b2b294edc83890cd1641b"
     },
     {
       "struct": "AuthorizeCreator",
@@ -123,9 +127,9 @@
         "validUntil": "2000000000"
       },
       "structHash": "0xd3bc960506e82f6556d52b0f62ab42c36795df7cb0e1b93d7a007760a2903ade",
-      "digest": "0xae1902c50b426859d362421e4cfd3c9026044ca219a9f540c8b0d48e1b303ca3",
+      "digest": "0xd7ea7d04bab2105acf76a176fdeaba6c9a960a88b02d87f36095ddff6ed4e832",
       "signer": "0xfd1ab56861b55576073f43573fef490247167585",
-      "signature": "0x9999dd99dada98ff1e0ba6c82677f03e30f978ef07d3ee98c9e4343ebdbe226e7213e78125fa741bd7f0fb4545fed8bdd2ba4049df7e83da1840b6366dc86abf1c"
+      "signature": "0x0cecdcb1800084db8821422dd558fee508e06e61626fd25ada0d801fcf0c901040829f28d8316ddb7ac08ac322b8d0d2951b1c16be0040b12ed197ebf4ef9ea71c"
     },
     {
       "struct": "Deal",
@@ -138,9 +142,9 @@
         "validUntil": "2000000000"
       },
       "structHash": "0xb1d35a1d6c36dcaeac625b39eee8f5266465d47bb19b55811550df4869a48f3b",
-      "digest": "0xb5aeb308b9fd6f07eb0f919dfdfcbd8889b16e6f8f580751f792243658de99fc",
+      "digest": "0xd3c6034cd608d713e0bbe5d423dcbdb3929a4f20ba38ca1a4d686248f91a8377",
       "signer": "0x974a3a0f5d18478bd7ce08c5bf316831426d719c",
-      "signature": "0x89e4f6451498b838c2c11d6873441ae1eca607a60ac772c52c2d9e81719d3c712b3db1c2d9a7e71f3cf55f5ef39d61c2e6d8a7f9cfb631f57497938e98d983801b"
+      "signature": "0x87d1cdd7a8494fece26263fe6836653b643f29c0b2d6f2447a94233ee5d331c24ed6e4518c2352ac9d55918aab56ffbe5048b736c07bac09f5a84b615de2fbdb1b"
     },
     {
       "struct": "Partial",
@@ -154,9 +158,22 @@
         "validUntil": "2000000000"
       },
       "structHash": "0xcf6b42a2112c985794613ae9bfc9256a2f825108316ef1613ea6f21b95a73565",
-      "digest": "0x2cb4792b9028a0f242afecb36912c4e7bb0e9e7cae002d0c08e4effb2075c23c",
+      "digest": "0x680d9db68db60c82fc806a62ba47ef999f84c5d898336a51c2c82efacbb64ae0",
       "signer": "0x974a3a0f5d18478bd7ce08c5bf316831426d719c",
-      "signature": "0xe507903dceece5d92eac6e74ac74893d3e1614edc658d1f90819b1769d64490a061f006e63afaab2efb7a9fafd8071156b66619ac4efff2b710ded6e367816111c"
+      "signature": "0x2b08cddf5b2159f79383a12d95f8d44c305751abe28d721ed2077e5f608cd540316bec79c373f9288b482c5ba651e6ee12a16f6b243543f26dea315745c3f1771c"
+    },
+    {
+      "struct": "OpenDecryption",
+      "encodeType": "OpenDecryption(bytes12 ceremonyId,uint64 validUntil)",
+      "typeHash": "0xa702746ef45a665d758c946a1e494fe3b99522ce465d2f03c2ec7fbae4da2f4e",
+      "message": {
+        "ceremonyId": "0x6bec1da64dbcaf30b3c64004",
+        "validUntil": "2000000000"
+      },
+      "structHash": "0xa56c6c2d28c3118a31bdd39c28f2e55cb9155c15b514e018677fda37614c0362",
+      "digest": "0xdec774b0a1715a29d16d6835aee8c42acbad1f48b6933a78dc0e47bce6f6d640",
+      "signer": "0xfd1ab56861b55576073f43573fef490247167585",
+      "signature": "0xfb0de4c2f9b2ad97341cde5259cd5c374168320116cf6fece4008a539e392dd559bae58ac1f4feecae46d1468576086374b216688b1b8e920df39501d2c1408f1b"
     }
   ]
 }

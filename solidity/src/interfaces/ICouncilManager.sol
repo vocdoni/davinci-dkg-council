@@ -2,13 +2,15 @@
 pragma solidity >=0.8.4 <0.9.0;
 
 /// @title ICouncilManager
-/// @notice The CouncilManager surface a DAVINCI `CouncilAdapter` uses (architecture §3.1).
-///         Self-contained on purpose: copy this file verbatim into another repository.
+/// @notice The CouncilManager (protocol v2) surface a DAVINCI `CouncilAdapter` uses (architecture
+///         §3.1). Self-contained on purpose: copy this file verbatim into another repository.
 ///
 ///         Flow: the organizer allows the adapter and authorizes the process creator for a `Live`
 ///         ceremony; the adapter `bindProcess`es a process (receiving the request id and the
 ///         ceremony key `P`), later `submitRequest`s the process's final accumulator, and polls
-///         `getPlaintexts` until `ready`.
+///         `getPlaintexts` until `ready`. Results are produced only once the ceremony's decryption
+///         gate is open (`isDecryptionOpen`, protocol §8.7): the registry must consult it before
+///         publishing any result for a Council process, the all-zero fast path included.
 ///
 ///         Points are circomlib twisted Edwards (TE) `(x, y)` pairs, each `< p` (BN254 scalar
 ///         field); `cts[k] = [C1.x, C1.y, C2.x, C2.y]`.
@@ -27,6 +29,7 @@ interface ICouncilManager {
     /// @notice Submit the decryption request of a bound process, once. Called by the same adapter
     ///         that bound it; `cid` is cross-checked against the binding record. 1..16 fields,
     ///         every C1/C2 canonical, on curve, in the prime subgroup and not the identity.
+    ///         Admission is independent of the decryption gate.
     function submitRequest(bytes12 cid, bytes31 processId, uint256[4][] calldata cts)
         external
         returns (bytes32 requestId);
@@ -36,10 +39,10 @@ interface ICouncilManager {
     function getPlaintexts(bytes32 requestId) external view returns (bool ready, uint256[] memory values);
 
     /// @notice Request record. `fieldCount == 0` means bound but not yet submitted.
-    function getRequest(bytes32 requestId)
+    function getRequestMeta(bytes32 requestId)
         external
         view
-        returns (bytes12 cid, uint8 fieldCount, uint16 completedBitmap, uint16 partialBitmap, uint256[4][] memory cts);
+        returns (bytes12 cid, uint8 fieldCount, uint16 completedBitmap, uint16 partialBitmap);
 
     /// @notice Binding record of `(adapter, processId)`.
     function getBinding(address adapter, bytes31 processId)
@@ -49,4 +52,9 @@ interface ICouncilManager {
 
     /// @notice Ceremony public key `P` in TE; reverts unless the ceremony is `Live`.
     function getPublicKey(bytes12 cid) external view returns (uint256 x, uint256 y);
+
+    /// @notice protocol §8.7 decryption gate of ceremony `cid` at `block.timestamp`: `Live` and
+    ///         (Scheduled and past `decryptionOpenAt`, or Manual and opened by the organizer or past
+    ///         its fallback date). Irreversible once true. Reverts for an unknown ceremony.
+    function isDecryptionOpen(bytes12 cid) external view returns (bool);
 }

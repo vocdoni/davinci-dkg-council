@@ -62,7 +62,8 @@ contract CouncilLifecycleTest is CouncilTestBase {
             keccak256(abi.encode(TAG_REQUEST, block.chainid, address(manager), cid, address(adapter), p)),
             "requestId"
         );
-        bytes32[] memory ids = manager.getRequestIds(cid);
+        assertEq(manager.getRequestCount(cid), 1);
+        bytes32[] memory ids = manager.getRequestIdsPage(cid, 0, 10);
         assertEq(ids.length, 1);
         assertEq(ids[0], requestId);
         (address oAdapter, bytes31 oPid, address oCreator) = manager.getRequestOrigin(requestId);
@@ -73,11 +74,13 @@ contract CouncilLifecycleTest is CouncilTestBase {
         _partial(1);
         _partial(3);
         _partial(5);
-        (,, uint16 completed, uint16 partials, uint256[4][] memory stored) = manager.getRequest(requestId);
+        (,, uint16 completed, uint16 partials) = manager.getRequestMeta(requestId);
         assertEq(completed, 0);
         assertEq(partials, 0x15);
+        uint256[2][] memory stored = manager.getRequestCompressed(requestId);
         assertEq(stored.length, 3);
-        assertEq(stored[2][3], cts[2][3]);
+        assertEq(stored[2][0], _compress(cts[2][0], cts[2][1]));
+        assertEq(stored[2][1], _compress(cts[2][2], cts[2][3]));
 
         (bool ready,) = adapter.plaintexts(cid, requestId, 0, 3);
         assertFalse(ready);
@@ -139,6 +142,7 @@ contract CouncilLifecycleTest is CouncilTestBase {
         manager.finalize(cid);
         assertEq(manager.getQual(cid), 0x5);
         _assertKeys(4);
+        _open();
 
         // a member that never dealt still holds a share of every accepted dealing
         _bindAndRequest(bytes31(uint248(42)), _u64s(11, 22, 33));
@@ -174,7 +178,7 @@ contract CouncilLifecycleTest is CouncilTestBase {
         uint8[] memory first = new uint8[](2);
         (first[0], first[1]) = (1, 4);
         _combine(setA, first);
-        (,, uint16 completed,,) = manager.getRequest(requestId);
+        (,, uint16 completed,) = manager.getRequestMeta(requestId);
         assertEq(completed, 0x12);
         (bool ready,) = manager.getPlaintexts(requestId);
         assertFalse(ready);
@@ -209,10 +213,12 @@ contract CouncilLifecycleTest is CouncilTestBase {
         assertEq(values[0], 4);
         (ready,) = manager.getPlaintexts(first);
         assertFalse(ready);
-        assertEq(manager.getRequestIds(cid).length, 2);
+        assertEq(manager.getRequestCount(cid), 2);
+        assertEq(manager.getRequestIdsPage(cid, 0, 2)[0], first);
     }
 
-    /// @dev Months-later recovery reads every byte back from current storage.
+    /// @dev Months-later recovery reads every byte back from current storage (protocol §8.6):
+    ///      compressed roster and ephemerals, masked shares, QUAL; never the commitments.
     function test_RecoveryViews() public {
         _create(2, 4);
         for (uint256 i = 1; i <= 3; ++i) {
@@ -222,24 +228,32 @@ contract CouncilLifecycleTest is CouncilTestBase {
         DealCall memory d = _dealMsg(2);
         _sendDeal(d);
         qualBits |= 2;
-        (uint256[2][16] memory C, uint256[2] memory E, uint256[16] memory masked) = manager.getDealing(cid, 2);
+        (uint256 wordE, uint256[16] memory masked) = manager.getRecoveryDealing(cid, 2);
+        assertEq(wordE, _compress(d.E[0], d.E[1]));
         for (uint256 k; k < 16; ++k) {
-            assertEq(C[k][0], d.C[k][0]);
-            assertEq(C[k][1], d.C[k][1]);
             assertEq(masked[k], d.masked[k]);
         }
-        assertEq(E[0], d.E[0]);
-        assertEq(E[1], d.E[1]);
         vm.expectRevert(NotQualified.selector);
-        manager.getDealing(cid, 1);
+        manager.getRecoveryDealing(cid, 1);
 
-        (address auth, uint256 pkX, uint256 pkY, bool dealt) = manager.getParticipant(cid, 2);
+        // one call per member: every dealer's E and that member's masked share, zero off QUAL
+        (uint16 qual, uint256[16] memory es, uint256[16] memory ms) = manager.getRecoverySlice(cid, 3);
+        assertEq(qual, 2);
+        for (uint256 j; j < 16; ++j) {
+            assertEq(es[j], j == 1 ? wordE : 0);
+            assertEq(ms[j], j == 1 ? d.masked[2] : 0);
+        }
+        vm.expectRevert(NotQualified.selector);
+        manager.getRecoverySlice(cid, 4); // n = 3
+        vm.expectRevert(NotQualified.selector);
+        manager.getRecoverySlice(cid, 0);
+
+        (address auth, uint256 word, bool dealt) = manager.getParticipantCompressed(cid, 2);
         assertEq(auth, vm.addr(authSecrets[1]));
         (uint256 ex, uint256 ey) = Bjj.mulG(shareSecrets[1]);
-        assertEq(pkX, ex);
-        assertEq(pkY, ey);
+        assertEq(word, _compress(ex, ey));
         assertTrue(dealt);
-        (,,, dealt) = manager.getParticipant(cid, 1);
+        (,, dealt) = manager.getParticipantCompressed(cid, 1);
         assertFalse(dealt);
         assertEq(manager.participantIndexOf(cid, auth), 2);
         assertEq(manager.participantIndexOf(cid, address(0xdead)), 0);
@@ -252,13 +266,14 @@ contract CouncilLifecycleTest is CouncilTestBase {
         vm.expectRevert(UnknownInvite.selector);
         manager.getInvite(cid, 4);
 
-        // roster hash and ctx exactly as protocol §4.3
+        // roster hash and ctx exactly as protocol §4.3, over the full TE keys
         CeremonyView memory v = manager.getCeremony(cid);
         address[] memory auths = new address[](3);
         uint256[] memory xs = new uint256[](3);
         uint256[] memory ys = new uint256[](3);
         for (uint256 i; i < 3; ++i) {
-            (auths[i], xs[i], ys[i],) = manager.getParticipant(cid, uint8(i + 1));
+            (auths[i],,) = manager.getParticipantCompressed(cid, uint8(i + 1));
+            (xs[i], ys[i]) = (memberX[i][0], memberX[i][1]);
         }
         bytes32 roster =
             keccak256(abi.encode(TAG_ROSTER, block.chainid, address(manager), cid, uint8(2), uint8(3), auths, xs, ys));
@@ -269,6 +284,7 @@ contract CouncilLifecycleTest is CouncilTestBase {
     }
 
     function test_Immutables() public view {
+        assertEq(manager.protocolVersion(), 2);
         assertEq(manager.dealVerifier(), address(dealV));
         assertEq(manager.partialVerifier(), address(partialV));
         assertEq(manager.circuitReleaseId(), RELEASE_ID);

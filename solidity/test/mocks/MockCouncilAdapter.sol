@@ -6,8 +6,8 @@ import {ICouncilManager} from "../../src/interfaces/ICouncilManager.sol";
 /// @notice Test double of the DAVINCI CouncilAdapter (architecture §3.1), driven by the test
 ///         contract acting as the ProcessRegistry. Same semantics as the real adapter: the
 ///         registry passes the creator through, the adapter keeps `requestId => processId`,
-///         submits the whole field array in one call and proxies `plaintexts` only for the full
-///         range `first == 0, count == fieldCount`.
+///         submits the whole field array in one call, proxies `plaintexts` only for the full
+///         range `first == 0, count == fieldCount`, and proxies the v2 decryption gate.
 contract MockCouncilAdapter {
     error OnlyRegistry();
     error BadRange();
@@ -53,8 +53,13 @@ contract MockCouncilAdapter {
         view
         returns (bool ready, uint256[] memory values)
     {
-        (bytes12 rcid, uint8 fieldCount,,,) = manager.getRequest(requestId);
+        (bytes12 rcid, uint8 fieldCount,,) = manager.getRequestMeta(requestId);
         if (rcid != cid || first != 0 || count != fieldCount) revert BadRange();
         return manager.getPlaintexts(requestId);
+    }
+
+    /// @notice Manager proxy of the protocol §8.7 gate the registry consults for Council processes.
+    function isDecryptionOpen(bytes12 cid) external view returns (bool) {
+        return manager.isDecryptionOpen(cid);
     }
 }

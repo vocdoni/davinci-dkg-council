@@ -1,0 +1,341 @@
+{
+  "description": "Compressed point encoding (§2.5): encodings, client-side strict decode rejections and the contract's square-root-free authentication of a supplied full point against a stored word (order: (1) x < p and y < p else NonCanonical, (2) TE on curve else InvalidPoint, (3) exact compressed equality else CompressedPointMismatch). The codec validates encodings only: subgroup and non-identity policy belong to the caller",
+  "rule": "compressed(x, y) = x | ((y & 1) << 255); bit 254 reserved zero",
+  "v2OfPMinus1": 28,
+  "points": [
+    {
+      "name": "G",
+      "point": [
+        "5299619240641551281634865583518297030282874472190772894086521144482721001553",
+        "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+      ],
+      "compressed": "0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": false
+    },
+    {
+      "name": "minusG",
+      "point": [
+        "16588623631197723940611540161738978058265489928225261449611683042093087494064",
+        "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+      ],
+      "compressed": "0xa4acd4080af32c8e69a392d5e41ee09bfd7b104774848fdb1b4e019d346a8fb0",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": false
+    },
+    {
+      "name": "identity",
+      "point": [
+        "0",
+        "1"
+      ],
+      "compressed": "0x8000000000000000000000000000000000000000000000000000000000000000",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": true
+    },
+    {
+      "name": "orderTwo",
+      "point": [
+        "0",
+        "21888242871839275222246405745257275088548364400416034343698204186575808495616"
+      ],
+      "compressed": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "onCurve": true,
+      "inPrimeSubgroup": false,
+      "identity": false
+    },
+    {
+      "name": "torsion8",
+      "point": [
+        "17545522957889784193459637215142187266023652151580582754000402781682644312291",
+        "17061719626832259898845741003733890968968767993363194771977168648564009544074"
+      ],
+      "compressed": "0x26ca6a00b96d21a18e9f746b5c616985d006d8f522066be0d6a1e0e5854c60e3",
+      "onCurve": true,
+      "inPrimeSubgroup": false,
+      "identity": false
+    },
+    {
+      "name": "torsionShiftedG",
+      "point": [
+        "16043076292270074255274273135565635508596336298608676187653181471694901099226",
+        "20350718411605902158347195185623743981497105114993900143328031478720886515654"
+      ],
+      "compressed": "0x23780f3497a4b71ee3fe722ca785b7c62341ca68e74660ab426b7689c4523ada",
+      "onCurve": true,
+      "inPrimeSubgroup": false,
+      "identity": false
+    },
+    {
+      "name": "orderFour",
+      "point": [
+        "18930368022820495955728484915491405972470733850014661777449844430438130630919",
+        "0"
+      ],
+      "compressed": "0x29da35670cdb640a2b6e763c0012aba803937ddf46736ee7b8e2b15b9d51c107",
+      "onCurve": true,
+      "inPrimeSubgroup": false,
+      "identity": false
+    },
+    {
+      "name": "orderFourNeg",
+      "point": [
+        "2957874849018779266517920829765869116077630550401372566248359756137677864698",
+        "0"
+      ],
+      "compressed": "0x068a190bd4563c1f8ce1cf7a816eacb524a06a69334601a98aff443852ae3efa",
+      "onCurve": true,
+      "inPrimeSubgroup": false,
+      "identity": false
+    },
+    {
+      "name": "yParityEven(4G)",
+      "point": [
+        "12252886604826192316928789929706397349846234911198931249025449955069330867144",
+        "1286140751908834028607023759717162073146610688084909004843365841635476459484"
+      ],
+      "compressed": "0x1b16e357953d68d73398c838aa883cc65ddae2aef75a4bc437e4232afdbe43c8",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": false
+    },
+    {
+      "name": "yParityOdd(2G)",
+      "point": [
+        "10031262171927540148667355526369034398030886437092045105752248699557385197826",
+        "633281375905621697187330766174974863687049529291089048651929454608812697683"
+      ],
+      "compressed": "0x962d7e417903fa1c82f2d227e35b846b1133cfca4f558b5feb9fdcd5f81dd902",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": false
+    },
+    {
+      "name": "random0",
+      "point": [
+        "2347849057748927258632999812786651564013053939215981976732943094029889862239",
+        "16086655883919422797400584907703748397881275972808796837479265693601673077521"
+      ],
+      "compressed": "0x8530d5e1a8ac5a07d8f318ceb5120fa96163d618aa76a1dc950aa9f4f2507a5f",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": false
+    },
+    {
+      "name": "random1",
+      "point": [
+        "17491687414598185839818553661885119626752254801272524824878173826190645671438",
+        "2843797773233371765588869816815834432071579626673024828836342233765003411398"
+      ],
+      "compressed": "0x26abf1b970f89c7c6210588ef4d989cfbdbefd08fd4308ad2135d406d210360e",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": false
+    },
+    {
+      "name": "random2",
+      "point": [
+        "2077031111592994306054384658416884057967145596541325890877350775737474922566",
+        "5275405366261721622342916545483149681186139450186787259442387615955494848140"
+      ],
+      "compressed": "0x04978ed5be2e9b5957ed1b78308005ccb893da3ec4c577ef89314463d2d8b846",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": false
+    },
+    {
+      "name": "random3",
+      "point": [
+        "15018156008740085404890823440824008000340471635923253978031970312766820849276",
+        "7839463501016147845427013126131387879267116753843478984127871733143470675879"
+      ],
+      "compressed": "0xa133f99e65618dc002e6a2b43e16a2dca2d7da4a1c0d256fddd0232324be167c",
+      "onCurve": true,
+      "inPrimeSubgroup": true,
+      "identity": false
+    }
+  ],
+  "decodeRejections": [
+    {
+      "name": "bit254SetOnG",
+      "word": "0xcbb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "reason": "bit254"
+    },
+    {
+      "name": "allOnes",
+      "word": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "reason": "bit254"
+    },
+    {
+      "name": "xEqualsPParity0",
+      "word": "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",
+      "reason": "xNotCanonical"
+    },
+    {
+      "name": "xEqualsPParity1",
+      "word": "0xb0644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",
+      "reason": "xNotCanonical"
+    },
+    {
+      "name": "xPlusPAliasOfG",
+      "word": "0xbc1bc8ddb77013c506fcf8971ee3d01e52ecc0497eee51476c75e98aab957052",
+      "reason": "xNotCanonical"
+    },
+    {
+      "name": "xMaxBelowBit254",
+      "word": "0x3fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "reason": "xNotCanonical"
+    },
+    {
+      "name": "nonResidue",
+      "word": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "reason": "nonResidue"
+    },
+    {
+      "name": "nonResidueOddParity",
+      "word": "0x8000000000000000000000000000000000000000000000000000000000000001",
+      "reason": "nonResidue"
+    },
+    {
+      "name": "orderFourOddParity",
+      "word": "0xa9da35670cdb640a2b6e763c0012aba803937ddf46736ee7b8e2b15b9d51c107",
+      "reason": "zeroRootOddParity"
+    },
+    {
+      "name": "orderFourNegOddParity",
+      "word": "0x868a190bd4563c1f8ce1cf7a816eacb524a06a69334601a98aff443852ae3efa",
+      "reason": "zeroRootOddParity"
+    }
+  ],
+  "authentication": [
+    {
+      "name": "valid",
+      "stored": "0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "supplied": [
+        "5299619240641551281634865583518297030282874472190772894086521144482721001553",
+        "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+      ],
+      "expect": "ok"
+    },
+    {
+      "name": "sameCompressedOffCurve",
+      "stored": "0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "supplied": [
+        "5299619240641551281634865583518297030282874472190772894086521144482721001553",
+        "16950150798460657717958625567821834550301663161624707787222815936182638968205"
+      ],
+      "expect": "InvalidPoint"
+    },
+    {
+      "name": "xAlias",
+      "stored": "0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "supplied": [
+        "27187862112480826503881271328775572118831238872606807237784725331058529497170",
+        "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+      ],
+      "expect": "NonCanonical"
+    },
+    {
+      "name": "yAlias",
+      "stored": "0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "supplied": [
+        "5299619240641551281634865583518297030282874472190772894086521144482721001553",
+        "38838393670299932940205031313079109638850027562040742130921020122758447463820"
+      ],
+      "expect": "NonCanonical"
+    },
+    {
+      "name": "negated",
+      "stored": "0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "supplied": [
+        "16588623631197723940611540161738978058265489928225261449611683042093087494064",
+        "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+      ],
+      "expect": "CompressedPointMismatch"
+    },
+    {
+      "name": "otherPoint",
+      "stored": "0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "supplied": [
+        "10031262171927540148667355526369034398030886437092045105752248699557385197826",
+        "633281375905621697187330766174974863687049529291089048651929454608812697683"
+      ],
+      "expect": "CompressedPointMismatch"
+    },
+    {
+      "name": "torsionShifted",
+      "stored": "0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "supplied": [
+        "16043076292270074255274273135565635508596336298608676187653181471694901099226",
+        "20350718411605902158347195185623743981497105114993900143328031478720886515654"
+      ],
+      "expect": "CompressedPointMismatch"
+    },
+    {
+      "name": "torsionShiftedValid",
+      "stored": "0x23780f3497a4b71ee3fe722ca785b7c62341ca68e74660ab426b7689c4523ada",
+      "supplied": [
+        "16043076292270074255274273135565635508596336298608676187653181471694901099226",
+        "20350718411605902158347195185623743981497105114993900143328031478720886515654"
+      ],
+      "expect": "ok"
+    },
+    {
+      "name": "identityValid",
+      "stored": "0x8000000000000000000000000000000000000000000000000000000000000000",
+      "supplied": [
+        "0",
+        "1"
+      ],
+      "expect": "ok"
+    },
+    {
+      "name": "orderTwoValid",
+      "stored": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "supplied": [
+        "0",
+        "21888242871839275222246405745257275088548364400416034343698204186575808495616"
+      ],
+      "expect": "ok"
+    },
+    {
+      "name": "identityVsZeroWord",
+      "stored": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "supplied": [
+        "0",
+        "1"
+      ],
+      "expect": "CompressedPointMismatch"
+    },
+    {
+      "name": "orderTwoVsIdentityWord",
+      "stored": "0x8000000000000000000000000000000000000000000000000000000000000000",
+      "supplied": [
+        "0",
+        "21888242871839275222246405745257275088548364400416034343698204186575808495616"
+      ],
+      "expect": "CompressedPointMismatch"
+    },
+    {
+      "name": "zeroZeroOffCurve",
+      "stored": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "supplied": [
+        "0",
+        "0"
+      ],
+      "expect": "InvalidPoint"
+    },
+    {
+      "name": "storedBit254Set",
+      "stored": "0xcbb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051",
+      "supplied": [
+        "5299619240641551281634865583518297030282874472190772894086521144482721001553",
+        "16950150798460657717958625567821834550301663161624707787222815936182638968203"
+      ],
+      "expect": "CompressedPointMismatch"
+    }
+  ]
+}

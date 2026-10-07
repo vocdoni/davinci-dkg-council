@@ -22,11 +22,22 @@ export const TEST_CIRCUIT_RELEASE_ID = P.circuitReleaseIdOf(TEST_DEAL_VKEY_SHA25
 export const participantMnemonic = (i: number): string =>
   entropyToMnemonic(toBytes(keccak256(toBytes(`davinci-dkg-council/v1/test-vector/participant/${i}`))).slice(0, 16), wordlist);
 
+/** protocol §8.1 phase policy fixed at creation (CreateCeremony v2 fields). */
+export type PhasePolicy = {
+  registrationMode: number; // PhaseMode: 0 Manual, 1 Scheduled
+  registrationDeadline: bigint; // Scheduled close time, or Manual expiry (0 = none)
+  dealingDuration: bigint;
+  decryptionMode: number; // PhaseMode
+  decryptionOpenAt: bigint; // Scheduled decryption only, else 0
+  manualDecryptionFallbackAt: bigint; // Manual decryption only, 0 = no fallback
+};
+
 export type ScenarioSpec = {
   name: string;
   nonce: bigint;
   t: number;
   n: number;
+  policy: PhasePolicy;
   initialInvites: number;
   addedInvites: number;
   qual: number[];
@@ -39,6 +50,16 @@ export const SPECS: ScenarioSpec[] = [
     nonce: 1n,
     t: 2,
     n: 3,
+    // Manual registration with an expiry (closed by the organizer before it), Manual decryption
+    // opened by the organizer, with a fallback date
+    policy: {
+      registrationMode: P.PHASE_MODES.Manual,
+      registrationDeadline: REGISTRATION_DEADLINE,
+      dealingDuration: DEALING_DURATION,
+      decryptionMode: P.PHASE_MODES.Manual,
+      decryptionOpenAt: 0n,
+      manualDecryptionFallbackAt: 1901000000n,
+    },
     initialInvites: 3,
     addedInvites: 2,
     qual: [1, 3], // member 2 never deals but still recovers its share
@@ -49,6 +70,15 @@ export const SPECS: ScenarioSpec[] = [
     nonce: 2n,
     t: 16,
     n: 16,
+    // Scheduled registration (closed permissionlessly at the deadline), Scheduled decryption
+    policy: {
+      registrationMode: P.PHASE_MODES.Scheduled,
+      registrationDeadline: REGISTRATION_DEADLINE,
+      dealingDuration: DEALING_DURATION,
+      decryptionMode: P.PHASE_MODES.Scheduled,
+      decryptionOpenAt: 1900100000n,
+      manualDecryptionFallbackAt: 0n,
+    },
     initialInvites: 16,
     addedInvites: 0,
     qual: Array.from({ length: 16 }, (_, i) => i + 1),

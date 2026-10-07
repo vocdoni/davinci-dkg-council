@@ -7,35 +7,40 @@ import {CouncilCurve} from "./libraries/CouncilCurve.sol";
 import {CouncilEIP712} from "./libraries/CouncilEIP712.sol";
 import {CouncilStorage} from "./CouncilStorage.sol";
 import {CouncilViews} from "./CouncilViews.sol";
-import {ICouncilCore} from "./interfaces/ICouncil.sol";
+import {CouncilOps} from "./CouncilOps.sol";
+import {ICouncilCore, ICouncilOps} from "./interfaces/ICouncil.sol";
 import {IDealVerifier, IPartialVerifier} from "./interfaces/ICouncilVerifiers.sol";
 
 /// @title CouncilManager
-/// @notice Invite-only threshold DKG for DAVINCI (docs/protocol.md, normative). No owner,
+/// @notice Invite-only threshold DKG for DAVINCI (docs/protocol.md v2, normative). No owner,
 ///         no upgradability, no pausability: each ceremony's organizer acts on its own ceremony
-///         through EIP-712 signed actions; finalize, abort and combine are permissionless; process
-///         binding and decryption requests come from organizer-allowed adapters.
+///         through EIP-712 signed actions; the scheduled close, finalize, abort, combine and partial
+///         re-publication are permissionless; process binding and decryption requests come from
+///         organizer-allowed adapters.
 ///
 ///         Points are circomlib twisted Edwards (TE) everywhere outside the curve arithmetic,
-///         which runs in BabyJubJub.sol's reduced chart (protocol §2.2).
+///         which runs in BabyJubJub.sol's reduced chart (protocol §2.2). Immutable points are
+///         stored compressed (protocol §2.5): whenever one is needed in full, the caller supplies
+///         it and `CouncilCurve.authenticate` admits exactly the stored point.
 ///
-///         EIP-170 split (architecture §1.7): the read surface lives in CouncilViews, created by
-///         this constructor and reached through the delegatecall fallback below on this
-///         contract's storage (both inherit the one CouncilStorage layout). Every function of
+///         EIP-170 split (architecture §1.7): the read surface lives in CouncilViews and the
+///         rarely-used transitions (addInvites, both closes, openDecryption, the grant pair, abort,
+///         partial re-publication) in CouncilOps, both created by this constructor and reached through the delegatecall fallback below on this
+///         contract's storage (all three inherit the one CouncilStorage layout). Every function of
 ///         ICouncil, and so of the adapter-facing ICouncilManager, is served at this address.
 contract CouncilManager is CouncilStorage, ICouncilCore {
     // ─── Protocol constants (protocol §2) ─────────────────────────────────────────────────────
 
     uint256 internal constant MAX_COMBINE_FIELDS = 4;
-    uint256 internal constant MAX_INVITES = 64;
     uint256 internal constant MIN_DEALING_DURATION = 600;
+    /// @dev 365 days. Bounds every dealing window, so the organizer's close
+    ///      (`now + dealingDuration`) cannot overflow uint64 and every Dealing phase times out.
+    uint256 internal constant MAX_DEALING_DURATION = 31_536_000;
     uint256 internal constant RESULT_BOUND = 1 << 40;
     /// @dev floor(2^256 / r)·r = 42·r: HashToScalar rejection limit (protocol §3.1).
     uint256 internal constant LIMIT_R = 114913275077156194916793630162600694215226186830659824886409057759834789667722;
 
     bytes32 internal constant TAG_CEREMONY = keccak256("davinci-dkg-council/v1/ceremony");
-    bytes32 internal constant TAG_ROSTER = keccak256("davinci-dkg-council/v1/roster");
-    bytes32 internal constant TAG_DEAL_CONTEXT = keccak256("davinci-dkg-council/v1/deal-context");
     bytes32 internal constant TAG_DEAL_PAYLOAD = keccak256("davinci-dkg-council/v1/deal-payload");
     bytes32 internal constant TAG_JOIN_POP = keccak256("davinci-dkg-council/v1/join-pop");
     bytes32 internal constant TAG_REQUEST = keccak256("davinci-dkg-council/v1/request");
@@ -54,6 +59,9 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
     bytes32 public immutable circuitReleaseId;
     /// @notice CouncilViews instance created here; the fallback delegatecalls it.
     address public immutable views;
+    /// @dev CouncilOps instance created here (the manager's second CREATE, nonce 2); the fallback
+    ///      delegatecalls it for exactly the ICouncilOps selectors.
+    address internal immutable ops;
 
     constructor(address dealVerifier_, address partialVerifier_, bytes32 circuitReleaseId_) {
         if (dealVerifier_ == address(0) || partialVerifier_ == address(0)) revert ZeroAddress();
@@ -61,13 +69,22 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         partialVerifier = partialVerifier_;
         circuitReleaseId = circuitReleaseId_;
         views = address(new CouncilViews());
+        ops = address(new CouncilOps(circuitReleaseId_));
     }
 
-    /// @notice Serves the ICouncilViews selectors: delegatecall into the immutable, constructor-
-    ///         created CouncilViews (view-only code) on this contract's storage. Unknown selectors
-    ///         revert there; plain value transfers revert here (non-payable).
+    /// @notice Serves the ICouncilOps and ICouncilViews selectors through a delegatecall on this
+    ///         contract's storage, into one of the two immutable, constructor-created logic
+    ///         contracts. The eight ICouncilOps selectors are whitelisted to CouncilOps; every
+    ///         other selector goes to CouncilViews, which is view-only code and reverts on unknown
+    ///         selectors. Plain value transfers revert here (non-payable).
     fallback() external {
-        address target = views;
+        bytes4 sel = msg.sig;
+        address target = sel == ICouncilOps.abort.selector || sel == ICouncilOps.allowAdapter.selector
+            || sel == ICouncilOps.authorizeCreator.selector || sel == ICouncilOps.publishPartialData.selector
+            || sel == ICouncilOps.openDecryption.selector || sel == ICouncilOps.addInvites.selector
+            || sel == ICouncilOps.closeRegistration.selector || sel == ICouncilOps.closeRegistrationScheduled.selector
+            ? ops
+            : views;
         assembly ("memory-safe") {
             let ptr := mload(0x40)
             calldatacopy(ptr, 0, calldatasize())
@@ -80,7 +97,8 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
 
     // ─── Lifecycle ────────────────────────────────────────────────────────────────────────────
 
-    /// @notice protocol §8.1. Claims `ceremonyIdFor(organizer, nonce)`.
+    /// @notice protocol §8.1. Claims `ceremonyIdFor(organizer, nonce)` and fixes the immutable
+    ///         registration and decryption policies.
     function createCeremony(CreateCeremony calldata a, bytes calldata orgSig) external returns (bytes12 cid) {
         if (block.timestamp > a.validUntil) revert Expired();
         if (a.organizer == address(0)) revert ZeroAddress();
@@ -89,32 +107,30 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         Ceremony storage c = _ceremonies[cid];
         if (cid == bytes12(0) || c.phase != Phase.None) revert CeremonyExists();
         if (a.threshold == 0 || a.threshold > MAX_T) revert BadThreshold();
-        if (a.registrationDeadline <= block.timestamp) revert Expired();
-        // close happens no later than registrationDeadline, so this bounds every dealing deadline.
-        if (
-            a.dealingDuration < MIN_DEALING_DURATION
-                || uint256(a.registrationDeadline) + a.dealingDuration > type(uint64).max
-        ) revert BadDuration();
+        if (a.dealingDuration < MIN_DEALING_DURATION || a.dealingDuration > MAX_DEALING_DURATION) revert BadDuration();
+        _requireSchedule(a);
 
         c.phase = Phase.Registration;
         c.organizer = a.organizer;
         c.t = a.threshold;
+        c.registrationMode = a.registrationMode;
+        c.decryptionMode = a.decryptionMode;
         c.registrationDeadline = a.registrationDeadline;
         c.dealingDuration = a.dealingDuration;
+        c.decryptionOpenAt = a.decryptionOpenAt;
+        c.manualDecryptionFallbackAt = a.manualDecryptionFallbackAt;
         _appendInvites(c, a.inviteKeys);
-        emit CeremonyCreated(cid, a.organizer, a.threshold, a.registrationDeadline, a.dealingDuration);
-    }
-
-    /// @notice protocol §6: append invite capability addresses (Registration only).
-    function addInvites(AddInvites calldata a, bytes calldata orgSig) external {
-        Ceremony storage c = _existing(a.ceremonyId);
-        if (block.timestamp > a.validUntil) revert Expired();
-        CouncilEIP712.verify(CouncilEIP712.hashAddInvites(a), orgSig, c.organizer);
-        if (c.phase != Phase.Registration) revert WrongPhase();
-        if (block.timestamp > c.registrationDeadline) revert Expired();
-        if (a.firstInviteId != c.inviteCount) revert BadInviteIndex();
-        _appendInvites(c, a.inviteKeys);
-        emit InvitesAdded(a.ceremonyId, a.firstInviteId, uint32(a.inviteKeys.length));
+        emit CeremonyCreated(
+            cid,
+            a.organizer,
+            a.threshold,
+            a.registrationMode,
+            a.registrationDeadline,
+            a.dealingDuration,
+            a.decryptionMode,
+            a.decryptionOpenAt,
+            a.manualDecryptionFallbackAt
+        );
     }
 
     /// @notice protocol §8.2. `participantSig` signs `a` (Join) with the participant's
@@ -123,11 +139,8 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         external
     {
         Ceremony storage c = _existing(a.ceremonyId);
-        if (c.phase != Phase.Registration) revert WrongPhase();
-        if (
-            block.timestamp > c.registrationDeadline || block.timestamp > a.validUntil
-                || block.timestamp > inv.validUntil
-        ) revert Expired();
+        _requireJoining(c);
+        if (block.timestamp > a.validUntil || block.timestamp > inv.validUntil) revert Expired();
         uint256 index = uint256(c.joinedCount) + 1;
         if (index > MAX_N) revert RosterFull();
         if (
@@ -143,57 +156,25 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         if (c.authIndex[a.participant] != 0) revert DuplicateParticipant();
 
         uint256 pkxRed = CouncilCurve.requireSubgroupTE(a.pkX, a.pkY);
-        bytes32 keyId = keccak256(abi.encode(a.pkX, a.pkY));
-        if (c.keyUsed[keyId]) revert DuplicateKey();
+        // injective on canonical on-curve points: equal words <=> equal keys (protocol §8.2)
+        uint256 word = CouncilCurve.compress(a.pkX, a.pkY);
+        if (c.keyUsed[word]) revert DuplicateKey();
         _verifyPoP(a, pkxRed);
 
         c.joinedCount = uint8(index);
         c.consumedInvites |= uint64(1 << inviteId);
         Participant storage p = c.participants[index - 1];
         p.auth = a.participant;
-        p.pkX = a.pkX;
-        p.pkY = a.pkY;
+        p.compressedX = word;
         c.authIndex[a.participant] = uint8(index);
-        c.keyUsed[keyId] = true;
-        emit ParticipantJoined(a.ceremonyId, uint8(index), a.participant, a.inviteId);
+        c.keyUsed[word] = true;
+        emit ParticipantJoined(a.ceremonyId, uint8(index), a.participant, uint8(inviteId));
     }
 
-    /// @notice protocol §8.3: freeze the roster, compute rosterHash and ctx, open dealing.
-    function closeRegistration(CloseRegistration calldata a, bytes calldata orgSig) external {
-        Ceremony storage c = _existing(a.ceremonyId);
-        if (block.timestamp > a.validUntil) revert Expired();
-        CouncilEIP712.verify(CouncilEIP712.hashCloseRegistration(a), orgSig, c.organizer);
-        if (c.phase != Phase.Registration) revert WrongPhase();
-        if (block.timestamp > c.registrationDeadline) revert Expired();
-        uint8 n = c.joinedCount;
-        if (a.participantCount != n) revert RosterMismatch();
-        if (n < c.t) revert BelowThreshold();
-
-        address[] memory auths = new address[](n);
-        uint256[] memory pkxs = new uint256[](n);
-        uint256[] memory pkys = new uint256[](n);
-        for (uint256 i; i < n; ++i) {
-            Participant storage p = c.participants[i];
-            auths[i] = p.auth;
-            pkxs[i] = p.pkX;
-            pkys[i] = p.pkY;
-        }
-        bytes32 rosterHash =
-            keccak256(abi.encode(TAG_ROSTER, block.chainid, address(this), a.ceremonyId, c.t, n, auths, pkxs, pkys));
-        bytes32 ctx = keccak256(
-            abi.encode(TAG_DEAL_CONTEXT, block.chainid, address(this), a.ceremonyId, rosterHash, circuitReleaseId)
-        );
-        uint64 dealingDeadline = uint64(block.timestamp) + c.dealingDuration;
-        c.n = n;
-        c.rosterHash = rosterHash;
-        c.ctx = ctx;
-        c.dealingDeadline = dealingDeadline;
-        c.phase = Phase.Dealing;
-        emit RegistrationClosed(a.ceremonyId, n, rosterHash, dealingDeadline);
-    }
-
-    /// @notice protocol §8.3: one proven Feldman dealing per member. The contract builds the 87
-    ///         public inputs itself (protocol §8.5) and stores the full dealing on success.
+    /// @notice protocol §8.3: one proven Feldman dealing per member. The contract authenticates
+    ///         the re-supplied roster, builds the 87 public inputs itself (protocol §8.5) and, on
+    ///         success, folds the commitments into the aggregates and stores compressed(E) and the
+    ///         masked shares. Atomic: any failure changes nothing.
     function deal(
         Deal calldata a,
         bytes calldata sig,
@@ -202,7 +183,8 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         uint256[16] calldata maskedShares,
         uint256[2] calldata pA,
         uint256[2][2] calldata pB,
-        uint256[2] calldata pC
+        uint256[2] calldata pC,
+        uint256[2][] calldata rosterKeys
     ) external {
         Ceremony storage c = _existing(a.ceremonyId);
         if (c.phase != Phase.Dealing) revert WrongPhase();
@@ -227,6 +209,7 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
             revert PayloadMismatch();
         }
 
+        if (rosterKeys.length != n) revert RosterMismatch();
         uint256[87] memory pub;
         pub[0] = uint256(ctx) >> 128;
         pub[1] = uint256(ctx) & type(uint128).max;
@@ -241,9 +224,11 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         pub[38] = E[1];
         for (uint256 i; i < MAX_N; ++i) {
             if (i < n) {
-                Participant storage p = c.participants[i];
-                pub[39 + 2 * i] = p.pkX;
-                pub[40 + 2 * i] = p.pkY;
+                uint256 x = rosterKeys[i][0];
+                uint256 y = rosterKeys[i][1];
+                CouncilCurve.authenticate(x, y, c.participants[i].compressedX);
+                pub[39 + 2 * i] = x;
+                pub[40 + 2 * i] = y;
             } else {
                 pub[39 + 2 * i] = CouncilCurve.GX_TE;
                 pub[40 + 2 * i] = CouncilCurve.GY;
@@ -252,111 +237,33 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         }
         if (!IDealVerifier(dealVerifier).verifyProof(pA, pB, pC, pub)) revert ProofInvalid();
 
-        Dealing storage d = c.dealings[j - 1];
-        for (uint256 k; k < t; ++k) {
-            d.C[k][0] = C[k][0];
-            d.C[k][1] = C[k][1];
-        }
-        d.E[0] = E[0];
-        d.E[1] = E[1];
+        _fold(c, C, t);
+        RecoveryRecord storage rec = c.recovery[j - 1];
+        rec.compressedE = CouncilCurve.compress(E[0], E[1]);
         for (uint256 i; i < n; ++i) {
-            d.masked[i] = maskedShares[i];
+            rec.masked[i] = maskedShares[i];
         }
         c.qualBitmap |= bit;
         ++c.dealtCount;
         emit DealingAccepted(a.ceremonyId, uint8(j));
     }
 
-    /// @notice protocol §8.4 (permissionless): aggregate QUAL's commitments, store P, A_k, PK_m.
+    /// @notice protocol §8.4 (permissionless): the aggregates are already maintained at deal time,
+    ///         so finalize only checks `P = A_0 != O` and flips the phase; nothing is written but it.
     function finalize(bytes12 cid) external {
         Ceremony storage c = _existing(cid);
         if (c.phase != Phase.Dealing) revert WrongPhase();
-        uint256 n = c.n;
-        uint256 t = c.t;
         uint256 dealt = c.dealtCount;
-        if (dealt != n && (block.timestamp <= c.dealingDeadline || dealt < t)) revert FinalizeConditionNotMet();
-        uint256 qual = c.qualBitmap;
-
-        // A_k = Σ_{j in QUAL} C_{j,k} (points 0..t-1) and PK_m = Σ_k m^k·A_k (points t..t+n-1),
-        // reduced chart, in extended coordinates; one inversion converts all of them to affine.
-        uint256 count = t + n;
-        uint256 pts = CouncilCurve.alloc(count);
-        for (uint256 k; k < t; ++k) {
-            uint256 a = CouncilCurve.at(pts, k);
-            for (uint256 j; j < n; ++j) {
-                if ((qual >> j) & 1 == 0) continue;
-                uint256[2] storage ck = c.dealings[j].C[k];
-                CouncilCurve.addAffine(a, CouncilCurve.toReduced(ck[0]), ck[1]);
-            }
-        }
-        if (CouncilCurve.isIdentity(pts)) {
+        if (dealt != c.n && (block.timestamp <= c.dealingDeadline || dealt < c.t)) revert FinalizeConditionNotMet();
+        (uint256 px, uint256 py) = _aggregate(c, 0);
+        if (px == 0 && py == 1) {
             // P = O: defense in depth (protocol §8.4).
             c.phase = Phase.Aborted;
             emit CeremonyAborted(cid, uint8(Phase.Dealing));
             return;
         }
-        for (uint256 m = 1; m <= n; ++m) {
-            CouncilCurve.hornerExt(pts, t, m, CouncilCurve.at(pts, t + m - 1), count);
-        }
-        CouncilCurve.normalize(pts, count, count, pts);
-        for (uint256 k; k < t; ++k) {
-            (uint256 x, uint256 y) = CouncilCurve.affineAt(pts, k);
-            c.aggregates[k][0] = CouncilCurve.toTE(x);
-            c.aggregates[k][1] = y;
-        }
-        for (uint256 m = 1; m <= n; ++m) {
-            (uint256 x, uint256 y) = CouncilCurve.affineAt(pts, t + m - 1);
-            c.memberKeys[m - 1][0] = CouncilCurve.toTE(x);
-            c.memberKeys[m - 1][1] = y;
-        }
-        (, uint256 py) = CouncilCurve.affineAt(pts, 0);
         c.phase = Phase.Live;
-        emit CeremonyFinalized(cid, uint16(qual), c.aggregates[0][0], py);
-    }
-
-    /// @notice protocol §8.4 (permissionless): abort a ceremony that can no longer go Live.
-    function abort(bytes12 cid) external {
-        Ceremony storage c = _existing(cid);
-        Phase phase = c.phase;
-        if (phase == Phase.Registration) {
-            if (block.timestamp <= c.registrationDeadline) revert AbortConditionNotMet();
-        } else if (phase == Phase.Dealing) {
-            if (block.timestamp <= c.dealingDeadline || c.dealtCount >= c.t) revert AbortConditionNotMet();
-        } else {
-            revert WrongPhase();
-        }
-        c.phase = Phase.Aborted;
-        emit CeremonyAborted(cid, uint8(phase));
-    }
-
-    // ─── Authorization (protocol §9.1) ────────────────────────────────────────────────────────
-
-    function allowAdapter(AllowAdapter calldata a, bytes calldata orgSig) external {
-        _addToList(a.ceremonyId, a.validUntil, CouncilEIP712.hashAllowAdapter(a), orgSig, a.adapter, false);
-        emit AdapterAllowed(a.ceremonyId, a.adapter);
-    }
-
-    function authorizeCreator(AuthorizeCreator calldata a, bytes calldata orgSig) external {
-        _addToList(a.ceremonyId, a.validUntil, CouncilEIP712.hashAuthorizeCreator(a), orgSig, a.creator, true);
-        emit CreatorAuthorized(a.ceremonyId, a.creator);
-    }
-
-    /// @dev Organizer-signed, add-only, one-shot insertion into the adapter or creator set.
-    function _addToList(
-        bytes12 cid,
-        uint64 validUntil,
-        bytes32 structHash,
-        bytes calldata orgSig,
-        address who,
-        bool creatorSet
-    ) internal {
-        Ceremony storage c = _existing(cid);
-        if (block.timestamp > validUntil) revert Expired();
-        CouncilEIP712.verify(structHash, orgSig, c.organizer);
-        if (who == address(0)) revert ZeroAddress();
-        mapping(address => bool) storage set = creatorSet ? c.authorizedCreators : c.allowedAdapters;
-        if (set[who]) revert AlreadyListed();
-        set[who] = true;
+        emit CeremonyFinalized(cid, c.qualBitmap, px, py);
     }
 
     // ─── Decryption (protocol §§9–10) ─────────────────────────────────────────────────────────
@@ -379,11 +286,12 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         r.processId = processId;
         r.creator = creator;
         c.requestIds.push(requestId);
-        pkX = c.aggregates[0][0];
-        pkY = c.aggregates[0][1];
+        (pkX, pkY) = _aggregate(c, 0);
         emit ProcessBound(cid, msg.sender, processId, requestId, creator);
     }
 
+    /// @notice protocol §9.2: admitted independently of the decryption gate; every C1/C2 is
+    ///         subgroup-checked here, once, and stored compressed.
     function submitRequest(bytes12 cid, bytes31 processId, uint256[4][] calldata cts)
         external
         returns (bytes32 requestId)
@@ -401,20 +309,24 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
             uint256[4] calldata ct = cts[k];
             CouncilCurve.requireSubgroupTE(ct[0], ct[1]);
             CouncilCurve.requireSubgroupTE(ct[2], ct[3]);
-            r.cts[k] = ct;
+            r.compressedCts[2 * k] = CouncilCurve.compress(ct[0], ct[1]);
+            r.compressedCts[2 * k + 1] = CouncilCurve.compress(ct[2], ct[3]);
         }
         r.fieldCount = uint8(count);
         emit RequestSubmitted(requestId, cid, uint8(count));
     }
 
-    /// @notice protocol §10.2. The contract builds the 67 public inputs itself.
+    /// @notice protocol §10.2. `C1` re-supplies the request's active ciphertext bases in full TE
+    ///         (authenticated against the stored words); `PK_i` is derived from the aggregates.
+    ///         The contract builds the 67 public inputs itself and commits to `D` by hash.
     function submitPartial(
         Partial calldata a,
         bytes calldata sig,
         uint256[2][16] calldata D,
         uint256[2] calldata pA,
         uint256[2][2] calldata pB,
-        uint256[2] calldata pC
+        uint256[2] calldata pC,
+        uint256[2][] calldata C1
     ) external {
         Ceremony storage c = _existing(a.ceremonyId);
         Request storage r = _requests[a.requestId];
@@ -422,6 +334,7 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         // A request id from another ceremony is unknown here: the partial is rejected before it
         // can touch the victim request's state.
         if (count == 0 || r.cid != a.ceremonyId) revert UnknownRequest();
+        if (!_decryptionOpen(c)) revert DecryptionNotOpen();
         if (block.timestamp > a.validUntil) revert Expired();
         uint256 i = a.participantIndex;
         if (i == 0 || i > c.n) revert NotQualified();
@@ -436,15 +349,18 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         if (keccak256(abi.encode(TAG_PARTIAL_PAYLOAD, a.requestId, D, pA, pB, pC)) != a.payloadHash) {
             revert PayloadMismatch();
         }
+        if (C1.length != count) revert BadFieldCount();
 
         uint256[67] memory pub;
-        pub[0] = c.memberKeys[i - 1][0];
-        pub[1] = c.memberKeys[i - 1][1];
+        (pub[0], pub[1]) = _memberKey(c, i);
         pub[2] = count;
         for (uint256 k; k < MAX_FIELDS; ++k) {
             if (k < count) {
-                pub[3 + 2 * k] = r.cts[k][0];
-                pub[4 + 2 * k] = r.cts[k][1];
+                uint256 x = C1[k][0];
+                uint256 y = C1[k][1];
+                CouncilCurve.authenticate(x, y, r.compressedCts[2 * k]);
+                pub[3 + 2 * k] = x;
+                pub[4 + 2 * k] = y;
             } else {
                 pub[3 + 2 * k] = CouncilCurve.GX_TE;
                 pub[4 + 2 * k] = CouncilCurve.GY;
@@ -454,30 +370,54 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
         }
         if (!IPartialVerifier(partialVerifier).verifyProof(pA, pB, pC, pub)) revert ProofInvalid();
 
-        uint256[2][16] storage stored = r.partials[i];
-        for (uint256 k; k < count; ++k) {
-            stored[k][0] = D[k][0];
-            stored[k][1] = D[k][1];
-        }
+        bytes32 dataHash = _partialDataHash(a.ceremonyId, a.requestId, i, count, D);
+        r.partialDataHashes[i - 1] = dataHash;
         r.partialBitmap |= bit;
+        _published(r, i);
         emit PartialAccepted(a.requestId, uint8(i));
+        emit PartialDataPublished(a.requestId, uint8(i), dataHash, D);
     }
 
-    /// @notice protocol §10.3 (permissionless): verify `m_k·G + Σ λ_i·D_{i,k} == C2_k` exactly for
-    ///         1..4 fields with on-chain Lagrange coefficients, then store the plaintexts.
+    /// @notice protocol §10.3 (permissionless): `partialVectors` re-supplies the `t` padded D
+    ///         vectors of `memberSet` (hash-checked against the stored commitments) and `C2` one
+    ///         full point per field index (authenticated); then `m_k·G + Σ λ_i·D_{i,k} == C2_k`
+    ///         is checked exactly for 1..4 fields with on-chain Lagrange coefficients.
     function combine(
         bytes32 requestId,
         uint8[] calldata memberSet,
         uint8[] calldata fieldIndexes,
-        uint64[] calldata plaintexts
+        uint64[] calldata plaintexts,
+        uint256[2][16][] calldata partialVectors,
+        uint256[2][] calldata C2
     ) external {
-        Request storage r = _requests[requestId];
-        uint256 count = r.fieldCount;
-        if (count == 0) revert UnknownRequest();
+        // Steps, so that no frame holds every calldata array at once (stack depth). The field
+        // indexes and plaintexts are copied first: they are tiny once checked, and their memory
+        // copies are what the event logs.
+        uint8[] memory fields = fieldIndexes;
+        uint64[] memory values = plaintexts;
+        Request storage r = _combineMembers(requestId, memberSet);
+        uint256 done = _combineFieldChecks(r, fields, values);
+        _combineVectors(r, requestId, memberSet, partialVectors);
+        uint256[2][] memory c2 = _combineC2(r, fields, C2);
+        // validation complete; curve arithmetic from here on
+        uint256[] memory lam = CouncilCurve.lagrange(memberSet);
+        uint256[2][] memory sums = _lagrangeSums(lam, partialVectors, fields);
+        done = _combineStore(r, fields, values, sums, c2, done);
+        r.completedBitmap = uint16(done);
+        emit FieldsCombined(requestId, fields, values);
+        if (done == (1 << r.fieldCount) - 1) emit RequestCompleted(requestId);
+    }
+
+    /// @dev combine step 1 (protocol §10.3 items 1–2): the request exists, its gate is open, and
+    ///      `memberSet` is exactly `t` strictly increasing indexes in 1..n with accepted partials.
+    function _combineMembers(bytes32 requestId, uint8[] calldata memberSet) internal view returns (Request storage r) {
+        r = _requests[requestId];
+        if (r.fieldCount == 0) revert UnknownRequest();
         Ceremony storage c = _ceremonies[r.cid];
+        if (!_decryptionOpen(c)) revert DecryptionNotOpen();
         uint256 t = c.t;
-        uint256 n = c.n;
         if (memberSet.length != t) revert BadMemberSet();
+        uint256 n = c.n;
         uint256 partials = r.partialBitmap;
         uint256 prev;
         for (uint256 i; i < t; ++i) {
@@ -486,33 +426,104 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
             if ((partials >> (m - 1)) & 1 == 0) revert MissingPartial();
             prev = m;
         }
+    }
+
+    /// @dev combine step 2 (item 2): 1..4 strictly increasing, uncompleted field indexes below
+    ///      fieldCount, one plaintext each, every plaintext below 2^40. Returns the completion bitmap.
+    function _combineFieldChecks(Request storage r, uint8[] memory fieldIndexes, uint64[] memory plaintexts)
+        internal
+        view
+        returns (uint256 done)
+    {
         uint256 nf = fieldIndexes.length;
         if (nf == 0 || nf > MAX_COMBINE_FIELDS || plaintexts.length != nf) revert BadFieldIndexes();
-        uint256 done = r.completedBitmap;
+        uint256 count = r.fieldCount;
+        done = r.completedBitmap;
         for (uint256 f; f < nf; ++f) {
             uint256 k = fieldIndexes[f];
             if ((f > 0 && k <= fieldIndexes[f - 1]) || k >= count) revert BadFieldIndexes();
             if ((done >> k) & 1 != 0) revert FieldCompleted();
             if (plaintexts[f] >= RESULT_BOUND) revert PlaintextTooLarge();
         }
+    }
 
-        uint256[] memory lam = CouncilCurve.lagrange(memberSet);
+    /// @dev combine step 3 (item 3): one full padded D vector per selected member, each hashing to
+    ///      that member's stored partialDataHash (never a field slice).
+    function _combineVectors(
+        Request storage r,
+        bytes32 requestId,
+        uint8[] calldata memberSet,
+        uint256[2][16][] calldata partialVectors
+    ) internal view {
+        uint256 t = memberSet.length;
+        if (partialVectors.length != t) revert BadMemberSet();
+        bytes12 cid = r.cid;
+        uint256 count = r.fieldCount;
+        for (uint256 i; i < t; ++i) {
+            uint256 m = memberSet[i];
+            if (_partialDataHash(cid, requestId, m, count, partialVectors[i]) != r.partialDataHashes[m - 1]) {
+                revert PartialDataMismatch();
+            }
+        }
+    }
+
+    /// @dev combine step 4 (item 4): one full C2 point per field index, authenticated against the
+    ///      stored compressed word. Returns them with reduced-chart x.
+    function _combineC2(Request storage r, uint8[] memory fieldIndexes, uint256[2][] calldata C2)
+        internal
+        view
+        returns (uint256[2][] memory c2)
+    {
+        uint256 nf = fieldIndexes.length;
+        if (C2.length != nf) revert BadFieldIndexes();
+        c2 = new uint256[2][](nf);
+        for (uint256 f; f < nf; ++f) {
+            uint256 y = C2[f][1];
+            c2[f][0] = CouncilCurve.authenticate(C2[f][0], y, r.compressedCts[2 * fieldIndexes[f] + 1]);
+            c2[f][1] = y;
+        }
+    }
+
+    /// @dev Σ_{i in S} λ_i·D_{i,k} (reduced chart) for every field index of the chunk.
+    function _lagrangeSums(uint256[] memory lam, uint256[2][16][] calldata partialVectors, uint8[] memory fieldIndexes)
+        internal
+        view
+        returns (uint256[2][] memory sums)
+    {
+        uint256 nf = fieldIndexes.length;
+        sums = new uint256[2][](nf);
         for (uint256 f; f < nf; ++f) {
             uint256 k = fieldIndexes[f];
-            (uint256 x, uint256 y) = CouncilCurve.mul(plaintexts[f], CouncilCurve.GX_RED, CouncilCurve.GY);
-            for (uint256 i; i < t; ++i) {
-                uint256[2] storage d = r.partials[memberSet[i]][k];
+            uint256 x = 0;
+            uint256 y = 1;
+            for (uint256 i; i < lam.length; ++i) {
+                uint256[2] calldata d = partialVectors[i][k];
                 (uint256 dx, uint256 dy) = CouncilCurve.mul(lam[i], CouncilCurve.toReduced(d[0]), d[1]);
                 (x, y) = CouncilCurve.add(x, y, dx, dy);
             }
-            uint256[4] storage ct = r.cts[k];
-            if (x != CouncilCurve.toReduced(ct[2]) || y != ct[3]) revert CombineCheckFailed();
-            r.plaintexts[k] = plaintexts[f];
+            sums[f] = [x, y];
+        }
+    }
+
+    /// @dev The exact per-field check `m_k·G + Σ λ_i·D_{i,k} == C2_k`; stores each plaintext in
+    ///      its uint40 lane and returns the updated completion bitmap.
+    function _combineStore(
+        Request storage r,
+        uint8[] memory fieldIndexes,
+        uint64[] memory plaintexts,
+        uint256[2][] memory sums,
+        uint256[2][] memory c2,
+        uint256 done
+    ) internal returns (uint256) {
+        for (uint256 f; f < fieldIndexes.length; ++f) {
+            (uint256 x, uint256 y) = CouncilCurve.mul(plaintexts[f], CouncilCurve.GX_RED, CouncilCurve.GY);
+            (x, y) = CouncilCurve.add(x, y, sums[f][0], sums[f][1]);
+            if (x != c2[f][0] || y != c2[f][1]) revert CombineCheckFailed();
+            uint256 k = fieldIndexes[f];
+            r.plaintexts[k] = uint40(plaintexts[f]);
             done |= 1 << k;
         }
-        r.completedBitmap = uint16(done);
-        emit FieldsCombined(requestId, fieldIndexes, plaintexts);
-        if (done == (1 << count) - 1) emit RequestCompleted(requestId);
+        return done;
     }
 
     // ─── Identifiers ──────────────────────────────────────────────────────────────────────────
@@ -523,6 +534,54 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────────────────────
+
+    /// @dev protocol §8.1 phase-policy validation; every failure is `BadSchedule()`. The sum
+    ///      `registrationDeadline + dealingDuration` must fit uint64 whenever a deadline exists.
+    function _requireSchedule(CreateCeremony calldata a) internal view {
+        uint256 regMode = a.registrationMode;
+        uint256 decMode = a.decryptionMode;
+        if (regMode > MODE_SCHEDULED || decMode > MODE_SCHEDULED) revert BadSchedule();
+        uint256 deadline = a.registrationDeadline;
+        uint256 windowEnd = deadline + a.dealingDuration;
+        if (regMode == MODE_SCHEDULED || deadline != 0) {
+            if (deadline <= block.timestamp || windowEnd > type(uint64).max) revert BadSchedule();
+        }
+        uint256 openAt = a.decryptionOpenAt;
+        uint256 fallbackAt = a.manualDecryptionFallbackAt;
+        if (decMode == MODE_SCHEDULED) {
+            if (openAt <= block.timestamp || fallbackAt != 0) revert BadSchedule();
+        } else if (openAt != 0 || (fallbackAt != 0 && fallbackAt <= block.timestamp)) {
+            revert BadSchedule();
+        }
+        // a Scheduled registration's decryption date (open date or nonzero fallback) lies past
+        // the scheduled dealing window
+        uint256 date = decMode == MODE_SCHEDULED ? openAt : fallbackAt;
+        if (regMode == MODE_SCHEDULED && date != 0 && date <= windowEnd) revert BadSchedule();
+    }
+
+    /// @dev protocol §8.3 incremental aggregation `A_k <- A_k + C_{j,k}` for k < t, stored biased
+    ///      `(x + 1, y + 1)`. The first accepted dealing copies its verified commitments; later
+    ///      ones add in extended coordinates (complete formulas) with one batch inversion.
+    function _fold(Ceremony storage c, uint256[2][16] calldata C, uint256 t) internal {
+        if (c.dealtCount == 0) {
+            for (uint256 k; k < t; ++k) {
+                c.aggregatesBiased[k] = [C[k][0] + 1, C[k][1] + 1];
+            }
+            return;
+        }
+        uint256 pts = CouncilCurve.alloc(t);
+        for (uint256 k; k < t; ++k) {
+            (uint256 ax, uint256 ay) = _aggregate(c, k);
+            uint256 q = CouncilCurve.at(pts, k);
+            CouncilCurve.setAffine(q, CouncilCurve.toReduced(ax), ay);
+            CouncilCurve.addAffine(q, CouncilCurve.toReduced(C[k][0]), C[k][1]);
+        }
+        CouncilCurve.normalize(pts, t, t, pts);
+        for (uint256 k; k < t; ++k) {
+            (uint256 x, uint256 y) = CouncilCurve.affineAt(pts, k);
+            c.aggregatesBiased[k] = [CouncilCurve.toTE(x) + 1, y + 1];
+        }
+    }
 
     /// @dev Every Groth16 proof word must be a canonical BN254 base-field element (< qBN). The
     ///      generated verifiers range-check only the public signals; pA.y goes through
@@ -536,30 +595,6 @@ contract CouncilManager is CouncilStorage, ICouncilCore {
             pA[0] >= Q_BN || pA[1] >= Q_BN || pB[0][0] >= Q_BN || pB[0][1] >= Q_BN || pB[1][0] >= Q_BN
                 || pB[1][1] >= Q_BN || pC[0] >= Q_BN || pC[1] >= Q_BN
         ) revert NonCanonical();
-    }
-
-    /// @dev Append capability addresses with ids `inviteCount..`; each non-zero and unique across
-    ///      every address ever registered for the ceremony (at most 64, so a quadratic scan).
-    function _appendInvites(Ceremony storage c, address[] calldata keys) internal {
-        uint256 len = keys.length;
-        if (len == 0) revert NoInvites();
-        uint256 have = c.inviteCount;
-        if (have + len > MAX_INVITES) revert TooManyInvites();
-        address[] memory all = new address[](have + len);
-        for (uint256 i; i < have; ++i) {
-            all[i] = c.invites[i];
-        }
-        for (uint256 i; i < len; ++i) {
-            address key = keys[i];
-            if (key == address(0)) revert ZeroAddress();
-            uint256 id = have + i;
-            for (uint256 j; j < id; ++j) {
-                if (all[j] == key) revert DuplicateInvite();
-            }
-            all[id] = key;
-            c.invites[id] = key;
-        }
-        c.inviteCount = uint32(have + len);
     }
 
     /// @dev Join PoP (protocol §8.2 item 4): popZ·G - c·X == A with c = HashToScalar("join-pop", ..).

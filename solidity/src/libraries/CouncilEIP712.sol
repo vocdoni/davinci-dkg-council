@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {
     CreateCeremony,
+    OpenDecryption,
     AddInvites,
     CloseRegistration,
     AllowAdapter,
@@ -16,16 +17,19 @@ import {
 
 /// @title CouncilEIP712
 /// @notice EIP-712 domain, struct hashing and signature rules of protocol §7. The type strings
-///         are the protocol's `encodeType` strings byte for byte.
+///         are the protocol's `encodeType` strings byte for byte. Domain version "2": no v1
+///         signature validates on a v2 manager or vice versa (protocol §7.1).
 library CouncilEIP712 {
     bytes32 internal constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 internal constant NAME_HASH = keccak256("DAVINCI DKG Council");
-    bytes32 internal constant VERSION_HASH = keccak256("1");
+    bytes32 internal constant VERSION_HASH = keccak256("2");
 
     bytes32 internal constant CREATE_CEREMONY_TYPEHASH = keccak256(
-        "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint64 registrationDeadline,uint64 dealingDuration,address[] inviteKeys,uint64 validUntil)"
+        "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint8 registrationMode,uint64 registrationDeadline,uint64 dealingDuration,uint8 decryptionMode,uint64 decryptionOpenAt,uint64 manualDecryptionFallbackAt,address[] inviteKeys,uint64 validUntil)"
     );
+    bytes32 internal constant OPEN_DECRYPTION_TYPEHASH =
+        keccak256("OpenDecryption(bytes12 ceremonyId,uint64 validUntil)");
     bytes32 internal constant ADD_INVITES_TYPEHASH =
         keccak256("AddInvites(bytes12 ceremonyId,uint32 firstInviteId,address[] inviteKeys,uint64 validUntil)");
     bytes32 internal constant CLOSE_REGISTRATION_TYPEHASH =
@@ -84,12 +88,20 @@ library CouncilEIP712 {
                 a.organizer,
                 a.nonce,
                 a.threshold,
+                a.registrationMode,
                 a.registrationDeadline,
                 a.dealingDuration,
+                a.decryptionMode,
+                a.decryptionOpenAt,
+                a.manualDecryptionFallbackAt,
                 keccak256(abi.encodePacked(a.inviteKeys)),
                 a.validUntil
             )
         );
+    }
+
+    function hashOpenDecryption(OpenDecryption calldata a) internal pure returns (bytes32) {
+        return keccak256(abi.encode(OPEN_DECRYPTION_TYPEHASH, a.ceremonyId, a.validUntil));
     }
 
     function hashAddInvites(AddInvites calldata a) internal pure returns (bytes32) {

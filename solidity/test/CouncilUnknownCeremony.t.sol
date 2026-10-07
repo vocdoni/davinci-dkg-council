@@ -42,8 +42,11 @@ contract CouncilUnknownCeremonyTest is CouncilTestBase {
             bytes12 c = i == 0 ? NOPE : bytes12(0);
             address[] memory keys = new address[](1);
             keys[0] = address(1);
+            uint256[2][] memory roster = new uint256[2][](1);
             _call(abi.encodeCall(manager.addInvites, (AddInvites(c, 0, keys, validUntil), garbage)));
-            _call(abi.encodeCall(manager.closeRegistration, (CloseRegistration(c, 1, validUntil), garbage)));
+            _call(abi.encodeCall(manager.closeRegistration, (CloseRegistration(c, 1, validUntil), garbage, roster)));
+            _call(abi.encodeCall(manager.closeRegistrationScheduled, (c, roster)));
+            _call(abi.encodeCall(manager.openDecryption, (OpenDecryption(c, validUntil), garbage)));
             _call(
                 abi.encodeCall(
                     manager.join,
@@ -60,7 +63,8 @@ contract CouncilUnknownCeremonyTest is CouncilTestBase {
             uint256[16] memory masked;
             _call(
                 abi.encodeCall(
-                    manager.deal, (Deal(c, 1, bytes32(0), validUntil), garbage, C, E, masked, _pA(), _pB(), _pC())
+                    manager.deal,
+                    (Deal(c, 1, bytes32(0), validUntil), garbage, C, E, masked, _pA(), _pB(), _pC(), roster)
                 )
             );
             _call(abi.encodeCall(manager.finalize, (c)));
@@ -78,7 +82,7 @@ contract CouncilUnknownCeremonyTest is CouncilTestBase {
             _call(
                 abi.encodeCall(
                     manager.submitPartial,
-                    (Partial(c, requestId, 1, bytes32(0), validUntil), garbage, C, _pA(), _pB(), _pC())
+                    (Partial(c, requestId, 1, bytes32(0), validUntil), garbage, C, _pA(), _pB(), _pC(), _c1())
                 )
             );
         }
@@ -90,11 +94,17 @@ contract CouncilUnknownCeremonyTest is CouncilTestBase {
         vm.expectRevert(UnknownCeremony.selector);
         manager.getInvite(NOPE, 0);
         vm.expectRevert(UnknownCeremony.selector);
-        manager.getParticipant(NOPE, 1);
+        manager.getPolicy(NOPE);
+        vm.expectRevert(UnknownCeremony.selector);
+        manager.isDecryptionOpen(NOPE);
+        vm.expectRevert(UnknownCeremony.selector);
+        manager.getParticipantCompressed(NOPE, 1);
         vm.expectRevert(UnknownCeremony.selector);
         manager.participantIndexOf(NOPE, address(1));
         vm.expectRevert(UnknownCeremony.selector);
-        manager.getDealing(NOPE, 1);
+        manager.getRecoveryDealing(NOPE, 1);
+        vm.expectRevert(UnknownCeremony.selector);
+        manager.getRecoverySlice(NOPE, 1);
         vm.expectRevert(UnknownCeremony.selector);
         manager.getQual(NOPE);
         vm.expectRevert(UnknownCeremony.selector);
@@ -108,20 +118,27 @@ contract CouncilUnknownCeremonyTest is CouncilTestBase {
         vm.expectRevert(UnknownCeremony.selector);
         manager.isCreatorAuthorized(NOPE, creator);
         vm.expectRevert(UnknownCeremony.selector);
-        manager.getRequestIds(NOPE);
+        manager.getRequestCount(NOPE);
+        vm.expectRevert(UnknownCeremony.selector);
+        manager.getRequestIdsPage(NOPE, 0, 1);
     }
 
     function test_Unknown_RequestIds() public {
         bytes32 nope = keccak256("nope");
         uint8[] memory set = _range(1, 2);
+        uint256[2][16] memory D;
         vm.expectRevert(UnknownRequest.selector);
-        manager.combine(nope, set, _range(0, 1), new uint64[](1));
+        manager.combine(nope, set, _range(0, 1), new uint64[](1), new uint256[2][16][](2), new uint256[2][](1));
         vm.expectRevert(UnknownRequest.selector);
-        manager.getRequest(nope);
+        manager.publishPartialData(nope, 1, D);
+        vm.expectRevert(UnknownRequest.selector);
+        manager.getRequestMeta(nope);
+        vm.expectRevert(UnknownRequest.selector);
+        manager.getRequestCompressed(nope);
         vm.expectRevert(UnknownRequest.selector);
         manager.getRequestOrigin(nope);
         vm.expectRevert(UnknownRequest.selector);
-        manager.getPartial(nope, 1);
+        manager.getPartialCommitment(nope, 1);
         vm.expectRevert(UnknownRequest.selector);
         manager.getPlaintexts(nope);
     }

@@ -53,6 +53,7 @@ contract CouncilVectorsTest is VectorReplay {
         assertEq(vm.parseJsonUint(c, ".sizes.MAX_COMBINE_FIELDS"), 4);
         assertEq(vm.parseJsonUint(c, ".sizes.MAX_INVITES"), 64);
         assertEq(vm.parseJsonUint(c, ".sizes.MIN_DEALING_DURATION"), 600);
+        assertEq(vm.parseJsonUint(c, ".sizes.MAX_DEALING_DURATION"), 365 days);
         assertEq(vm.parseJsonUint(c, ".sizes.RESULT_BOUND"), 1 << 40);
 
         // TE products from the generator's own (zk-kit cross-checked) arithmetic vs the vendored
@@ -74,7 +75,7 @@ contract CouncilVectorsTest is VectorReplay {
         }
 
         // tag hashes: generator vs protocol §2.4 table vs the constants the contract hashes
-        bytes32[9] memory pinned = [
+        bytes32[10] memory pinned = [
             bytes32(0xecb738c07e6a59197a7fd9e2f5e6116948f75ddf4ac1167be6d353868161465f),
             0x2c9d4948616c1a88c354348793d30f18ea38d1f04ad5854da9e32746a3b11ac9,
             0xdbb35e5b108ffc795df6963925b9215f480adc307c37d7301c3e91d8e2b7bb7c,
@@ -83,28 +84,61 @@ contract CouncilVectorsTest is VectorReplay {
             0x2044a532478c345d057d687f1827a3c194b5c92d1c7471f6aa59fe10fe010ba7,
             0x790ea2a939d8ccdf25ac8c84f7bffca5476a976d584b89ca4a7f365b8e85c589,
             0x9e489062d0e615d54b9cf250918652a1541571f981e4892e70d382d1536fdf5c,
-            0xd8262d0eb7248e9458410cb71d8ace07c8eabd235f11ed9fb71812260a9dc8f2
+            0xd8262d0eb7248e9458410cb71d8ace07c8eabd235f11ed9fb71812260a9dc8f2,
+            0xe9c88d2345099d5c36ae9c5ef6fb2d2396dc1633fee75cfb7680fca2214182af
         ];
-        bytes32[7] memory used = [
-            TAG_CEREMONY, TAG_ROSTER, TAG_DEAL_CONTEXT, TAG_DEAL_PAYLOAD, TAG_JOIN_POP, TAG_REQUEST, TAG_PARTIAL_PAYLOAD
+        bytes32[10] memory used = [
+            TAG_CEREMONY,
+            TAG_ROSTER,
+            TAG_DEAL_CONTEXT,
+            TAG_DEAL_PAYLOAD,
+            TAG_JOIN_POP,
+            TAG_REQUEST,
+            TAG_PARTIAL_PAYLOAD,
+            bytes32(0),
+            bytes32(0),
+            TAG_PARTIAL_DATA
         ];
         uint256 tags = _count(c, ".tags");
-        assertEq(tags, 9, "tag count");
+        assertEq(tags, 10, "tag count");
         for (uint256 i; i < tags; ++i) {
             string memory tag = vm.parseJsonString(c, _k(".tags", i, ".tag"));
             bytes32 h = vm.parseJsonBytes32(c, _k(".tags", i, ".keccak256"));
             assertEq(keccak256(bytes(tag)), h, tag);
             assertEq(h, pinned[i], tag);
-            if (i < 7) assertEq(used[i], h, tag);
+            if (used[i] != bytes32(0)) assertEq(used[i], h, tag);
         }
+        assertEq(vm.parseJsonString(c, ".tags[9].tag"), "davinci-dkg-council/v2/partial-data");
+        assertEq(vm.parseJsonUint(c, ".protocolVersion"), 2, "protocol version");
+        assertEq(vm.parseJsonUint(c, ".phaseModes.Manual"), MODE_MANUAL);
+        assertEq(vm.parseJsonUint(c, ".phaseModes.Scheduled"), MODE_SCHEDULED);
+        // the protocol §2.5 pinned compressed words
+        CurveHarness ch = new CurveHarness();
+        assertEq(vm.parseJsonUint(c, ".compressed.G"), ch.compress(CouncilCurve.GX_TE, CouncilCurve.GY), "G word");
         assertEq(
-            vm.parseJsonUint(c, ".MASK_CONST"), uint256(keccak256("davinci-dkg-council/v1/share-mask-poseidon")) % P, "MASK_CONST"
+            vm.parseJsonUint(c, ".compressed.G"), 0x8bb77a6ad63e739b4eacb2e09d6277c12ab8d8010534e0b62893f3f6bb957051
+        );
+        assertEq(
+            vm.parseJsonUint(c, ".compressed.minusG"),
+            0xa4acd4080af32c8e69a392d5e41ee09bfd7b104774848fdb1b4e019d346a8fb0
+        );
+        assertEq(vm.parseJsonUint(c, ".compressed.minusG"), ch.compress(P - CouncilCurve.GX_TE, CouncilCurve.GY));
+        assertEq(vm.parseJsonUint(c, ".compressed.identity"), 1 << 255);
+        assertEq(vm.parseJsonUint(c, ".compressed.identity"), ch.compress(0, 1));
+        assertEq(vm.parseJsonUint(c, ".compressed.orderTwo"), 0);
+        assertEq(vm.parseJsonUint(c, ".compressed.orderTwo"), ch.compress(0, P - 1));
+        assertEq(
+            vm.parseJsonUint(c, ".MASK_CONST"),
+            uint256(keccak256("davinci-dkg-council/v1/share-mask-poseidon")) % P,
+            "MASK_CONST"
         );
 
         // EIP-712 type strings and hashes vs the library constants
         assertEq(vm.parseJsonBytes32(c, ".eip712.domainTypeHash"), CouncilEIP712.DOMAIN_TYPEHASH, "domain typehash");
         assertEq(CouncilEIP712.DOMAIN_TYPEHASH, 0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f);
-        bytes32[9] memory typeHashes = [
+        assertEq(vm.parseJsonString(c, ".eip712.version"), "2", "domain version");
+        assertEq(CouncilEIP712.VERSION_HASH, keccak256("2"));
+        bytes32[10] memory typeHashes = [
             CouncilEIP712.CREATE_CEREMONY_TYPEHASH,
             CouncilEIP712.ADD_INVITES_TYPEHASH,
             CouncilEIP712.CLOSE_REGISTRATION_TYPEHASH,
@@ -113,9 +147,10 @@ contract CouncilVectorsTest is VectorReplay {
             CouncilEIP712.INVITE_TYPEHASH,
             CouncilEIP712.JOIN_TYPEHASH,
             CouncilEIP712.DEAL_TYPEHASH,
-            CouncilEIP712.PARTIAL_TYPEHASH
+            CouncilEIP712.PARTIAL_TYPEHASH,
+            CouncilEIP712.OPEN_DECRYPTION_TYPEHASH
         ];
-        string[9] memory names = [
+        string[10] memory names = [
             "CreateCeremony",
             "AddInvites",
             "CloseRegistration",
@@ -124,10 +159,11 @@ contract CouncilVectorsTest is VectorReplay {
             "Invite",
             "Join",
             "Deal",
-            "Partial"
+            "Partial",
+            "OpenDecryption"
         ];
-        assertEq(_count(c, ".eip712.encodeTypes"), 9);
-        for (uint256 i; i < 9; ++i) {
+        assertEq(_count(c, ".eip712.encodeTypes"), 10);
+        for (uint256 i; i < 10; ++i) {
             assertEq(vm.parseJsonString(c, _k(".eip712.encodeTypes", i, ".name")), names[i]);
             string memory s = vm.parseJsonString(c, _k(".eip712.encodeTypes", i, ".encodeType"));
             assertEq(keccak256(bytes(s)), typeHashes[i], names[i]);
@@ -197,8 +233,9 @@ contract CouncilVectorsTest is VectorReplay {
         EIP712Harness h = EIP712Harness(mgr);
         assertEq(h.domainSeparator(), vm.parseJsonBytes32(e, ".domain.domainSeparator"), "domain separator");
 
+        assertEq(vm.parseJsonString(e, ".domain.version"), "2");
         uint256 count = _count(e, ".actions");
-        assertEq(count, 9);
+        assertEq(count, 10);
         for (uint256 i; i < count; ++i) {
             string memory a = _k(".actions", i, "");
             string memory name = vm.parseJsonString(e, string.concat(a, ".struct"));
@@ -224,8 +261,14 @@ contract CouncilVectorsTest is VectorReplay {
                     organizer: vm.parseJsonAddress(e, string.concat(m, ".organizer")),
                     nonce: uint64(vm.parseJsonUint(e, string.concat(m, ".nonce"))),
                     threshold: uint8(vm.parseJsonUint(e, string.concat(m, ".threshold"))),
+                    registrationMode: uint8(vm.parseJsonUint(e, string.concat(m, ".registrationMode"))),
                     registrationDeadline: uint64(vm.parseJsonUint(e, string.concat(m, ".registrationDeadline"))),
                     dealingDuration: uint64(vm.parseJsonUint(e, string.concat(m, ".dealingDuration"))),
+                    decryptionMode: uint8(vm.parseJsonUint(e, string.concat(m, ".decryptionMode"))),
+                    decryptionOpenAt: uint64(vm.parseJsonUint(e, string.concat(m, ".decryptionOpenAt"))),
+                    manualDecryptionFallbackAt: uint64(
+                        vm.parseJsonUint(e, string.concat(m, ".manualDecryptionFallbackAt"))
+                    ),
                     inviteKeys: vm.parseJsonAddressArray(e, string.concat(m, ".inviteKeys")),
                     validUntil: uint64(vm.parseJsonUint(e, string.concat(m, ".validUntil")))
                 })
@@ -233,6 +276,7 @@ contract CouncilVectorsTest is VectorReplay {
         }
         bytes12 c = bytes12(vm.parseJsonBytes(e, string.concat(m, ".ceremonyId")));
         uint64 vu = uint64(vm.parseJsonUint(e, string.concat(m, ".validUntil")));
+        if (n_ == keccak256("OpenDecryption")) return h.hashOpenDecryption(OpenDecryption(c, vu));
         if (n_ == keccak256("AddInvites")) {
             return h.hashAddInvites(
                 AddInvites({

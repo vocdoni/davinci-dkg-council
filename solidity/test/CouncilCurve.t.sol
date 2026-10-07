@@ -74,6 +74,39 @@ contract CouncilCurveTest is Test {
         h.requireOnCurveTE(1, 1);
     }
 
+    /// @dev protocol §2.5 on random subgroup points: bit 254 clear, x in bits 0..253, y's parity
+    ///      in bit 255; the point authenticates against its own word, and its curve twin (x, p − y)
+    ///      (same x, opposite parity) and every off-curve same-parity y never do.
+    function testFuzz_CompressAuthenticate(uint256 s, uint256 dy) public view {
+        (uint256 x, uint256 y) = Bjj.mulG(bound(s, 1, R - 1));
+        uint256 w = h.compress(x, y);
+        assertEq(w & ((1 << 254) - 1), x, "x bits");
+        assertEq((w >> 254) & 1, 0, "bit 254");
+        assertEq(w >> 255, y & 1, "parity bit");
+        assertEq(h.authenticate(x, y, w), CouncilCurve.toReduced(x));
+        uint256 y2 = P - y;
+        assertTrue(Bjj.onCurveTE(x, y2));
+        assertTrue(h.compress(x, y2) != w, "twin compresses differently");
+        // a same-parity y other than y: off the curve (two roots per x, of opposite parity)
+        uint256 yy = addmod(y, 2 * bound(dy, 1, (P - 3) / 2), P);
+        if ((yy & 1) == (y & 1) && yy != y) assertFalse(Bjj.onCurveTE(x, yy));
+    }
+
+    function test_AuthenticateOrder() public {
+        (uint256 x, uint256 y) = Bjj.mulG(77);
+        uint256 w = h.compress(x, y);
+        vm.expectRevert(NonCanonical.selector);
+        h.authenticate(x + P, y, w);
+        vm.expectRevert(NonCanonical.selector);
+        h.authenticate(x, y + P, w);
+        vm.expectRevert(InvalidPoint.selector);
+        h.authenticate(x, y + 2 < P ? y + 2 : y - 2, w); // same word, off the curve
+        vm.expectRevert(CompressedPointMismatch.selector);
+        h.authenticate(x, P - y, w); // on the curve, the other root
+        vm.expectRevert(CompressedPointMismatch.selector);
+        h.authenticate(P - x, y, w); // -X: on the curve, different x
+    }
+
     function testFuzz_InvModR(uint256 a) public view {
         a = bound(a, 1, R - 1);
         assertEq(mulmod(a, h.invModR(a), R), 1);

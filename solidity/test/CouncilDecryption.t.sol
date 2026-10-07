@@ -135,17 +135,19 @@ contract CouncilDecryptionTest is CouncilTestBase {
         assertEq(bcid, cid);
         assertEq(brid, rid);
         assertFalse(requested);
-        (bytes12 rcid, uint8 fieldCount,,, uint256[4][] memory stored) = manager.getRequest(rid);
+        (bytes12 rcid, uint8 fieldCount,,) = manager.getRequestMeta(rid);
         assertEq(rcid, cid);
         assertEq(fieldCount, 0);
-        assertEq(stored.length, 0);
+        assertEq(manager.getRequestCompressed(rid).length, 0);
         (bool ready, uint256[] memory values) = manager.getPlaintexts(rid);
         assertFalse(ready);
         assertEq(values.length, 0);
         vm.expectRevert(UnknownBinding.selector);
         manager.getBinding(address(this), bytes31(uint248(10)));
         vm.expectRevert(UnknownRequest.selector);
-        manager.getRequest(bytes32(uint256(1)));
+        manager.getRequestMeta(bytes32(uint256(1)));
+        vm.expectRevert(UnknownRequest.selector);
+        manager.getRequestCompressed(bytes32(uint256(1)));
         vm.expectRevert(UnknownRequest.selector);
         manager.getPlaintexts(bytes32(uint256(1)));
 
@@ -157,7 +159,9 @@ contract CouncilDecryptionTest is CouncilTestBase {
         _sendPartial(pc);
         uint8[] memory set = _range(1, 2);
         vm.expectRevert(UnknownRequest.selector);
-        manager.combine(rid, set, _range(0, 1), new uint64[](1));
+        manager.combine(rid, set, _range(0, 1), new uint64[](1), _vectors(set), new uint256[2][](1));
+        vm.expectRevert(UnknownRequest.selector);
+        manager.publishPartialData(rid, 1, pc.D);
     }
 
     /// @dev A dashboard reads a small page in O(limit) however long the binding history is.
@@ -182,7 +186,7 @@ contract CouncilDecryptionTest is CouncilTestBase {
             assertEq(page[i], ids[total - 3 + i]);
         }
         g = gasleft();
-        bytes32[] memory all = manager.getRequestIds(cid);
+        bytes32[] memory all = manager.getRequestIdsPage(cid, 0, type(uint256).max);
         uint256 allGas = g - gasleft();
         assertEq(all.length, total);
         for (uint256 i; i < total; ++i) {
@@ -231,16 +235,17 @@ contract CouncilDecryptionTest is CouncilTestBase {
         vm.expectEmit(address(manager));
         emit ICouncilCore.RequestSubmitted(requestId, cid, 3);
         assertEq(manager.submitRequest(cid, p, _ctsCopy()), requestId);
-        (bytes12 rcid, uint8 fieldCount, uint16 completed, uint16 partials, uint256[4][] memory stored) =
-            manager.getRequest(requestId);
+        (bytes12 rcid, uint8 fieldCount, uint16 completed, uint16 partials) = manager.getRequestMeta(requestId);
         assertEq(rcid, cid);
         assertEq(fieldCount, 3);
         assertEq(completed, 0);
         assertEq(partials, 0);
+        // stored compressed, never hash-only (protocol §9.2): C1 then C2 per field
+        uint256[2][] memory stored = manager.getRequestCompressed(requestId);
+        assertEq(stored.length, 3);
         for (uint256 k; k < 3; ++k) {
-            for (uint256 w; w < 4; ++w) {
-                assertEq(stored[k][w], cts[k][w]);
-            }
+            assertEq(stored[k][0], _compress(cts[k][0], cts[k][1]));
+            assertEq(stored[k][1], _compress(cts[k][2], cts[k][3]));
         }
         vm.expectRevert(AlreadyRequested.selector);
         manager.submitRequest(cid, p, _ctsCopy());
@@ -332,18 +337,28 @@ contract CouncilDecryptionTest is CouncilTestBase {
             address(partialV),
             abi.encodeCall(IPartialVerifier.verifyProof, (_pA(), _pB(), _pC(), _expectedPartialPub(p, 2)))
         );
+        bytes32 dataHash = _partialDataHash(requestId, 2, 3, p.D);
         vm.expectEmit(address(manager));
         emit ICouncilCore.PartialAccepted(requestId, 2);
+        vm.expectEmit(address(manager));
+        emit ICouncilCore.PartialDataPublished(requestId, 2, dataHash, p.D);
+        vm.roll(4242);
         _sendPartial(p);
-        uint256[2][16] memory D = manager.getPartial(requestId, 2);
-        for (uint256 k; k < 16; ++k) {
-            assertEq(D[k][0], p.D[k][0]);
-            assertEq(D[k][1], p.D[k][1]);
-        }
-        (,,, uint16 partials,) = manager.getRequest(requestId);
+        // D is committed by hash and publication block, never stored (protocol §10.2)
+        (bool accepted, bytes32 h, uint64 published) = manager.getPartialCommitment(requestId, 2);
+        assertTrue(accepted);
+        assertEq(h, dataHash);
+        assertEq(published, 4242);
+        (,,, uint16 partials) = manager.getRequestMeta(requestId);
         assertEq(partials, 2);
-        vm.expectRevert(MissingPartial.selector);
-        manager.getPartial(requestId, 1);
+        (accepted, h, published) = manager.getPartialCommitment(requestId, 1);
+        assertFalse(accepted);
+        assertEq(h, bytes32(0));
+        assertEq(published, 0);
+        (accepted,,) = manager.getPartialCommitment(requestId, 0);
+        assertFalse(accepted);
+        (accepted,,) = manager.getPartialCommitment(requestId, 17);
+        assertFalse(accepted);
     }
 
     function test_Partial_Rejections() public {
@@ -395,7 +410,7 @@ contract CouncilDecryptionTest is CouncilTestBase {
         p = _partialMsg(1);
         uint256[2] memory otherC = [uint256(7), 9];
         vm.expectRevert(PayloadMismatch.selector);
-        manager.submitPartial(p.a, p.sig, p.D, _pA(), _pB(), otherC);
+        manager.submitPartial(p.a, p.sig, p.D, _pA(), _pB(), otherC, _c1());
 
         // the signed payload binds the request id
         p = _partialMsg(1);
@@ -408,7 +423,7 @@ contract CouncilDecryptionTest is CouncilTestBase {
         partialV.setAccept(false);
         vm.expectRevert(ProofInvalid.selector);
         _sendPartial(p);
-        (,,, uint16 partials,) = manager.getRequest(requestId);
+        (,,, uint16 partials) = manager.getRequestMeta(requestId);
         assertEq(partials, 0);
         partialV.setAccept(true);
         _sendPartial(p);
@@ -424,14 +439,14 @@ contract CouncilDecryptionTest is CouncilTestBase {
             p.a.payloadHash = keccak256(abi.encode(TAG_PARTIAL_PAYLOAD, requestId, p.D, a, b, c));
             p.sig = _sign(authSecrets[0], _hPartial(p.a));
             vm.expectRevert(NonCanonical.selector);
-            manager.submitPartial(p.a, p.sig, p.D, a, b, c);
+            manager.submitPartial(p.a, p.sig, p.D, a, b, c, _c1());
         }
         // words in [p, qBN) are legitimate proof coordinates
         (uint256[2] memory a2, uint256[2][2] memory b2, uint256[2] memory c2) = _proofWith(7, Q_BN - 1);
         a2[0] = P;
         p.a.payloadHash = keccak256(abi.encode(TAG_PARTIAL_PAYLOAD, requestId, p.D, a2, b2, c2));
         p.sig = _sign(authSecrets[0], _hPartial(p.a));
-        manager.submitPartial(p.a, p.sig, p.D, a2, b2, c2);
+        manager.submitPartial(p.a, p.sig, p.D, a2, b2, c2, _c1());
     }
 
     /// @dev Mandatory regression: a partial signed and proven under an attacker-created ceremony
@@ -453,7 +468,7 @@ contract CouncilDecryptionTest is CouncilTestBase {
         p.sig = _sign(attackerAuth, _hPartial(p.a));
         vm.expectRevert(UnknownRequest.selector);
         _sendPartial(p);
-        (,,, uint16 partials,) = manager.getRequest(requestId);
+        (,,, uint16 partials) = manager.getRequestMeta(requestId);
         assertEq(partials, 0, "victim slot untouched");
 
         // signing with the victim ceremony id instead is not the attacker's to do
@@ -464,7 +479,7 @@ contract CouncilDecryptionTest is CouncilTestBase {
 
         // the victim's member 1 still submits normally
         _partial(1);
-        (,,, partials,) = manager.getRequest(requestId);
+        (,,, partials) = manager.getRequestMeta(requestId);
         assertEq(partials, 1);
     }
 
@@ -487,18 +502,18 @@ contract CouncilDecryptionTest is CouncilTestBase {
         uint8[] memory f = _range(0, 1);
         uint64[] memory m = _plain(f);
         vm.expectRevert(BadMemberSet.selector);
-        manager.combine(requestId, _range(1, 1), f, m);
+        _combineWith(_range(1, 1), f, m);
         vm.expectRevert(BadMemberSet.selector);
-        manager.combine(requestId, _range(1, 3), f, m);
+        _combineWith(_range(1, 3), f, m);
         vm.expectRevert(BadMemberSet.selector);
-        manager.combine(requestId, _set(2, 2), f, m);
+        _combineWith(_set(2, 2), f, m);
         vm.expectRevert(BadMemberSet.selector);
-        manager.combine(requestId, _set(3, 1), f, m);
+        _combineWith(_set(3, 1), f, m);
         vm.expectRevert(BadMemberSet.selector);
-        manager.combine(requestId, _set(0, 1), f, m);
+        _combineWith(_set(0, 1), f, m);
         vm.expectRevert(BadMemberSet.selector);
-        manager.combine(requestId, _set(1, 4), f, m);
-        manager.combine(requestId, _set(1, 3), f, m);
+        _combineWith(_set(1, 4), f, m);
+        _combineWith(_set(1, 3), f, m);
     }
 
     function test_Combine_MissingPartial() public {
@@ -508,32 +523,32 @@ contract CouncilDecryptionTest is CouncilTestBase {
         uint8[] memory f = _range(0, 3);
         uint64[] memory m = _plain(f);
         vm.expectRevert(MissingPartial.selector);
-        manager.combine(requestId, _set(1, 2), f, m);
-        manager.combine(requestId, _set(1, 3), f, m);
+        _combineWith(_set(1, 2), f, m);
+        _combineWith(_set(1, 3), f, m);
     }
 
     function test_Combine_FieldValidation() public {
         _combineReady();
         uint8[] memory s = _set(1, 2);
         vm.expectRevert(BadFieldIndexes.selector);
-        manager.combine(requestId, s, new uint8[](0), new uint64[](0));
+        _combineWith(s, new uint8[](0), new uint64[](0));
         uint8[] memory dup = new uint8[](2);
         vm.expectRevert(BadFieldIndexes.selector); // [0, 0]
-        manager.combine(requestId, s, dup, _plain(dup));
+        _combineWith(s, dup, _plain(dup));
         uint8[] memory desc = new uint8[](2);
         (desc[0], desc[1]) = (2, 1);
         vm.expectRevert(BadFieldIndexes.selector);
-        manager.combine(requestId, s, desc, _plain(desc));
+        _combineWith(s, desc, _plain(desc));
         uint8[] memory outOfRange = new uint8[](1);
         outOfRange[0] = 3;
         vm.expectRevert(BadFieldIndexes.selector);
-        manager.combine(requestId, s, outOfRange, new uint64[](1));
+        _combineWith(s, outOfRange, new uint64[](1));
         vm.expectRevert(BadFieldIndexes.selector);
-        manager.combine(requestId, s, _range(0, 2), _plain(_range(0, 1)));
+        _combineWith(s, _range(0, 2), _plain(_range(0, 1)));
         uint64[] memory big = new uint64[](1);
         big[0] = uint64(1 << 40);
         vm.expectRevert(PlaintextTooLarge.selector);
-        manager.combine(requestId, s, _range(0, 1), big);
+        _combineWith(s, _range(0, 1), big);
     }
 
     function test_Combine_AtMostFourFields() public {
@@ -560,18 +575,18 @@ contract CouncilDecryptionTest is CouncilTestBase {
         uint64[] memory m = _plain(f);
         m[1] += 1;
         vm.expectRevert(CombineCheckFailed.selector);
-        manager.combine(requestId, s, f, m);
+        _combineWith(s, f, m);
         m = _plain(f);
         (m[0], m[2]) = (m[2], m[0]);
         vm.expectRevert(CombineCheckFailed.selector);
-        manager.combine(requestId, s, f, m);
+        _combineWith(s, f, m);
 
         vm.prank(address(0xC0FFEE)); // permissionless
         vm.expectEmit(address(manager));
         emit ICouncilCore.FieldsCombined(requestId, f, _plain(f));
-        manager.combine(requestId, s, f, _plain(f));
+        _combineWith(s, f, _plain(f));
         vm.expectRevert(FieldCompleted.selector);
-        manager.combine(requestId, _set(1, 2), _range(1, 1), _plain(_range(1, 1)));
+        _combineWith(_set(1, 2), _range(1, 1), _plain(_range(1, 1)));
     }
 
     function test_Combine_CompletedFieldsImmutable() public {
@@ -603,10 +618,74 @@ contract CouncilDecryptionTest is CouncilTestBase {
         _partial(3);
         uint8[] memory f = _range(0, 3);
         vm.expectRevert(CombineCheckFailed.selector);
-        manager.combine(requestId, _set(1, 2), f, _plain(f));
+        _combineWith(_set(1, 2), f, _plain(f));
         vm.expectRevert(CombineCheckFailed.selector);
-        manager.combine(requestId, _set(2, 3), f, _plain(f));
-        manager.combine(requestId, _set(1, 3), f, _plain(f));
+        _combineWith(_set(2, 3), f, _plain(f));
+        _combineWith(_set(1, 3), f, _plain(f));
+    }
+
+    /// @dev Plaintexts live in uint40 lanes, six per slot (6 + 6 + 4): distinct values at the
+    ///      bound across every lane boundary, combined sparsely, read back exactly.
+    function test_Combine_Uint40LanesAcrossSlotBoundaries() public {
+        _toLive(3, 2);
+        uint64[] memory plain = new uint64[](16);
+        for (uint256 k; k < 16; ++k) {
+            plain[k] = uint64((1 << 40) - 1 - k);
+        }
+        _bindAndRequest(bytes31(uint248(16)), plain);
+        _partial(1);
+        _partial(3);
+        uint8[] memory set = _set(1, 3);
+        uint8[] memory sparse = new uint8[](4);
+        (sparse[0], sparse[1], sparse[2], sparse[3]) = (5, 6, 11, 15);
+        _combine(set, sparse);
+        (,, uint16 completed,) = manager.getRequestMeta(requestId);
+        assertEq(completed, (1 << 5) | (1 << 6) | (1 << 11) | (1 << 15));
+        (bool ready, uint256[] memory values) = manager.getPlaintexts(requestId);
+        assertFalse(ready);
+        for (uint256 k; k < 16; ++k) {
+            bool done = k == 5 || k == 6 || k == 11 || k == 15;
+            assertEq(values[k], done ? plain[k] : 0, "lane");
+        }
+        // the 12 remaining fields, ascending, in chunks of four
+        uint8[] memory chunk = new uint8[](4);
+        uint256 got;
+        for (uint256 k; k < 16; ++k) {
+            if (k == 5 || k == 6 || k == 11 || k == 15) continue;
+            chunk[got++] = uint8(k);
+            if (got == 4) {
+                _combine(set, chunk);
+                got = 0;
+            }
+        }
+        (ready, values) = manager.getPlaintexts(requestId);
+        assertTrue(ready);
+        for (uint256 k; k < 16; ++k) {
+            assertEq(values[k], plain[k], "lane after completion");
+        }
+    }
+
+    /// @dev The publication block is a uint64 lane: 2^64 - 1 is stored as is, 2^64 reverts
+    ///      BlockNumberOverflow() (never truncated) and leaves the commitment untouched.
+    function test_PublishedBlock_Uint64Boundary() public {
+        _requested();
+        vm.roll(type(uint64).max);
+        _partial(1);
+        (, bytes32 h, uint64 published) = manager.getPartialCommitment(requestId, 1);
+        assertEq(published, type(uint64).max);
+        vm.roll(uint256(type(uint64).max) + 1);
+        uint256[2][16] memory D = dOf[requestId][1];
+        vm.expectRevert(BlockNumberOverflow.selector);
+        manager.publishPartialData(requestId, 1, D);
+        PartialCall memory p = _partialMsg(2);
+        vm.expectRevert(BlockNumberOverflow.selector);
+        _sendPartial(p);
+        (bool accepted, bytes32 h2, uint64 published2) = manager.getPartialCommitment(requestId, 1);
+        assertTrue(accepted);
+        assertEq(h2, h);
+        assertEq(published2, type(uint64).max);
+        (accepted,,) = manager.getPartialCommitment(requestId, 2);
+        assertFalse(accepted, "no slot consumed");
     }
 
     // ─── adapter (architecture §3.1) ──────────────────────────────────────────────────────

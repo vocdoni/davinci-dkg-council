@@ -29,6 +29,10 @@ contract EIP712Harness {
         return CouncilEIP712.hashCreateCeremony(a);
     }
 
+    function hashOpenDecryption(OpenDecryption calldata a) external pure returns (bytes32) {
+        return CouncilEIP712.hashOpenDecryption(a);
+    }
+
     function hashAddInvites(AddInvites calldata a) external pure returns (bytes32) {
         return CouncilEIP712.hashAddInvites(a);
     }
@@ -80,6 +84,14 @@ contract CurveHarness {
         return CouncilCurve.requireSubgroupTE(x, y);
     }
 
+    function compress(uint256 x, uint256 y) external pure returns (uint256) {
+        return CouncilCurve.compress(x, y);
+    }
+
+    function authenticate(uint256 x, uint256 y, uint256 stored) external pure returns (uint256) {
+        return CouncilCurve.authenticate(x, y, stored);
+    }
+
     function invModR(uint256 a) external view returns (uint256) {
         return CouncilCurve.invModR(a);
     }
@@ -114,11 +126,19 @@ contract CurveHarness {
     }
 }
 
-/// @notice CouncilManager with its HashToScalar exposed.
+/// @notice CouncilManager with its HashToScalar and partial-data commitment exposed.
 contract CouncilManagerHarness is CouncilManager {
     constructor(address d, address p, bytes32 id) CouncilManager(d, p, id) {}
 
     function hashToScalar(bytes memory prefix) external pure returns (uint256) {
         return _hashToScalar(prefix);
+    }
+
+    function partialDataHash(bytes12 cid, bytes32 requestId, uint8 index, uint8 count, uint256[2][16] calldata D)
+        external
+        view
+        returns (bytes32)
+    {
+        return _partialDataHash(cid, requestId, index, count, D);
     }
 }

@@ -54,7 +54,7 @@ contract CouncilDealingTest is CouncilTestBase {
         CeremonyView memory v = manager.getCeremony(cid);
         assertEq(v.dealtCount, 1);
         assertEq(v.qualBitmap, 2);
-        (,,, bool dealt) = manager.getParticipant(cid, 2);
+        (,, bool dealt) = manager.getParticipantCompressed(cid, 2);
         assertTrue(dealt);
     }
 
@@ -176,11 +176,11 @@ contract CouncilDealingTest is CouncilTestBase {
         d = _dealMsg(1);
         uint256[2] memory otherA = [uint256(1), 3];
         vm.expectRevert(PayloadMismatch.selector);
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, otherA, _pB(), _pC());
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, otherA, _pB(), _pC(), _roster());
 
         uint256[2][2] memory otherB = [[uint256(4), 3], [uint256(5), 6]]; // G2 limbs swapped
         vm.expectRevert(PayloadMismatch.selector);
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, _pA(), otherB, _pC());
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, _pA(), otherB, _pC(), _roster());
 
         // payload hash signed under another context does not verify here
         d = _dealMsg(1);
@@ -201,7 +201,7 @@ contract CouncilDealingTest is CouncilTestBase {
         d.a.payloadHash = keccak256(abi.encode(TAG_DEAL_PAYLOAD, _ctx(), d.C, d.E, d.masked, a, b, c));
         d.sig = _sign(authSecrets[0], _hDeal(d.a));
         vm.expectCall(address(dealV), abi.encodeCall(IDealVerifier.verifyProof, (a, b, c, _expectedDealPub(d, 1))));
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, a, b, c);
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, a, b, c, _roster());
         assertEq(manager.getQual(cid), 1);
     }
 
@@ -216,7 +216,7 @@ contract CouncilDealingTest is CouncilTestBase {
             d.a.payloadHash = keccak256(abi.encode(TAG_DEAL_PAYLOAD, ctx, d.C, d.E, d.masked, a, b, c));
             d.sig = _sign(authSecrets[0], _hDeal(d.a));
             vm.expectRevert(NonCanonical.selector);
-            manager.deal(d.a, d.sig, d.C, d.E, d.masked, a, b, c);
+            manager.deal(d.a, d.sig, d.C, d.E, d.masked, a, b, c, _roster());
         }
         // qBN - 1 in every position is in range
         (uint256[2] memory a2, uint256[2][2] memory b2, uint256[2] memory c2) = _proofWith(0, Q_BN - 1);
@@ -225,7 +225,7 @@ contract CouncilDealingTest is CouncilTestBase {
         c2 = [Q_BN - 1, Q_BN - 1];
         d.a.payloadHash = keccak256(abi.encode(TAG_DEAL_PAYLOAD, ctx, d.C, d.E, d.masked, a2, b2, c2));
         d.sig = _sign(authSecrets[0], _hDeal(d.a));
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, a2, b2, c2);
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, a2, b2, c2, _roster());
     }
 
     function test_Deal_ProofRejectedChangesNothing() public {
@@ -236,7 +236,7 @@ contract CouncilDealingTest is CouncilTestBase {
         _sendDeal(d);
         assertEq(manager.getCeremony(cid).dealtCount, 0);
         vm.expectRevert(NotQualified.selector);
-        manager.getDealing(cid, 1);
+        manager.getRecoveryDealing(cid, 1);
         dealV.setAccept(true);
         _sendDeal(d);
         assertEq(manager.getCeremony(cid).dealtCount, 1);
@@ -366,15 +366,18 @@ contract CouncilDealingTest is CouncilTestBase {
 
     // ─── abort ────────────────────────────────────────────────────────────────────────────
 
+    /// @dev Below t at the expiry: abortable from the expiry itself (closing is impossible).
     function test_Abort_Registration() public {
         _create(2, 3);
         _join(1);
         vm.expectRevert(AbortConditionNotMet.selector);
         manager.abort(cid);
-        vm.warp(T0 + REG_PERIOD);
+        vm.warp(T0 + REG_PERIOD - 1);
         vm.expectRevert(AbortConditionNotMet.selector);
         manager.abort(cid);
-        vm.warp(T0 + REG_PERIOD + 1);
+        vm.warp(T0 + REG_PERIOD);
+        vm.expectRevert(BelowThreshold.selector);
+        _closeScheduled();
         vm.expectEmit(address(manager));
         emit ICouncilCore.CeremonyAborted(cid, uint8(Phase.Registration));
         manager.abort(cid);
@@ -382,7 +385,7 @@ contract CouncilDealingTest is CouncilTestBase {
         manager.abort(cid);
         (CloseRegistration memory a, bytes memory sig) = _closeMsg(1);
         vm.expectRevert(WrongPhase.selector);
-        manager.closeRegistration(a, sig);
+        manager.closeRegistration(a, sig, _roster());
 
         // restart: a new ceremony id with a fresh nonce
         bytes12 old = cid;
@@ -410,7 +413,7 @@ contract CouncilDealingTest is CouncilTestBase {
         vm.expectRevert(WrongPhase.selector);
         manager.finalize(cid);
         // accepted contributions stay readable under the old id
-        manager.getDealing(cid, 3);
+        manager.getRecoveryDealing(cid, 3);
     }
 
     function test_Abort_QualifiedDealingCannotAbort() public {

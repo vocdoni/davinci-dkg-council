@@ -16,7 +16,9 @@ import {Bjj} from "./Bjj.sol";
 ///         Mock mode: placeholder proof words, the manager's public-input vectors pinned with
 ///         `vm.expectCall`. Real mode: the generated verifiers and the canned proofs and
 ///         viem-signed actions of `circuits/fixtures/{deal,partial}_{A,B}.json`.
-///         Tests skip when the files are absent.
+///         Scenario A runs the Manual policies (organizer close before the expiry, organizer
+///         opening), scenario B the Scheduled ones (permissionless close at the deadline, the
+///         decryption date reached by the clock). Tests skip when the files are absent.
 abstract contract VectorReplay is CouncilTestBase {
     string internal constant VECTORS = "../tests/vectors/";
     string internal constant FIXTURES = "../circuits/fixtures/";
@@ -37,6 +39,10 @@ abstract contract VectorReplay is CouncilTestBase {
     uint256[2] internal pA;
     uint256[2][2] internal pB;
     uint256[2] internal pC;
+    uint8 internal regMode;
+    uint8 internal decMode;
+    uint64 internal regDeadline;
+    uint64 internal openAt;
 
     function setUp() public virtual override {
         vm.warp(1_850_000_000);
@@ -99,6 +105,7 @@ abstract contract VectorReplay is CouncilTestBase {
         _replayDealing();
         _replayFinalize();
         _replayRequest();
+        _replayOpening();
         _replayPartialsAndCombines();
         return true;
     }
@@ -181,11 +188,19 @@ abstract contract VectorReplay is CouncilTestBase {
             organizer: organizer,
             nonce: nonce,
             threshold: T,
+            registrationMode: uint8(vm.parseJsonUint(ids, string.concat(sk, ".registrationMode"))),
             registrationDeadline: uint64(vm.parseJsonUint(ids, string.concat(sk, ".registrationDeadline"))),
             dealingDuration: uint64(vm.parseJsonUint(ids, string.concat(sk, ".dealingDuration"))),
+            decryptionMode: uint8(vm.parseJsonUint(ids, string.concat(sk, ".decryptionMode"))),
+            decryptionOpenAt: uint64(vm.parseJsonUint(ids, string.concat(sk, ".decryptionOpenAt"))),
+            manualDecryptionFallbackAt: uint64(vm.parseJsonUint(ids, string.concat(sk, ".manualDecryptionFallbackAt"))),
             inviteKeys: keys,
             validUntil: validUntil
         });
+        regMode = ca.registrationMode;
+        decMode = ca.decryptionMode;
+        regDeadline = ca.registrationDeadline;
+        openAt = ca.decryptionOpenAt;
         assertEq(manager.createCeremony(ca, _sign(orgKey, _hCreate(ca))), cid);
         if (total > initial) {
             address[] memory more = new address[](total - initial);
@@ -198,12 +213,25 @@ abstract contract VectorReplay is CouncilTestBase {
         assertEq(manager.getCeremony(cid).inviteCount, total);
 
         delete authSecrets;
+        delete memberX;
         for (uint256 i; i < n; ++i) {
             _replayJoin(_k(string.concat(sk, ".members"), i, ""), i + 1);
         }
 
-        (CloseRegistration memory cl, bytes memory clSig) = _closeMsg(uint8(n));
-        manager.closeRegistration(cl, clSig);
+        if (regMode == MANUAL) {
+            (CloseRegistration memory cl, bytes memory clSig) = _closeMsg(uint8(n));
+            manager.closeRegistration(cl, clSig, _roster());
+            _snapIf("closeRegistration");
+        } else {
+            // permissionless, at the scheduled deadline: the dealing window is the scheduled one
+            vm.expectRevert(RegistrationNotDue.selector);
+            manager.closeRegistrationScheduled(cid, _roster());
+            vm.warp(regDeadline);
+            vm.prank(address(0xC1053));
+            manager.closeRegistrationScheduled(cid, _roster());
+            _snapIf("closeRegistrationScheduled");
+            assertEq(manager.getCeremony(cid).dealingDeadline, regDeadline + manager.getPolicy(cid).dealingDuration);
+        }
         CeremonyView memory v = manager.getCeremony(cid);
         assertEq(v.rosterHash, vm.parseJsonBytes32(ids, string.concat(sk, ".rosterHash")), "rosterHash");
         assertEq(v.ctx, vm.parseJsonBytes32(ids, string.concat(sk, ".ctx")), "ctx");
@@ -238,10 +266,11 @@ abstract contract VectorReplay is CouncilTestBase {
         j.psig = _sign(authSecret, _hJoin(j.a));
         j.isig = _sign(inviteSecrets[inviteId], _hInvite(j.inv));
         _sendJoin(j);
-        (address gotAuth, uint256 gx, uint256 gy,) = manager.getParticipant(cid, uint8(index));
+        memberX.push([X0, X1]);
+        (address gotAuth, uint256 word,) = manager.getParticipantCompressed(cid, uint8(index));
         assertEq(gotAuth, auth);
-        assertEq(gx, X0);
-        assertEq(gy, X1);
+        assertEq(word, vm.parseJsonUint(ids, string.concat(mk, ".XCompressed")), "compressed X");
+        assertEq(word, _compress(X0, X1), "compressed X (test side)");
     }
 
     function _replayDealing() internal {
@@ -249,12 +278,12 @@ abstract contract VectorReplay is CouncilTestBase {
         dealCount = _count(dealingJson, ds);
         if (real) assertEq(_count(dealFx, ".dealings"), dealCount, "fixture dealing count");
         for (uint256 d; d < dealCount; ++d) {
-            _replayDeal(_k(ds, d, ""), _k(".dealings", d, ""), d == 0);
+            _replayDeal(_k(ds, d, ""), _k(".dealings", d, ""), d == 0, d > 0 && d == dealCount - 1);
         }
         assertEq(manager.getCeremony(cid).dealtCount, dealCount);
     }
 
-    function _replayDeal(string memory dk, string memory fk, bool first) internal {
+    function _replayDeal(string memory dk, string memory fk, bool first, bool last) internal {
         DealCall memory d;
         uint256 j = vm.parseJsonUint(dealingJson, string.concat(dk, ".dealerIndex"));
         d.C = _points16(dealingJson, string.concat(dk, ".C"));
@@ -290,17 +319,15 @@ abstract contract VectorReplay is CouncilTestBase {
             pub[i] = pubs[i];
         }
         vm.expectCall(manager.dealVerifier(), abi.encodeCall(IDealVerifier.verifyProof, (pA, pB, pC, pub)));
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC);
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, pA, pB, pC, _roster());
         if (first) _snapIf("deal_first");
+        if (last) _snapIf("deal_last");
 
-        (uint256[2][16] memory C, uint256[2] memory E, uint256[16] memory m) = manager.getDealing(cid, uint8(j));
+        (uint256 wordE, uint256[16] memory m) = manager.getRecoveryDealing(cid, uint8(j));
         for (uint256 k; k < 16; ++k) {
-            assertEq(C[k][0], d.C[k][0]);
-            assertEq(C[k][1], d.C[k][1]);
             assertEq(m[k], d.masked[k]);
         }
-        assertEq(E[0], d.E[0]);
-        assertEq(E[1], d.E[1]);
+        assertEq(wordE, _compress(d.E[0], d.E[1]), "compressed E");
     }
 
     /// @dev The fixture's dealing is the vectors' dealing, and its public signals are the
@@ -353,7 +380,43 @@ abstract contract VectorReplay is CouncilTestBase {
             (uint256 sx, uint256 sy) = Bjj.mulG(vm.parseJsonUint(recoveryJson, string.concat(mk, ".share")));
             assertEq(sx, kx, "s_i G");
             assertEq(sy, ky, "s_i G");
+            _checkRecoverySlice(rs, mk, index);
         }
+        // the biased storage words of protocol §8.3 (the generator's x + 1, y + 1)
+        for (uint256 k; k < T; ++k) {
+            (uint256 bx, uint256 by) = _pt(recoveryJson, _k(string.concat(rs, ".aggregatesBiased"), k, ""));
+            assertEq(A[k][0] + 1, bx, "biased A_k.x");
+            assertEq(A[k][1] + 1, by, "biased A_k.y");
+        }
+    }
+
+    /// @dev getRecoverySlice serves exactly the recovery.json inputs: QUAL, compressed(E_j) and
+    ///      masked_{j,index} for every dealer, zero outside QUAL (protocol §8.6).
+    function _checkRecoverySlice(string memory rs, string memory mk, uint8 index) internal view {
+        (uint16 qual, uint256[16] memory words, uint256[16] memory masked) = manager.getRecoverySlice(cid, index);
+        assertEq(qual, vm.parseJsonUint(recoveryJson, string.concat(rs, ".qualBitmap")), "slice QUAL");
+        assertEq(vm.parseJsonUint(recoveryJson, string.concat(mk, ".compressedX")), memberXWord(index), "compressedX");
+        uint256 dealers = _count(recoveryJson, string.concat(rs, ".dealers"));
+        uint256 seen;
+        for (uint256 d; d < dealers; ++d) {
+            string memory dk = _k(string.concat(rs, ".dealers"), d, "");
+            uint256 j = vm.parseJsonUint(recoveryJson, string.concat(dk, ".dealerIndex"));
+            assertEq(words[j - 1], vm.parseJsonUint(recoveryJson, string.concat(dk, ".compressedE")), "slice E");
+            string memory pd = _k(string.concat(mk, ".perDealer"), d, "");
+            assertEq(vm.parseJsonUint(recoveryJson, string.concat(pd, ".dealerIndex")), j);
+            assertEq(masked[j - 1], vm.parseJsonUint(recoveryJson, string.concat(pd, ".masked")), "slice masked");
+            seen |= 1 << (j - 1);
+        }
+        for (uint256 j; j < 16; ++j) {
+            if ((seen >> j) & 1 == 0) {
+                assertEq(words[j], 0, "E outside QUAL");
+                assertEq(masked[j], 0, "masked outside QUAL");
+            }
+        }
+    }
+
+    function memberXWord(uint8 index) internal view returns (uint256 word) {
+        (, word,) = manager.getParticipantCompressed(cid, index);
     }
 
     function _replayRequest() internal {
@@ -390,6 +453,30 @@ abstract contract VectorReplay is CouncilTestBase {
         for (uint256 k; k < fieldCount; ++k) {
             cts.push(c[k]);
         }
+        uint256[2][] memory words = manager.getRequestCompressed(requestId);
+        assertEq(words.length, fieldCount);
+        for (uint256 k; k < fieldCount; ++k) {
+            uint256[] memory w =
+                vm.parseJsonUintArray(combineJson, _k(string.concat(cs, ".request.compressedCts"), k, ""));
+            assertEq(words[k][0], w[0], "compressed C1");
+            assertEq(words[k][1], w[1], "compressed C2");
+        }
+    }
+
+    /// @dev Scenario A: the organizer opens (Manual); B: the clock reaches decryptionOpenAt. Either
+    ///      way partials are refused until then.
+    function _replayOpening() internal {
+        assertFalse(manager.isDecryptionOpen(cid), "gate closed after request");
+        if (decMode == MANUAL) {
+            (OpenDecryption memory a, bytes memory sig) = _openMsg();
+            manager.openDecryption(a, sig);
+            _snapIf("openDecryption");
+        } else {
+            vm.warp(openAt - 1);
+            assertFalse(manager.isDecryptionOpen(cid));
+            vm.warp(openAt);
+        }
+        assertTrue(manager.isDecryptionOpen(cid), "gate open");
     }
 
     function _replayPartialsAndCombines() internal {
@@ -399,13 +486,19 @@ abstract contract VectorReplay is CouncilTestBase {
         uint256 partials = _count(combineJson, ps);
         if (real) assertEq(_count(partialFx, ".partials"), partials, "fixture partial count");
         for (uint256 i; i < partials; ++i) {
-            _replayPartial(_k(ps, i, ""), _k(".partials", i, ""));
-            if (i == 0) _snapIf("submitPartial_first");
+            _replayPartial(_k(ps, i, ""), _k(".partials", i, ""), i == 0);
         }
+        // permissionless re-publication of member 1's vector moves only its publication block
+        vm.roll(block.number + 7);
+        vm.prank(address(0xBEEF));
+        manager.publishPartialData(requestId, 1, dOf[requestId][1]);
+        _snapIf("publishPartialData");
+        (, bytes32 h,) = manager.getPartialCommitment(requestId, 1);
+        assertEq(h, vm.parseJsonBytes32(combineJson, string.concat(_k(ps, 0, ""), ".partialDataHash")));
         _replayCombines(cs, fieldCount);
     }
 
-    function _replayPartial(string memory pk, string memory fk) internal {
+    function _replayPartial(string memory pk, string memory fk, bool first) internal {
         PartialCall memory p;
         uint256 index = vm.parseJsonUint(combineJson, string.concat(pk, ".index"));
         p.D = _points16(combineJson, string.concat(pk, ".D"));
@@ -435,7 +528,14 @@ abstract contract VectorReplay is CouncilTestBase {
             pub[i] = pubs[i];
         }
         vm.expectCall(manager.partialVerifier(), abi.encodeCall(IPartialVerifier.verifyProof, (pA, pB, pC, pub)));
-        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC);
+        manager.submitPartial(p.a, p.sig, p.D, pA, pB, pC, _c1());
+        if (first) _snapIf("submitPartial_first");
+        dOf[requestId][index] = p.D;
+        (bool accepted, bytes32 dataHash, uint64 block_) = manager.getPartialCommitment(requestId, uint8(index));
+        assertTrue(accepted);
+        assertEq(dataHash, vm.parseJsonBytes32(combineJson, string.concat(pk, ".partialDataHash")), "partialDataHash");
+        assertEq(dataHash, _partialDataHash(requestId, index, cts.length, p.D), "partialDataHash (test side)");
+        assertEq(block_, block.number, "published block");
     }
 
     function _replayCombines(string memory cs, uint256 fieldCount) internal {
@@ -451,7 +551,7 @@ abstract contract VectorReplay is CouncilTestBase {
             uint64[] memory bad = new uint64[](1);
             bad[0] = uint64(plain[0] == 0 ? 1 : plain[0] - 1);
             vm.expectRevert(CombineCheckFailed.selector);
-            manager.combine(requestId, set, f0, bad);
+            manager.combine(requestId, set, f0, bad, _vectors(set), _c2(f0));
             for (uint256 start; start < fieldCount; start += 4) {
                 uint256 len = fieldCount - start < 4 ? fieldCount - start : 4;
                 uint8[] memory fields = _range(start, len);
@@ -459,7 +559,7 @@ abstract contract VectorReplay is CouncilTestBase {
                 for (uint256 i; i < len; ++i) {
                     pts[i] = uint64(plain[start + i]);
                 }
-                manager.combine(requestId, set, fields, pts);
+                manager.combine(requestId, set, fields, pts, _vectors(set), _c2(fields));
                 if (c == 0 && start == 0) _snapIf(string.concat("combine_", vm.toString(len), "fields"));
             }
             (bool ready, uint256[] memory values) = manager.getPlaintexts(requestId);

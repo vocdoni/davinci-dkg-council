@@ -12,15 +12,17 @@ import {Bjj} from "./Bjj.sol";
 /// @notice Shared fixture: deploys the manager on mock verifiers and drives one ceremony with
 ///         real BabyJubJub keys, Schnorr PoPs, Feldman commitments, ElGamal ciphertexts and
 ///         partial points. EIP-712 hashing here is written from the protocol §7.2 strings,
-///         independently of CouncilEIP712.
+///         independently of CouncilEIP712. The v2 calls that re-supply full points (roster keys,
+///         C1, C2, partial D vectors) are fed from the fixture's own copies of what was submitted.
 abstract contract CouncilTestBase is Test {
     // ─── Protocol constants, written out independently of src/ ────────────────────────────
 
     bytes32 internal constant DOMAIN_T =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 internal constant CREATE_T = keccak256(
-        "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint64 registrationDeadline,uint64 dealingDuration,address[] inviteKeys,uint64 validUntil)"
+        "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint8 registrationMode,uint64 registrationDeadline,uint64 dealingDuration,uint8 decryptionMode,uint64 decryptionOpenAt,uint64 manualDecryptionFallbackAt,address[] inviteKeys,uint64 validUntil)"
     );
+    bytes32 internal constant OPEN_T = keccak256("OpenDecryption(bytes12 ceremonyId,uint64 validUntil)");
     bytes32 internal constant ADD_INVITES_T =
         keccak256("AddInvites(bytes12 ceremonyId,uint32 firstInviteId,address[] inviteKeys,uint64 validUntil)");
     bytes32 internal constant CLOSE_T =
@@ -47,6 +49,7 @@ abstract contract CouncilTestBase is Test {
     bytes32 internal constant TAG_JOIN_POP = keccak256("davinci-dkg-council/v1/join-pop");
     bytes32 internal constant TAG_REQUEST = keccak256("davinci-dkg-council/v1/request");
     bytes32 internal constant TAG_PARTIAL_PAYLOAD = keccak256("davinci-dkg-council/v1/partial-payload");
+    bytes32 internal constant TAG_PARTIAL_DATA = keccak256("davinci-dkg-council/v2/partial-data");
 
     uint256 internal constant SECP_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
     uint256 internal constant LIMIT_R = 114913275077156194916793630162600694215226186830659824886409057759834789667722;
@@ -54,6 +57,9 @@ abstract contract CouncilTestBase is Test {
     uint256 internal constant R = Bjj.R;
     /// @dev BN254 base field (Groth16 proof coordinates).
     uint256 internal constant Q_BN = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
+
+    uint8 internal constant MANUAL = 0;
+    uint8 internal constant SCHEDULED = 1;
 
     bytes32 internal constant RELEASE_ID = keccak256("davinci-dkg-council/test/circuit-release");
     uint64 internal constant T0 = 1_800_000_000;
@@ -71,6 +77,24 @@ abstract contract CouncilTestBase is Test {
     address internal creator = address(0xC0EA7012);
     uint64 internal validUntil;
 
+    // ─── Phase policy of the next _create ─────────────────────────────────────────────────
+
+    /// @dev protocol §8.1 policy. With `customPolicy` false, `_create` uses the default: Manual
+    ///      registration expiring REG_PERIOD after creation, DEAL_DURATION, Manual decryption
+    ///      without fallback, opened by the organizer as `_toLive` ends (`autoOpen`).
+    struct Policy {
+        uint8 registrationMode;
+        uint64 registrationDeadline;
+        uint64 dealingDuration;
+        uint8 decryptionMode;
+        uint64 decryptionOpenAt;
+        uint64 manualDecryptionFallbackAt;
+    }
+
+    Policy internal policy;
+    bool internal customPolicy;
+    bool internal autoOpen = true;
+
     // ─── Current ceremony fixture ─────────────────────────────────────────────────────────
 
     bytes12 internal cid;
@@ -79,12 +103,15 @@ abstract contract CouncilTestBase is Test {
     uint256[] internal inviteSecrets;
     uint256[] internal authSecrets; // member i at slot i-1
     uint256[] internal shareSecrets;
+    uint256[2][] internal memberX; // X_i in TE, member i at slot i-1
     mapping(uint256 => uint256[16]) internal coef; // dealer index => coefficients
     uint256 internal qualBits;
     bytes31 internal pid;
     bytes32 internal requestId;
     uint256[4][] internal cts;
     uint64[] internal msgs;
+    /// @dev requestId => member index => the D vector its accepted partial carried.
+    mapping(bytes32 => mapping(uint256 => uint256[2][16])) internal dOf;
 
     struct JoinCall {
         Join a;
@@ -143,10 +170,18 @@ abstract contract CouncilTestBase is Test {
         else c[w - 6] = v;
     }
 
+    // ─── Compressed points (protocol §2.5, written independently of CouncilCurve) ─────────
+
+    function _compress(uint256 x, uint256 y) internal pure returns (uint256) {
+        return x | ((y & 1) << 255);
+    }
+
     // ─── EIP-712 (independent of CouncilEIP712) ──────────────────────────────────────────
 
     function _domainSeparator() internal view returns (bytes32) {
-        return keccak256(abi.encode(DOMAIN_T, keccak256("DAVINCI DKG Council"), keccak256("1"), block.chainid, address(manager)));
+        return keccak256(
+            abi.encode(DOMAIN_T, keccak256("DAVINCI DKG Council"), keccak256("2"), block.chainid, address(manager))
+        );
     }
 
     function _digest(bytes32 structHash) internal view returns (bytes32) {
@@ -155,7 +190,11 @@ abstract contract CouncilTestBase is Test {
 
     /// @dev 65-byte low-s signature r || s || v.
     function _sign(uint256 key, bytes32 structHash) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, _digest(structHash));
+        return _signDigest(key, _digest(structHash));
+    }
+
+    function _signDigest(uint256 key, bytes32 digest) internal pure returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
         if (uint256(s) > SECP_N / 2) {
             s = bytes32(SECP_N - uint256(s));
             v = v == 27 ? 28 : 27;
@@ -170,12 +209,20 @@ abstract contract CouncilTestBase is Test {
                 a.organizer,
                 a.nonce,
                 a.threshold,
+                a.registrationMode,
                 a.registrationDeadline,
                 a.dealingDuration,
+                a.decryptionMode,
+                a.decryptionOpenAt,
+                a.manualDecryptionFallbackAt,
                 keccak256(abi.encodePacked(a.inviteKeys)),
                 a.validUntil
             )
         );
+    }
+
+    function _hOpen(OpenDecryption memory a) internal pure returns (bytes32) {
+        return keccak256(abi.encode(OPEN_T, a.ceremonyId, a.validUntil));
     }
 
     function _hAddInvites(AddInvites memory a) internal pure returns (bytes32) {
@@ -240,6 +287,30 @@ abstract contract CouncilTestBase is Test {
 
     // ─── Lifecycle drivers ────────────────────────────────────────────────────────────────
 
+    /// @dev The policy `_create` signs: `policy` when `customPolicy`, else the default relative
+    ///      to the current block.
+    function _currentPolicy() internal view returns (Policy memory p) {
+        if (customPolicy) return policy;
+        p.registrationMode = MANUAL;
+        // vm.getBlockTimestamp, not block.timestamp: via-IR may reuse a timestamp read across a warp
+        p.registrationDeadline = uint64(vm.getBlockTimestamp()) + REG_PERIOD;
+        p.dealingDuration = DEAL_DURATION;
+        p.decryptionMode = MANUAL;
+    }
+
+    /// @dev Use `p` for the following `_create` calls.
+    function _usePolicy(
+        uint8 regMode,
+        uint64 regDeadline,
+        uint64 dealingDuration,
+        uint8 decMode,
+        uint64 openAt,
+        uint64 fallbackAt
+    ) internal {
+        policy = Policy(regMode, regDeadline, dealingDuration, decMode, openAt, fallbackAt);
+        customPolicy = true;
+    }
+
     function _createMsg(uint8 t, uint256 invites, uint64 nonce)
         internal
         returns (CreateCeremony memory a, bytes memory sig)
@@ -251,12 +322,17 @@ abstract contract CouncilTestBase is Test {
             inviteSecrets.push(s);
             keys[i] = vm.addr(s);
         }
+        Policy memory p = _currentPolicy();
         a = CreateCeremony({
             organizer: organizer,
             nonce: nonce,
             threshold: t,
-            registrationDeadline: uint64(block.timestamp) + REG_PERIOD,
-            dealingDuration: DEAL_DURATION,
+            registrationMode: p.registrationMode,
+            registrationDeadline: p.registrationDeadline,
+            dealingDuration: p.dealingDuration,
+            decryptionMode: p.decryptionMode,
+            decryptionOpenAt: p.decryptionOpenAt,
+            manualDecryptionFallbackAt: p.manualDecryptionFallbackAt,
             inviteKeys: keys,
             validUntil: validUntil
         });
@@ -269,6 +345,7 @@ abstract contract CouncilTestBase is Test {
         T = t;
         delete authSecrets;
         delete shareSecrets;
+        delete memberX;
         qualBits = 0;
         return cid;
     }
@@ -325,9 +402,20 @@ abstract contract CouncilTestBase is Test {
     function _join(uint256 i) internal {
         uint256 auth = _memberAuth(i);
         uint256 x = _memberShareKey(i);
-        _sendJoin(_joinMsg(i, uint32(i - 1), auth, x));
+        JoinCall memory j = _joinMsg(i, uint32(i - 1), auth, x);
+        _sendJoin(j);
         authSecrets.push(auth);
         shareSecrets.push(x);
+        memberX.push([j.a.pkX, j.a.pkY]);
+    }
+
+    /// @dev The joined roster in full TE, join order: the `rosterKeys` calldata of both close
+    ///      paths and of every dealing.
+    function _roster() internal view returns (uint256[2][] memory keys) {
+        keys = new uint256[2][](memberX.length);
+        for (uint256 i; i < keys.length; ++i) {
+            keys[i] = memberX[i];
+        }
     }
 
     function _closeMsg(uint8 count) internal view returns (CloseRegistration memory a, bytes memory sig) {
@@ -337,7 +425,11 @@ abstract contract CouncilTestBase is Test {
 
     function _close() internal {
         (CloseRegistration memory a, bytes memory sig) = _closeMsg(uint8(authSecrets.length));
-        manager.closeRegistration(a, sig);
+        manager.closeRegistration(a, sig, _roster());
+    }
+
+    function _closeScheduled() internal {
+        manager.closeRegistrationScheduled(cid, _roster());
     }
 
     function _ctx() internal view returns (bytes32) {
@@ -377,7 +469,7 @@ abstract contract CouncilTestBase is Test {
     }
 
     function _sendDeal(DealCall memory d) internal {
-        manager.deal(d.a, d.sig, d.C, d.E, d.masked, _pA(), _pB(), _pC());
+        manager.deal(d.a, d.sig, d.C, d.E, d.masked, _pA(), _pB(), _pC(), _roster());
     }
 
     function _deal(uint256 j) internal {
@@ -385,7 +477,19 @@ abstract contract CouncilTestBase is Test {
         qualBits |= 1 << (j - 1);
     }
 
-    /// @dev create(t, n invites) -> n joins -> close -> every member deals -> finalize.
+    function _openMsg() internal view returns (OpenDecryption memory a, bytes memory sig) {
+        a = OpenDecryption({ceremonyId: cid, validUntil: validUntil});
+        sig = _sign(orgKey, _hOpen(a));
+    }
+
+    /// @dev The organizer's Manual opening of the decryption gate.
+    function _open() internal {
+        (OpenDecryption memory a, bytes memory sig) = _openMsg();
+        manager.openDecryption(a, sig);
+    }
+
+    /// @dev create(t, n invites) -> n joins -> close -> every member deals -> finalize, and the
+    ///      Manual decryption gate opened (`autoOpen`, default policy only).
     function _toLive(uint8 n, uint8 t) internal {
         _create(t, n);
         for (uint256 i = 1; i <= n; ++i) {
@@ -396,6 +500,7 @@ abstract contract CouncilTestBase is Test {
             _deal(j);
         }
         manager.finalize(cid);
+        if (autoOpen && !customPolicy) _open();
     }
 
     /// @dev Final share s_m = Σ_{j in QUAL} f_j(m) mod r.
@@ -452,8 +557,44 @@ abstract contract CouncilTestBase is Test {
         adapter.submit(cid, requestId, cts);
     }
 
+    /// @dev The active C1 bases of the current request in full TE: submitPartial's `C1`.
+    function _c1() internal view returns (uint256[2][] memory out) {
+        out = new uint256[2][](cts.length);
+        for (uint256 k; k < cts.length; ++k) {
+            out[k] = [cts[k][0], cts[k][1]];
+        }
+    }
+
+    /// @dev The C2 points of `fields` in full TE: combine's `C2` ((0, 0) for an index past the
+    ///      request, for the rejection tests).
+    function _c2(uint8[] memory fields) internal view returns (uint256[2][] memory out) {
+        out = new uint256[2][](fields.length);
+        for (uint256 f; f < fields.length; ++f) {
+            if (fields[f] < cts.length) out[f] = [cts[fields[f]][2], cts[fields[f]][3]];
+        }
+    }
+
+    /// @dev The D vectors the members of `set` submitted for the current request.
+    function _vectors(uint8[] memory set) internal view returns (uint256[2][16][] memory out) {
+        out = new uint256[2][16][](set.length);
+        for (uint256 i; i < set.length; ++i) {
+            out[i] = dOf[requestId][set[i]];
+        }
+    }
+
     function _partialPayloadHash(bytes32 rid, uint256[2][16] memory D) internal pure returns (bytes32) {
         return keccak256(abi.encode(TAG_PARTIAL_PAYLOAD, rid, D, _pA(), _pB(), _pC()));
+    }
+
+    /// @dev protocol §10.2 partialDataHash, written independently of the manager.
+    function _partialDataHash(bytes32 rid, uint256 index, uint256 fieldCount, uint256[2][16] memory D)
+        internal
+        view
+        returns (bytes32)
+    {
+        return keccak256(
+            abi.encode(TAG_PARTIAL_DATA, block.chainid, address(manager), cid, rid, uint8(index), uint8(fieldCount), D)
+        );
     }
 
     /// @dev Honest partial of member `i`: D_k = s_i·C1_k, identity padding.
@@ -479,7 +620,8 @@ abstract contract CouncilTestBase is Test {
     }
 
     function _sendPartial(PartialCall memory p) internal {
-        manager.submitPartial(p.a, p.sig, p.D, _pA(), _pB(), _pC());
+        manager.submitPartial(p.a, p.sig, p.D, _pA(), _pB(), _pC(), _c1());
+        dOf[p.a.requestId][p.a.participantIndex] = p.D;
     }
 
     function _partial(uint256 i) internal {
@@ -500,8 +642,14 @@ abstract contract CouncilTestBase is Test {
         }
     }
 
+    /// @dev combine with the honest plaintexts, the members' recorded D vectors and C2.
     function _combine(uint8[] memory set, uint8[] memory fields) internal {
-        manager.combine(requestId, set, fields, _plain(fields));
+        manager.combine(requestId, set, fields, _plain(fields), _vectors(set), _c2(fields));
+    }
+
+    /// @dev combine with caller-chosen plaintexts and the honest re-supplied data.
+    function _combineWith(uint8[] memory set, uint8[] memory fields, uint64[] memory plain) internal {
+        manager.combine(requestId, set, fields, plain, _vectors(set), _c2(fields));
     }
 
     function _u64s(uint64 a, uint64 b, uint64 c) internal pure returns (uint64[] memory out) {

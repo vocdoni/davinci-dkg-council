@@ -1,5 +1,7 @@
-// Standalone reference implementation of the Council v1 encodings (docs/protocol.md), used only to
-// generate the cross-implementation vectors and the circuit tests. It must never import the SDK.
+// Standalone reference implementation of the Council protocol v2 encodings (docs/protocol.md), used
+// only to generate the cross-implementation vectors, the proof fixtures and the circuit tests. It
+// must never import the SDK. Domain tags keep their pinned v1 prefix (protocol §2.4); the EIP-712
+// domain version is "2" (§7.1).
 import {
   encodeAbiParameters,
   hashTypedData,
@@ -42,6 +44,8 @@ export const RESULT_BOUND = 1n << 40n;
 export const MAX_COMBINE_FIELDS = 4;
 export const MAX_INVITES = 64;
 export const MIN_DEALING_DURATION = 600;
+/** 365 days: the dealing-window upper bound (§8.1), so no close overflows and every Dealing phase times out. */
+export const MAX_DEALING_DURATION = 31_536_000;
 
 export type Point = readonly [bigint, bigint];
 export const O: Point = [0n, 1n];
@@ -61,6 +65,7 @@ export const TAGS = {
   partialPayload: "davinci-dkg-council/v1/partial-payload",
   circuitRelease: "davinci-dkg-council/v1/circuit-release",
   shareMaskPoseidon: "davinci-dkg-council/v1/share-mask-poseidon",
+  partialData: "davinci-dkg-council/v2/partial-data",
 } as const;
 
 export const PINNED_TAG_HASHES: Record<string, Hex> = {
@@ -73,7 +78,13 @@ export const PINNED_TAG_HASHES: Record<string, Hex> = {
   "davinci-dkg-council/v1/partial-payload": "0x790ea2a939d8ccdf25ac8c84f7bffca5476a976d584b89ca4a7f365b8e85c589",
   "davinci-dkg-council/v1/circuit-release": "0x9e489062d0e615d54b9cf250918652a1541571f981e4892e70d382d1536fdf5c",
   "davinci-dkg-council/v1/share-mask-poseidon": "0xd8262d0eb7248e9458410cb71d8ace07c8eabd235f11ed9fb71812260a9dc8f2",
+  "davinci-dkg-council/v2/partial-data": "0xe9c88d2345099d5c36ae9c5ef6fb2d2396dc1633fee75cfb7680fca2214182af",
 };
+
+/** protocol §2.3 PhaseMode; the manager's `protocolVersion()` view returns PROTOCOL_VERSION. */
+export const PHASE_MODES = { Manual: 0, Scheduled: 1 } as const;
+export const PROTOCOL_VERSION = 2;
+export const EIP712_VERSION = "2";
 
 export const DERIVE_PREFIX = "davinci-dkg-council/v1/derive/";
 export const PURPOSES = {
@@ -573,12 +584,16 @@ export function aggregate(dealings: Dealing[], t: number): Point[] {
 
 export const memberKey = (A: Point[], m: number): Point => hornerPoints(A, m);
 
-export function recoverShare(ctx: Hex, d: Dealing, member: number, x: bigint): { S: Point; h: bigint; s: bigint } {
+/**
+ * protocol §8.6 (v2): one dealer's share for `member` from E_j and masked_{j,member} only. There is
+ * no per-dealer commitment check: the C_j vectors are not durable state. The caller checks the sum
+ * against the aggregates (s·G == Horner(A, m)), see scenario.ts.
+ */
+export function recoverShare(ctx: Hex, d: { dealerIndex: number; E: Point; masked: bigint[] }, member: number, x: bigint): { S: Point; h: bigint; s: bigint } {
   const S = mul(d.E, x);
   const h = maskOf(ctx, d.dealerIndex, member, S);
   const s = mod(d.masked[member - 1] - h, P);
   if (s >= R) throw new Error("recovered share not canonical");
-  if (!eqPoint(mulG(s), hornerPoints(d.C, member))) throw new Error("Feldman check failed");
   return { S, h, s };
 }
 
@@ -629,8 +644,12 @@ export const EIP712_TYPES = {
     { name: "organizer", type: "address" },
     { name: "nonce", type: "uint64" },
     { name: "threshold", type: "uint8" },
+    { name: "registrationMode", type: "uint8" },
     { name: "registrationDeadline", type: "uint64" },
     { name: "dealingDuration", type: "uint64" },
+    { name: "decryptionMode", type: "uint8" },
+    { name: "decryptionOpenAt", type: "uint64" },
+    { name: "manualDecryptionFallbackAt", type: "uint64" },
     { name: "inviteKeys", type: "address[]" },
     { name: "validUntil", type: "uint64" },
   ],
@@ -687,6 +706,10 @@ export const EIP712_TYPES = {
     { name: "payloadHash", type: "bytes32" },
     { name: "validUntil", type: "uint64" },
   ],
+  OpenDecryption: [
+    { name: "ceremonyId", type: "bytes12" },
+    { name: "validUntil", type: "uint64" },
+  ],
 } as const;
 
 export type StructName = keyof typeof EIP712_TYPES;
@@ -694,7 +717,7 @@ export type StructName = keyof typeof EIP712_TYPES;
 /** Pinned encodeType strings, protocol §7.2 (asserted against EIP712_TYPES). */
 export const ENCODE_TYPES: Record<StructName, string> = {
   CreateCeremony:
-    "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint64 registrationDeadline,uint64 dealingDuration,address[] inviteKeys,uint64 validUntil)",
+    "CreateCeremony(address organizer,uint64 nonce,uint8 threshold,uint8 registrationMode,uint64 registrationDeadline,uint64 dealingDuration,uint8 decryptionMode,uint64 decryptionOpenAt,uint64 manualDecryptionFallbackAt,address[] inviteKeys,uint64 validUntil)",
   AddInvites: "AddInvites(bytes12 ceremonyId,uint32 firstInviteId,address[] inviteKeys,uint64 validUntil)",
   CloseRegistration: "CloseRegistration(bytes12 ceremonyId,uint8 participantCount,uint64 validUntil)",
   AllowAdapter: "AllowAdapter(bytes12 ceremonyId,address adapter,uint64 validUntil)",
@@ -703,11 +726,12 @@ export const ENCODE_TYPES: Record<StructName, string> = {
   Join: "Join(bytes12 ceremonyId,address participant,uint32 inviteId,uint256 pkX,uint256 pkY,uint256 popAx,uint256 popAy,uint256 popZ,uint64 validUntil)",
   Deal: "Deal(bytes12 ceremonyId,uint8 dealerIndex,bytes32 payloadHash,uint64 validUntil)",
   Partial: "Partial(bytes12 ceremonyId,bytes32 requestId,uint8 participantIndex,bytes32 payloadHash,uint64 validUntil)",
+  OpenDecryption: "OpenDecryption(bytes12 ceremonyId,uint64 validUntil)",
 };
 
 export const domainOf = (chainId: bigint, manager: Address) => ({
   name: "DAVINCI DKG Council",
-  version: "1",
+  version: EIP712_VERSION,
   chainId,
   verifyingContract: manager,
 });
@@ -717,7 +741,7 @@ export function domainSeparator(chainId: bigint, manager: Address): Hex {
     abiEncode([
       { type: "bytes32", value: keccak256(toBytes(EIP712_DOMAIN_TYPE)) },
       { type: "bytes32", value: keccak256(toBytes("DAVINCI DKG Council")) },
-      { type: "bytes32", value: keccak256(toBytes("1")) },
+      { type: "bytes32", value: keccak256(toBytes(EIP712_VERSION)) },
       { type: "uint256", value: chainId },
       { type: "address", value: manager },
     ]),
@@ -761,3 +785,150 @@ export async function signAction(
 }
 
 export const sha256Hex = (data: Uint8Array): Hex => toHex(sha256(data));
+
+// ---------------------------------------------------------------------------------------------
+// §2.5 compressed point encoding (storage only; never a coordinate on the wire)
+// ---------------------------------------------------------------------------------------------
+
+const TOP = 1n << 255n;
+const BIT254 = 1n << 254n;
+const LOW254 = BIT254 - 1n;
+
+/** compressed(x, y) = x | ((y & 1) << 255) for a canonical TE point. */
+export function compress(p: Point): bigint {
+  const [x, y] = p;
+  if (x < 0n || x >= P || y < 0n || y >= P) throw new Error("compress: non-canonical coordinate");
+  return x | ((y & 1n) << 255n);
+}
+
+export const compressHex = (p: Point): Hex => hex32(compress(p));
+
+/** Legendre symbol a^((p-1)/2) mod p: 1, p-1 or 0. */
+const legendre = (a: bigint): bigint => modPow(a, (P - 1n) / 2n, P);
+
+/**
+ * General Tonelli–Shanks square root mod p (v2(p−1) = 28; the (p+1)/4 shortcut is invalid for this
+ * field). Returns a root or null for a non-residue.
+ */
+export function sqrtModP(a: bigint): bigint | null {
+  a = mod(a, P);
+  if (a === 0n) return 0n;
+  if (legendre(a) !== 1n) return null;
+  let q = P - 1n;
+  let s = 0;
+  while ((q & 1n) === 0n) {
+    q >>= 1n;
+    s++;
+  }
+  let z = 2n;
+  while (legendre(z) !== P - 1n) z++;
+  let m = s;
+  let c = modPow(z, q, P);
+  let t = modPow(a, q, P);
+  let r = modPow(a, (q + 1n) / 2n, P);
+  while (t !== 1n) {
+    let i = 0;
+    let t2 = t;
+    while (t2 !== 1n) {
+      t2 = (t2 * t2) % P;
+      i++;
+      if (i === m) throw new Error("tonelli-shanks: no root");
+    }
+    let b = c;
+    for (let j = 0; j < m - i - 1; j++) b = (b * b) % P;
+    m = i;
+    c = (b * b) % P;
+    t = (t * c) % P;
+    r = (r * b) % P;
+  }
+  if ((r * r) % P !== a) throw new Error("tonelli-shanks self-check");
+  return r;
+}
+
+/** The 2-adic valuation of p − 1 (28 for BN254's scalar field). */
+export function twoAdicity(): number {
+  let q = P - 1n;
+  let s = 0;
+  while ((q & 1n) === 0n) {
+    q >>= 1n;
+    s++;
+  }
+  return s;
+}
+
+export type DecodeRejection = "bit254" | "xNotCanonical" | "nonResidue" | "zeroRootOddParity";
+
+/** A strict-decode refusal, typed by its reason (thrown by `decompress`). */
+export class DecodeError extends Error {
+  constructor(readonly reason: DecodeRejection) {
+    super(`decompress: ${reason}`);
+    this.name = "DecodeError";
+  }
+}
+
+/**
+ * Strict decode (clients only): reject bit 254, x >= p, a non-residue y², and an odd parity bit
+ * when y² = 0 (the only root is y = 0; the odd one would be y = p, not canonical — the two
+ * order-4 points x = ±sqrt(1/168700)); parity from bit 255.
+ */
+export function decompressChecked(word: bigint): { point: Point } | { rejected: DecodeRejection } {
+  if (word < 0n || word >= 1n << 256n) throw new Error("not a 256-bit word");
+  if ((word & BIT254) !== 0n) return { rejected: "bit254" };
+  const x = word & LOW254;
+  if (x >= P) return { rejected: "xNotCanonical" };
+  const parity = word >> 255n;
+  const x2 = (x * x) % P;
+  const num = mod(1n - A_TE * x2, P);
+  const den = mod(1n - D_TE * x2, P);
+  // d is a non-square, so 1 - d·x² is never 0
+  const y2 = (num * invMod(den, P)) % P;
+  const y0 = sqrtModP(y2);
+  if (y0 === null) return { rejected: "nonResidue" };
+  if (y0 === 0n && parity === 1n) return { rejected: "zeroRootOddParity" };
+  const y = (y0 & 1n) === parity ? y0 : mod(-y0, P);
+  if ((y & 1n) !== parity) throw new Error("decompress: parity unreachable");
+  const pt: Point = [x, y];
+  if (!onCurve(pt)) throw new Error("decompress: off curve");
+  return { point: pt };
+}
+
+export function decompress(word: bigint): Point {
+  const r = decompressChecked(word);
+  if ("rejected" in r) throw new DecodeError(r.rejected);
+  return r.point;
+}
+
+export type AuthResult = "ok" | "NonCanonical" | "InvalidPoint" | "CompressedPointMismatch";
+
+/** Contract-side authentication of a caller-supplied full point against a stored word (§2.5). */
+export function authenticate(stored: bigint, supplied: readonly [bigint, bigint]): AuthResult {
+  const [x, y] = supplied;
+  if (x >= P || y >= P) return "NonCanonical";
+  if (!onCurve([x, y])) return "InvalidPoint";
+  return (x | ((y & 1n) << 255n)) === stored ? "ok" : "CompressedPointMismatch";
+}
+
+// ---------------------------------------------------------------------------------------------
+// §10.2 durable partial-data commitment
+// ---------------------------------------------------------------------------------------------
+
+export function partialDataHash(
+  chainId: bigint,
+  manager: Address,
+  ceremonyId: Hex,
+  requestId: Hex,
+  participantIndex: number,
+  fieldCount: number,
+  D: readonly Point[],
+): Hex {
+  if (D.length !== MAX_FIELDS) throw new Error("partialDataHash: D must be padded to 16 points");
+  return taggedHash(TAGS.partialData, [
+    { type: "uint256", value: chainId },
+    { type: "address", value: manager },
+    { type: "bytes12", value: ceremonyId },
+    { type: "bytes32", value: requestId },
+    { type: "uint8", value: participantIndex },
+    { type: "uint8", value: fieldCount },
+    { type: "uint256[2][16]", value: D.map((d) => [d[0], d[1]]) },
+  ]);
+}

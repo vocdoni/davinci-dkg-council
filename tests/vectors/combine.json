@@ -1,5 +1,5 @@
 {
-  "description": "Requests, partial decryptions (§10.1) with the circuit witness input and the 67-word public input vector, Lagrange coefficients and combine equations (§10.3). Encryption randomness is test-only (HashToScalar over a test tag)",
+  "description": "Requests, partial decryptions (§10.1) with the circuit witness input, the 67-word public input vector and the v2 durable partialDataHash (§10.2), Lagrange coefficients and combine equations (§10.3). Encryption randomness is test-only (HashToScalar over a test tag)",
   "placeholderProof": {
     "pA": [
       "1",
@@ -61,6 +61,20 @@
             "5239659447111890679804864103742892547011122317883910048968462253182241340169",
             "14627821421866668534149177391939960037326396737244489659319833292639116602361",
             "8648046659548743114171174607077037019240949774518087933907092045684746550011"
+          ]
+        ],
+        "compressedCts": [
+          [
+            "0x0cab5dd1ecdfcda240c5b526d7fdfc047ad8c2aa4408094247419d3984c1193b",
+            "0x1af127b4858084e52ecc83df2befe3305478bcae9834b82feb8f2ada16f455f7"
+          ],
+          [
+            "0x189f988fe9faad45e49e978bac0f340c4d02acb94cd879bdbb238cc181460d57",
+            "0x1b1404b0343858d28cac5ef8d8a032daaa501cd50fb6af9c1b25b65feb1a21b3"
+          ],
+          [
+            "0xa531e347ccc3463a7c4fe2191f6c721b7a79664f4f3a70b26f8fe70e11c32577",
+            "0xa0570db3e4361cb9c1c68995b797535d15970a1ea0ca70380130cf2718fa2bf9"
           ]
         ]
       },
@@ -137,6 +151,7 @@
               "1"
             ]
           ],
+          "partialDataHash": "0xd5d7ba2a9ebac15fd8eef96f5bb32aed4909b861d87508f7318586ffe557849e",
           "payloadHash": "0x000c4ded5b2eaa86213c7e8edf41d2eae039db222248544f17fc57c91d940c2b",
           "witnessInput": {
             "PK": [
@@ -416,6 +431,7 @@
               "1"
             ]
           ],
+          "partialDataHash": "0x655c18b8653395572116713378d10c65cb6bb7a568cf663bff99b1cade212010",
           "payloadHash": "0xec636b1129dcdee3c76068ae3f940c79793af3274789af2d0f1236c3a3ad8a72",
           "witnessInput": {
             "PK": [
@@ -695,6 +711,7 @@
               "1"
             ]
           ],
+          "partialDataHash": "0x6b6f6c015d40661c6d5c5a9dddb543cc2c02b198e00c37a27eba5d076c1d101d",
           "payloadHash": "0x2ab4ab37df5e8872a87624a2f5c9162f4fcd4d1c602d641066662a7f51468b16",
           "witnessInput": {
             "PK": [
@@ -1235,6 +1252,72 @@
             "17899125889974410582210510341419037336557109976987102426951493594003388171297",
             "431191455785048184015014782315362610063818369708850833793212853737511797972"
           ]
+        ],
+        "compressedCts": [
+          [
+            "0x1267bf14162efb00cfc5cad4d86445a366222b6f0f2f37f1c6b4095025ee9cca",
+            "0x27a4f1785394d67b501db697731308941a495ea62dba848bbad085677b998ef4"
+          ],
+          [
+            "0x146f587c31915da0d651f0caec36dfe9b975b34a016bacce806f149d69563c9a",
+            "0x209e283a66cc6b90f9faa904595c7cd17e77a00edbd83b6a0c994bc974aa3cde"
+          ],
+          [
+            "0x9334fb5fe549c40d7c5a85b7346d0b0dd471eec66e32e689a079049b7c4f573f",
+            "0x20a313fac23cda4b596fac7c1248f7f5cb823afb20387bc7c40478f72a28c52e"
+          ],
+          [
+            "0x2cdba7ddf3e2456f95763add4939d89f64e46161b7f281bc1b6a2e9554981550",
+            "0x9f8c83fca8662ace464b0002b65249ce7c6713250f203b69f107857f20ff68a9"
+          ],
+          [
+            "0x18dd84b3b13b9de25cea7826b4a8dc280c4b28a05599c02fcc9d683ded2faeac",
+            "0x1fa5f1152d6ec2c95ac15abf18db1ec53f6a443c2f49779d8ac34786352ab79c"
+          ],
+          [
+            "0x16a36b9037baf583b7d261bc1d4488fc1fbe2614b77934634b57e24908ab83cd",
+            "0xb02f5ca82b643d3a7656f7356ded0ed3242ce97e85f17e8df3f77c5533ae4974"
+          ],
+          [
+            "0xafdce36927cc09bdbb2d696f47b4264017adf95042e188665bcd9bd2d42f8dfe",
+            "0x9e722cdc3132080230d40b5ebe3f2ecf00624a23423c7d4d4ec2d5f59d1d0d76"
+          ],
+          [
+            "0x20124eb869eff8fdb17bee6ef76d9bb0787437b3f0cef3598ee32bf53cd273ff",
+            "0xa52ce8cdff8dc76cc8d09cb2c3685c808cb223149ec2836596773f807c542e19"
+          ],
+          [
+            "0x1b080e3c9f42b1dca6c8f249efcb29f092a3695f29828fe4f1420b72f32d1698",
+            "0x121d79642ac048325c457576fa6b30bdc1b3c5f9534dcf871e837df452df6cd4"
+          ],
+          [
+            "0x2673423070b061e437c6b61f30d3191c3fd4f45fd0db724733a41c6c5821a5d5",
+            "0x06644917b744d83eb170a2158a2992691c3b9702e9220ee82ba19de1ae2b8bb7"
+          ],
+          [
+            "0x9f8a49dfb6916ddb2af824cc559231d93b0cf12cdd853339b3236795c84332d7",
+            "0xad07dec41060e735a0f07cac8b136d9eaedce2f93d4ad61d1a92564ab34f79e7"
+          ],
+          [
+            "0x00f3cfe40fbba9439545dabd1fdfa92c76594ef07745df140563e5a2c26b8cba",
+            "0x0641eaa2a18536a09ef3acdf99b076f3e8c803632acbb53cb59213c8bce1e6ca"
+          ],
+          [
+            "0x853cc161459cd143e1aaf15b955c72bfedb137e13ad2cb9a174d1ec9843d23db",
+            "0x09120fb47c393a26a5830bab777d82a85bc13f615db839c8e844ead86c69b5cd"
+          ],
+          [
+            "0x297a087323a00f97979a5077c04801124413b55781f984e427a20d7125acfd1c",
+            "0x9347d65601af77ba848b48da8a730c8d84a39f94474e31bd0c9dbf89d0b406d7"
+          ],
+          [
+            "0x1841377d483671714aace934408c4fed1d225c3a045d2c69760dda1652ce27f5",
+            "0x85f057daf6e51242b4f8ffd33d5a73fd48e3f243eaf79feafc8c31724a0b3795"
+          ],
+          [
+            "0x27dff3ee448696eab70a84c863ad4700a59e0da0c8d0c24088c8ad74e6030fd2",
+            "0x27928bd66e229a33a587f974d721287b06f3a6d88abc26e34e97cd6f6bf30421"
+          ]
         ]
       },
       "publicKey": [
@@ -1310,6 +1393,7 @@
               "20054892771409325432802876808903946705688069018673204135413523448518466584986"
             ]
           ],
+          "partialDataHash": "0x83be4ee81b22a4ef95d5bc00ba31f5933c8f60f88f5c3b418d392bc1ef24ca49",
           "payloadHash": "0x50122c2b1467083db5fcd73522e1a86428d7353149f759c3e5d60c5a0571531b",
           "witnessInput": {
             "PK": [
@@ -1589,6 +1673,7 @@
               "19694824674701766480580340540896081308294156525775002985038985173671597720737"
             ]
           ],
+          "partialDataHash": "0x929a493fe0f3912746e6ce513aba4fa13c2b20628c8f43d4f9e8378a68efcddd",
           "payloadHash": "0xe24bbeda9cca2315e4cdf4a612da23eff4ae11c78f072ccf207d0064b4366047",
           "witnessInput": {
             "PK": [
@@ -1868,6 +1953,7 @@
               "1809818012685265530532002840186975031862483292452015052221092417521433817261"
             ]
           ],
+          "partialDataHash": "0x75acf1483b5979595842632900e63465c8c4b434089a718203299925729dc91d",
           "payloadHash": "0x3548518c180ce12ea0acc9389456b311f242864af783872cbd2c6e07ed9b2845",
           "witnessInput": {
             "PK": [
@@ -2147,6 +2233,7 @@
               "1645370969960808613938000952222209276108489378546224373259487170188236699284"
             ]
           ],
+          "partialDataHash": "0xf6e343b40d74ee8519fc25074014adba4a89cc3976cc9ae9f3777429f268dd64",
           "payloadHash": "0xd197201a277680640c5796471b940d579906ef1cc8f4baa097348e9c5336104b",
           "witnessInput": {
             "PK": [
@@ -2426,6 +2513,7 @@
               "14561903255292093313872063649194394939739023556155477742626477657586211639205"
             ]
           ],
+          "partialDataHash": "0x85613dfee49a4bf814be92f5d3c05e1dde8ea312a25af6b2476eec9378d65c64",
           "payloadHash": "0x68577db88ffd14451763d076e383d757e781e38307adf36d7ae969863e4fe2dc",
           "witnessInput": {
             "PK": [
@@ -2705,6 +2793,7 @@
               "12802505186167852793652328434592912704016307760326133272224789950717476941337"
             ]
           ],
+          "partialDataHash": "0xd3bfc8361a69fe4a31fa809128dedead5e3b45fe88c233113cc5df51d9398c6f",
           "payloadHash": "0x6bec0350f12f4bd2eb9c19e94c3b366c497e55a771afb3568dbdb5ab24a2afff",
           "witnessInput": {
             "PK": [
@@ -2984,6 +3073,7 @@
               "8537988964089786956243411499318640699966326830423861003106891984179360871648"
             ]
           ],
+          "partialDataHash": "0x5262d55520c58f57c749746d5fba8d260eb3cd7491d0befab04efefb76efd369",
           "payloadHash": "0xf5b2921fa391c627aa0e5db32144611c28dea82ab14cda505932d4b3c2703ebe",
           "witnessInput": {
             "PK": [
@@ -3263,6 +3353,7 @@
               "21815975830127395665145989879220256453117547329608483972844697566435451265124"
             ]
           ],
+          "partialDataHash": "0xfe71b4f82c9c34763201cad925d420f4575971b9fc9f29dd4a109e7886b742a7",
           "payloadHash": "0xdd62c7fd53a90f4c52710fdf38f4143794bcc4e470681e69375048f9d29a472d",
           "witnessInput": {
             "PK": [
@@ -3542,6 +3633,7 @@
               "16154015368445692228068352857252658607315477726652571627375788739746925033611"
             ]
           ],
+          "partialDataHash": "0xd034403cf51834beec5e81e94a2e11e588414bcf3b707c27675e0d0d489ff7af",
           "payloadHash": "0x9631d841a02020c45f2ac0fc2c30496f63bd5074b880e32750ca9e9406e0f4f9",
           "witnessInput": {
             "PK": [
@@ -3821,6 +3913,7 @@
               "8670665061666444980487348574746254156510138051535698508956820133663078210627"
             ]
           ],
+          "partialDataHash": "0x5b79407d621afe3208c1be1ee4ec2b296236f597f3281da0f2eb8f39bd74c496",
           "payloadHash": "0xede1a04f8be7078878c8c4e203c94c4c969371323e4522bb2c8e97a43b31e04f",
           "witnessInput": {
             "PK": [
@@ -4100,6 +4193,7 @@
               "13688451387611331877968125553739262166418698849028355071080151844259042341448"
             ]
           ],
+          "partialDataHash": "0x62fbfe139ed53838eb9aeffb2e1517a69995054a301aaade85bf42370b12d5a6",
           "payloadHash": "0x798ab4c852ea7e0995c5e32e8501b3280ccc7f53990fc2555fe6309175d2df79",
           "witnessInput": {
             "PK": [
@@ -4379,6 +4473,7 @@
               "13352319868292662182652903706854212879729553138888207660592389054247434883562"
             ]
           ],
+          "partialDataHash": "0x43e62760fa7abb0357df008f13363a50ce1904972b2ab0a140188474630f1730",
           "payloadHash": "0xec3c374d109113c423c47d947af281a953f6f684384c1bf5def8bcc7d4e65382",
           "witnessInput": {
             "PK": [
@@ -4658,6 +4753,7 @@
               "10929784396781776988386379533815544461458501019593123882409246746645072294702"
             ]
           ],
+          "partialDataHash": "0xdd2af376076015fcc9217655f2c0ec29190cf795d57c7d33d918326a7d80dadc",
           "payloadHash": "0xd2103b9f048133b1423954a81a2fa7a5b920ec7ae6a012b161db0e732adebbdf",
           "witnessInput": {
             "PK": [
@@ -4937,6 +5033,7 @@
               "12516860514968544877908834070366986424279479065924320950897462262022289041846"
             ]
           ],
+          "partialDataHash": "0x114abd3e6d8856c3ecd38586ef897e5df74d82d6ef57970f7b9f650d71ab1b94",
           "payloadHash": "0x6d969e84939b6b872a3a243a05d6b11b047f542c6fdec3744509a70eb389bf29",
           "witnessInput": {
             "PK": [
@@ -5216,6 +5313,7 @@
               "12006600110254082752934575116951900642465809002734045211417391142716827223540"
             ]
           ],
+          "partialDataHash": "0xb5803ed1c502afbcd4cea2f555e693cfab6845f35e67c898c7c7f03ed9a2a498",
           "payloadHash": "0x3d028ab4e7d0997ead3b2ecf217cef4fcb88ab250e165e3b4732ae6da4f7c0cf",
           "witnessInput": {
             "PK": [
@@ -5495,6 +5593,7 @@
               "19463201867502550657292642167145339134568893958756984626845604860317425800051"
             ]
           ],
+          "partialDataHash": "0x35191f9f1a37aa0514c0a7ebe4f3d6766ae2fe97f62208d32e200c6e8af14b24",
           "payloadHash": "0x2134ac5b2e6204d6bed40d268bf593b26b70a8aa98aaa5a8da72749f5cf40305",
           "witnessInput": {
             "PK": [

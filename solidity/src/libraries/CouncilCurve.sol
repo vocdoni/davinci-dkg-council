@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {BabyJubJub} from "./BabyJubJub.sol";
-import {NonCanonical, InvalidPoint, NotInSubgroup} from "../CouncilTypes.sol";
+import {NonCanonical, InvalidPoint, NotInSubgroup, CompressedPointMismatch} from "../CouncilTypes.sol";
 
 /// @title CouncilCurve
 /// @notice Thin wrapper over the vendored (read-only) `BabyJubJub.sol`, which works in the reduced
@@ -52,6 +52,24 @@ library CouncilCurve {
         if (!BabyJubJub.isInPrimeSubgroup(xr, y)) revert NotInSubgroup();
     }
 
+    /// @notice protocol §2.5 compressed encoding of a TE point: `x | ((y & 1) << 255)`. Callers
+    ///         pass canonical coordinates (`x < p < 2^254`, so bit 254 stays zero).
+    function compress(uint256 x, uint256 y) internal pure returns (uint256) {
+        return x | ((y & 1) << 255);
+    }
+
+    /// @notice protocol §2.5 authentication of a caller-supplied full TE point against a stored
+    ///         compressed word, without square roots, in the pinned order: canonical coordinates
+    ///         (`NonCanonical()`), the TE curve equation (`InvalidPoint()`), exact equality of the
+    ///         compressed word (`CompressedPointMismatch()`). The curve check is load-bearing:
+    ///         `(G.x, G.y + 2)` compresses to G's word. On canonical on-curve points the encoding
+    ///         is injective, so only the stored point passes and it inherits that point's
+    ///         subgroup checks. Returns the reduced-chart x.
+    function authenticate(uint256 x, uint256 y, uint256 stored) internal pure returns (uint256 xr) {
+        xr = requireOnCurveTE(x, y);
+        if (compress(x, y) != stored) revert CompressedPointMismatch();
+    }
+
     /// @notice Affine addition in the reduced chart.
     function add(uint256 x1, uint256 y1, uint256 x2, uint256 y2) internal view returns (uint256, uint256) {
         return BabyJubJub.pointAdd(x1, y1, x2, y2);
@@ -81,7 +99,8 @@ library CouncilCurve {
     // a pointer. `alloc(count)` lays out `count` points (initialised to the identity), one
     // scratch point after them and `count` scratch words for the batch inversion. The formulas
     // are the unified HWCD ones the vendored library uses (complete on this curve), without its
-    // per-operation allocation and inversion: finalize inverts once in total.
+    // per-operation allocation and inversion: each dealing's aggregate fold (protocol §8.3) and
+    // each on-demand member key (Horner) inverts once in total.
 
     /// @dev 2·d of the reduced chart (== BabyJubJub.TWO_D).
     uint256 internal constant TWO_D = 2475045175004185027501911298141836274980133961483913877536377848625489762075;

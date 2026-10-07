@@ -19,7 +19,9 @@ contract CouncilRegistrationTest is CouncilTestBase {
         (CreateCeremony memory a, bytes memory sig) = _createMsg(3, 4, 77);
         bytes12 expected = manager.ceremonyIdFor(organizer, 77);
         vm.expectEmit(address(manager));
-        emit ICouncilCore.CeremonyCreated(expected, organizer, 3, a.registrationDeadline, DEAL_DURATION);
+        emit ICouncilCore.CeremonyCreated(
+            expected, organizer, 3, MANUAL, a.registrationDeadline, DEAL_DURATION, MANUAL, 0, 0
+        );
         cid = manager.createCeremony(a, sig);
         assertEq(cid, expected);
         CeremonyView memory v = manager.getCeremony(cid);
@@ -30,13 +32,23 @@ contract CouncilRegistrationTest is CouncilTestBase {
         assertEq(v.registrationDeadline, a.registrationDeadline);
         assertEq(v.dealingDeadline, 0);
         assertEq(v.rosterHash, bytes32(0));
-        for (uint32 i; i < 4; ++i) {
+        for (uint8 i; i < 4; ++i) {
             (address key, bool consumed) = manager.getInvite(cid, i);
             assertEq(key, a.inviteKeys[i]);
             assertFalse(consumed);
         }
         vm.expectRevert(WrongPhase.selector);
         manager.getPublicKey(cid);
+        PhasePolicyView memory pv = manager.getPolicy(cid);
+        assertEq(pv.registrationMode, MANUAL);
+        assertEq(pv.decryptionMode, MANUAL);
+        assertEq(pv.dealingDuration, DEAL_DURATION);
+        assertEq(pv.decryptionOpenAt, 0);
+        assertEq(pv.manualDecryptionFallbackAt, 0);
+        assertEq(pv.manualOpenedAt, 0);
+        assertFalse(pv.decryptionOpen);
+        assertFalse(pv.scheduledRegistrationCloseDue);
+        assertFalse(manager.isDecryptionOpen(cid));
     }
 
     function test_Create_ReplayRejected() public {
@@ -98,8 +110,11 @@ contract CouncilRegistrationTest is CouncilTestBase {
         (CreateCeremony memory a,) = _createMsg(2, 3, 1);
         a.registrationDeadline = uint64(block.timestamp);
         bytes memory sig = _signCreate(a);
-        vm.expectRevert(Expired.selector);
+        vm.expectRevert(BadSchedule.selector);
         manager.createCeremony(a, sig);
+        // a Manual registration may also have no expiry at all
+        a.registrationDeadline = 0;
+        manager.createCeremony(a, _signCreate(a));
     }
 
     function test_Create_DealingDuration() public {
@@ -108,12 +123,24 @@ contract CouncilRegistrationTest is CouncilTestBase {
         bytes memory sig = _signCreate(a);
         vm.expectRevert(BadDuration.selector);
         manager.createCeremony(a, sig);
-        // a dealing deadline that would not fit in uint64
-        a.dealingDuration = type(uint64).max - a.registrationDeadline + 1;
+        // above the 365-day bound, whatever the schedule
+        a.dealingDuration = 365 days + 1;
         sig = _signCreate(a);
         vm.expectRevert(BadDuration.selector);
         manager.createCeremony(a, sig);
+        // a dealing deadline that would not fit in uint64
         a.dealingDuration = 600;
+        a.registrationDeadline = type(uint64).max - 600 + 1;
+        sig = _signCreate(a);
+        vm.expectRevert(BadSchedule.selector);
+        manager.createCeremony(a, sig);
+        a.registrationDeadline = type(uint64).max - 600;
+        sig = _signCreate(a);
+        uint256 snap = vm.snapshotState();
+        manager.createCeremony(a, sig);
+        vm.revertToState(snap);
+        a.dealingDuration = 365 days;
+        a.registrationDeadline = uint64(vm.getBlockTimestamp()) + REG_PERIOD;
         manager.createCeremony(a, _signCreate(a));
     }
 
@@ -240,8 +267,12 @@ contract CouncilRegistrationTest is CouncilTestBase {
 
         a.validUntil = validUntil;
         sig = _sign(orgKey, _hAddInvites(a));
+        // an invite nobody could redeem is not registrable: same half-open cutoff as join
+        vm.warp(T0 + REG_PERIOD);
+        vm.expectRevert(RegistrationEnded.selector);
+        manager.addInvites(a, sig);
         vm.warp(T0 + REG_PERIOD + 1);
-        vm.expectRevert(Expired.selector);
+        vm.expectRevert(RegistrationEnded.selector);
         manager.addInvites(a, sig);
 
         vm.warp(T0);
@@ -260,11 +291,12 @@ contract CouncilRegistrationTest is CouncilTestBase {
         vm.expectEmit(address(manager));
         emit ICouncilCore.ParticipantJoined(cid, 1, j.a.participant, 1);
         _sendJoin(j);
-        (address auth, uint256 x, uint256 y, bool dealt) = manager.getParticipant(cid, 1);
+        (address auth, uint256 word, bool dealt) = manager.getParticipantCompressed(cid, 1);
         assertEq(auth, j.a.participant);
-        assertEq(x, j.a.pkX);
-        assertEq(y, j.a.pkY);
+        assertEq(word, _compress(j.a.pkX, j.a.pkY), "stored compressed, never in full");
         assertFalse(dealt);
+        vm.expectRevert(NotQualified.selector);
+        manager.getParticipantCompressed(cid, 2);
         assertEq(manager.participantIndexOf(cid, auth), 1);
         CeremonyView memory v = manager.getCeremony(cid);
         assertEq(v.joinedCount, 1);
@@ -450,12 +482,30 @@ contract CouncilRegistrationTest is CouncilTestBase {
         vm.expectRevert(Expired.selector);
         _sendJoin(j);
 
+        // the joining interval is half-open in v2: closed at the deadline itself
         j = _joinMsg(1, 0, auth, _memberShareKey(1));
         vm.warp(T0 + REG_PERIOD + 1);
-        vm.expectRevert(Expired.selector);
+        vm.expectRevert(RegistrationEnded.selector);
         _sendJoin(j);
         vm.warp(T0 + REG_PERIOD);
-        _sendJoin(j); // the deadline itself is still open
+        vm.expectRevert(RegistrationEnded.selector);
+        _sendJoin(j);
+        vm.warp(T0 + REG_PERIOD - 1);
+        _sendJoin(j);
+    }
+
+    /// @dev A Manual ceremony without expiry accepts joins at any time until the organizer closes.
+    function test_Join_ManualWithoutExpiryNeverEnds() public {
+        _usePolicy(MANUAL, 0, DEAL_DURATION, MANUAL, 0, 0);
+        validUntil = T0 + 400 days;
+        _create(1, 3);
+        vm.warp(T0 + 365 days);
+        _join(1);
+        assertEq(manager.getCeremony(cid).registrationDeadline, 0);
+        vm.expectRevert(AbortConditionNotMet.selector);
+        manager.abort(cid);
+        _close();
+        assertEq(manager.getCeremony(cid).dealingDeadline, T0 + 365 days + DEAL_DURATION);
     }
 
     function test_Join_RosterFull() public {
@@ -485,14 +535,16 @@ contract CouncilRegistrationTest is CouncilTestBase {
         _join(2);
         _join(3);
         (CloseRegistration memory a, bytes memory sig) = _closeMsg(3);
-        manager.closeRegistration(a, sig);
+        vm.expectEmit(address(manager));
+        emit ICouncilCore.RegistrationClosed(cid, 3, _expectedRosterHash(), uint64(block.timestamp) + DEAL_DURATION);
+        manager.closeRegistration(a, sig, _roster());
         CeremonyView memory v = manager.getCeremony(cid);
         assertEq(v.phase, uint8(Phase.Dealing));
         assertEq(v.n, 3);
         assertEq(v.dealingDeadline, block.timestamp + DEAL_DURATION);
-        assertTrue(v.rosterHash != bytes32(0));
+        assertEq(v.rosterHash, _expectedRosterHash());
         vm.expectRevert(WrongPhase.selector);
-        manager.closeRegistration(a, sig);
+        manager.closeRegistration(a, sig, _roster());
     }
 
     /// @dev The organizer's count pins the roster it saw: a late join invalidates the signature's
@@ -502,9 +554,12 @@ contract CouncilRegistrationTest is CouncilTestBase {
         _join(1);
         _join(2);
         (CloseRegistration memory a, bytes memory sig) = _closeMsg(2);
+        uint256[2][] memory seen = _roster();
         _join(3);
         vm.expectRevert(RosterMismatch.selector);
-        manager.closeRegistration(a, sig);
+        manager.closeRegistration(a, sig, seen);
+        vm.expectRevert(RosterMismatch.selector);
+        manager.closeRegistration(a, sig, _roster());
     }
 
     function test_Close_BelowThreshold() public {
@@ -513,7 +568,7 @@ contract CouncilRegistrationTest is CouncilTestBase {
         _join(2);
         (CloseRegistration memory a, bytes memory sig) = _closeMsg(2);
         vm.expectRevert(BelowThreshold.selector);
-        manager.closeRegistration(a, sig);
+        manager.closeRegistration(a, sig, _roster());
     }
 
     function test_Close_AuthAndDeadlines() public {
@@ -522,16 +577,47 @@ contract CouncilRegistrationTest is CouncilTestBase {
         (CloseRegistration memory a,) = _closeMsg(1);
         bytes memory bad = _sign(_memberAuth(1), _hClose(a));
         vm.expectRevert(BadSignature.selector);
-        manager.closeRegistration(a, bad);
+        manager.closeRegistration(a, bad, _roster());
 
         a.validUntil = uint64(block.timestamp) - 1;
         bytes memory sig = _sign(orgKey, _hClose(a));
         vm.expectRevert(Expired.selector);
-        manager.closeRegistration(a, sig);
+        manager.closeRegistration(a, sig, _roster());
 
+        // from the expiry on, the time-based close and abort own the transition (protocol §8.3)
         (a, sig) = _closeMsg(1);
-        vm.warp(T0 + REG_PERIOD + 1);
-        vm.expectRevert(Expired.selector);
-        manager.closeRegistration(a, sig);
+        vm.warp(T0 + REG_PERIOD);
+        vm.expectRevert(RegistrationEnded.selector);
+        manager.closeRegistration(a, sig, _roster());
+        vm.warp(T0 + REG_PERIOD - 1);
+        manager.closeRegistration(a, sig, _roster());
+    }
+
+    /// @dev The organizer cannot cut a Scheduled registration short (invitees were promised
+    ///      time until the published date).
+    function test_Close_ScheduledModeRefusesTheOrganizer() public {
+        _usePolicy(SCHEDULED, T0 + REG_PERIOD, DEAL_DURATION, MANUAL, 0, 0);
+        _create(1, 3);
+        _join(1);
+        (CloseRegistration memory a, bytes memory sig) = _closeMsg(1);
+        vm.expectRevert(WrongMode.selector);
+        manager.closeRegistration(a, sig, _roster());
+        vm.warp(T0 + REG_PERIOD);
+        vm.expectRevert(WrongMode.selector);
+        manager.closeRegistration(a, sig, _roster());
+        _closeScheduled();
+        assertEq(manager.getCeremony(cid).phase, uint8(Phase.Dealing));
+    }
+
+    function _expectedRosterHash() internal view returns (bytes32) {
+        uint256 n = memberX.length;
+        address[] memory auths = new address[](n);
+        uint256[] memory xs = new uint256[](n);
+        uint256[] memory ys = new uint256[](n);
+        for (uint256 i; i < n; ++i) {
+            auths[i] = vm.addr(authSecrets[i]);
+            (xs[i], ys[i]) = (memberX[i][0], memberX[i][1]);
+        }
+        return keccak256(abi.encode(TAG_ROSTER, block.chainid, address(manager), cid, T, uint8(n), auths, xs, ys));
     }
 }

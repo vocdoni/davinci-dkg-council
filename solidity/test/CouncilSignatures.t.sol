@@ -112,6 +112,18 @@ contract CouncilSignaturesTest is CouncilTestBase {
         manager.createCeremony(a, sig);
     }
 
+    /// @dev A v1 signature (domain version "1") never validates on a v2 manager (protocol §7.1).
+    function test_Sig_V1DomainRejected() public {
+        (CreateCeremony memory a,) = _createMsg(2, 3, 1);
+        bytes32 v1Domain = keccak256(
+            abi.encode(DOMAIN_T, keccak256("DAVINCI DKG Council"), keccak256("1"), block.chainid, address(manager))
+        );
+        bytes memory v1Sig = _signDigest(orgKey, keccak256(abi.encodePacked("\x19\x01", v1Domain, _hCreate(a))));
+        vm.expectRevert(BadSignature.selector);
+        manager.createCeremony(a, v1Sig);
+        manager.createCeremony(a, _sign(orgKey, _hCreate(a)));
+    }
+
     function test_Sig_CrossManagerReplay() public {
         (CreateCeremony memory a, bytes memory sig) = _createMsg(2, 3, 1);
         CouncilManager other = new CouncilManager(address(dealV), address(partialV), RELEASE_ID);
