@@ -358,8 +358,9 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     await expect(alice.getByRole('button', { name: 'Check and turn my key' })).toHaveCount(0);
     await shot(alice, 'm1-locked', 'Alice: the vote arrived, but the results stay locked until the organizer opens them');
 
-    // --- organizer: open the results (irreversible; the consequence is stated before the button) ---
+    // --- organizer: open the results (irreversible; behind the Advanced disclosure) ---
     await expect(org.getByText(/Results open when you say so — or on .* at the latest\./)).toBeVisible();
+    await org.getByText('Advanced', { exact: true }).click();
     await org.getByRole('button', { name: 'Open the results now' }).click();
     await expect(org.getByText('Opening the results cannot be undone.')).toBeVisible();
     await shot(org, 'org-open-confirm', 'organizer: opening the results, the consequence stated first');

@@ -29,21 +29,7 @@ beforeEach(async () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe('development setup banner', () => {
-  it('stays on every page while the deployment runs a development release', async () => {
-    const f = makeFixture();
-    await renderApp(f, '/');
-    expect(await screen.findByText('Beta — development trusted setup')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent('circuits-v1');
-  });
-
-  it('says so too when the deployment runs a release this build does not recognize', async () => {
-    const f = makeFixture();
-    f.chain.releaseId = `0x${'12'.repeat(32)}` as Hex;
-    await renderApp(f, `/c/${f.cid}`);
-    expect(await screen.findByText('Unrecognized setup — do not use for real elections')).toBeInTheDocument();
-  });
-
+describe('circuit release pins', () => {
   it('proving refuses a release this build has no files for, in plain words', async () => {
     const f = makeFixture();
     f.chain.releaseId = `0x${'34'.repeat(32)}` as Hex;

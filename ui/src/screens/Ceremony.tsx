@@ -14,7 +14,6 @@ import { normalizeCeremonyId, parseInviteFragment, type Hex } from '@vocdoni/dav
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useApp } from '../App';
-import { SetupBanner } from '../components/SetupBanner';
 import { Note, Spinner } from '../components/ui';
 import { readCeremony } from '../lib/chain';
 import { captureInviteFragment, peekInviteFragment } from '../lib/inviteCapture';
@@ -136,7 +135,6 @@ export function Ceremony() {
   return (
     // Keyed: a provisional lookup that switches deployment restarts the screens on the new one.
     <ServicesProvider key={services.config.manager} services={services}>
-      {services !== deployments.current && <SetupBanner inline />}
       {ref?.legacy && (
         <div className="mb-4">
           <Note tone="info">
