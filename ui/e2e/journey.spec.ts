@@ -7,7 +7,9 @@
  * the list; every member
  * approves the frozen list and contributes with real snarkjs proving in the
  * app's worker; the key goes live; the organizer approves the DAVINCI adapter
- * and a process creator; davinci-test creates a DAVINCI process on the
+ * and a process creator, then pairs the committee with a mocked DAVINCI
+ * Elections server by one-use code (the grants, already on chain, are
+ * skipped); davinci-test creates a DAVINCI process on the
  * ceremony; the dev stack settles a known tally and requests its decryption
  * (as the e2e DAVINCI round-trip does); the results are locked until the
  * organizer opens them (§8.7), which he does through the irreversible
@@ -278,6 +280,58 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
       'organizer: allowing the DAVINCI process creator',
     );
     await shot(org, 'org-connections', 'organizer: both connections approved');
+
+    // --- organizer: the same grants through the DAVINCI Elections pairing card (idempotent) ---
+    // The Elections server is mocked at an allowlisted https origin and the app config gains the
+    // pinned davinci object (the dev stack's real registry, so the on-chain councilAdapter() read
+    // runs for real) through a config.json route. Both grants are already on chain, so the card
+    // skips them and only reports the committee back to Elections.
+    const ORG_ID = '123e4567-e89b-42d3-a456-426614174000';
+    let completedCid = '';
+    await org.route('**/config.json', async (route) => {
+      const cfg = (await (await route.fetch()).json()) as Record<string, unknown>;
+      cfg.davinci = { registry: davinci.registry, electionsOrigins: ['https://elections.invalid'] };
+      await route.fulfill({ json: cfg });
+    });
+    await org.route('https://elections.invalid/**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST' && req.url().endsWith('/complete')) {
+        completedCid = String((req.postDataJSON() as { cid?: unknown }).cid ?? '');
+        await route.fulfill({
+          json: { ok: true, status: 'ready', statusReason: null, returnPath: `/organizer/orgs/${ORG_ID}/committees` },
+        });
+        return;
+      }
+      await route.fulfill({
+        json: {
+          version: 1,
+          orgId: ORG_ID,
+          orgName: 'Acme org',
+          creator: davinci.creator,
+          chainId: stack.chainId,
+          manager: stack.manager,
+          registry: davinci.registry,
+          adapter: davinci.adapter,
+          expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        },
+      });
+    });
+    await org.reload();
+    await expect(org.getByText('Connect to DAVINCI Elections')).toBeVisible({ timeout: 30_000 });
+    await org.getByLabel('Pairing code').fill('K7F4-Q2ND-8HXR');
+    await org.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(org.getByText(/cannot be undone/)).toBeVisible({ timeout: 20_000 });
+    await shot(org, 'org-davinci-pairing', 'organizer: the pairing confirmation names the Elections organization');
+    await org.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(org.getByText('Connected to Acme org on DAVINCI Elections.')).toBeVisible({ timeout: 60_000 });
+    expect(completedCid.toLowerCase()).toBe(cid.toLowerCase());
+    await expect(org.getByRole('link', { name: /back to DAVINCI Elections/ })).toHaveAttribute(
+      'href',
+      `https://elections.invalid/organizer/orgs/${ORG_ID}/committees`,
+    );
+    await shot(org, 'org-davinci-paired', 'organizer: the committee is connected to the Elections organization');
+    await org.unroute('**/config.json');
+    await org.unroute('https://elections.invalid/**');
 
     // --- DAVINCI: a process keyed by the ceremony (davinci-test), its tally settled and its decryption requested ---
     const created = await davinciCli<CreatedProcess>(stack, [
