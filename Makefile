@@ -1,5 +1,5 @@
 .PHONY: help install test \
-        circuits circuits-restore circuits-test fixtures vectors vectors-check \
+        circuits circuits-restore circuits-test fixtures vectors vectors-check ceremony ceremony-dry-run \
         solidity-build solidity-test solidity-gas \
         sdk sdk-test relayer relayer-test relayer-docker \
         ui-dev ui-sepolia ui-build ui-lint ui-test ui-config ui-docker \
@@ -46,6 +46,14 @@ circuits: ## New DEV phase-2: compile, set up, verifiers, vectors, then re-pin S
 	$(call forge,build)
 	$(PNPM) --filter ./circuits run pin
 	$(PNPM) --filter ./circuits run fixtures
+
+# Production phase 2 (multi-party): circuits/scripts/ceremony/README.md. One step per call:
+#   make ceremony ARGS="init --dir ~/ceremony-v2 --tag circuits-v2"
+ceremony: ## Multi-party phase-2 ceremony tool: make ceremony ARGS="<command> …" (circuits/scripts/ceremony)
+	circuits/node_modules/.bin/tsx circuits/scripts/ceremony/ceremony.ts $(ARGS)
+
+ceremony-dry-run: ## Rehearse the ceremony (3 simulated contributors + drand beacon) in a temp dir [DIR=…]
+	bash circuits/scripts/ceremony/dry-run.sh $(DIR)
 
 circuits-restore: ## Restore circuits/build for the pinned release (compile + released zkeys, no setup)
 	$(PNPM) --filter ./circuits run restore
