@@ -1,6 +1,6 @@
 /**
- * Council ABI: the full read/write surface of the deployment, generated
- * verbatim from the compiled interface and contract:
+ * Council v2 ABI: the full read/write surface of the deployment, hand-written
+ * from docs/architecture.md §1.1–§1.4 in the verbatim forge JSON shape:
  * - functions and events: solidity/out/ICouncil.sol/ICouncil.json
  * - errors: solidity/out/CouncilManager.sol/CouncilManager.json
  *
@@ -244,6 +244,29 @@ export const COUNCIL_MANAGER_ABI = [
         "name": "orgSig",
         "type": "bytes",
         "internalType": "bytes"
+      },
+      {
+        "name": "rosterKeys",
+        "type": "uint256[2][]",
+        "internalType": "uint256[2][]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "closeRegistrationScheduled",
+    "inputs": [
+      {
+        "name": "cid",
+        "type": "bytes12",
+        "internalType": "bytes12"
+      },
+      {
+        "name": "rosterKeys",
+        "type": "uint256[2][]",
+        "internalType": "uint256[2][]"
       }
     ],
     "outputs": [],
@@ -272,6 +295,16 @@ export const COUNCIL_MANAGER_ABI = [
         "name": "plaintexts",
         "type": "uint64[]",
         "internalType": "uint64[]"
+      },
+      {
+        "name": "partialVectors",
+        "type": "uint256[2][16][]",
+        "internalType": "uint256[2][16][]"
+      },
+      {
+        "name": "C2",
+        "type": "uint256[2][]",
+        "internalType": "uint256[2][]"
       }
     ],
     "outputs": [],
@@ -302,12 +335,32 @@ export const COUNCIL_MANAGER_ABI = [
             "internalType": "uint8"
           },
           {
+            "name": "registrationMode",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
             "name": "registrationDeadline",
             "type": "uint64",
             "internalType": "uint64"
           },
           {
             "name": "dealingDuration",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "decryptionMode",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "decryptionOpenAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "manualDecryptionFallbackAt",
             "type": "uint64",
             "internalType": "uint64"
           },
@@ -403,6 +456,11 @@ export const COUNCIL_MANAGER_ABI = [
         "name": "pC",
         "type": "uint256[2]",
         "internalType": "uint256[2]"
+      },
+      {
+        "name": "rosterKeys",
+        "type": "uint256[2][]",
+        "internalType": "uint256[2][]"
       }
     ],
     "outputs": [],
@@ -555,8 +613,8 @@ export const COUNCIL_MANAGER_ABI = [
           },
           {
             "name": "inviteCount",
-            "type": "uint32",
-            "internalType": "uint32"
+            "type": "uint8",
+            "internalType": "uint8"
           },
           {
             "name": "consumedInvites",
@@ -585,40 +643,6 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "function",
-    "name": "getDealing",
-    "inputs": [
-      {
-        "name": "cid",
-        "type": "bytes12",
-        "internalType": "bytes12"
-      },
-      {
-        "name": "dealerIndex",
-        "type": "uint8",
-        "internalType": "uint8"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "C",
-        "type": "uint256[2][16]",
-        "internalType": "uint256[2][16]"
-      },
-      {
-        "name": "E",
-        "type": "uint256[2]",
-        "internalType": "uint256[2]"
-      },
-      {
-        "name": "maskedShares",
-        "type": "uint256[16]",
-        "internalType": "uint256[16]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "getInvite",
     "inputs": [
       {
@@ -628,8 +652,8 @@ export const COUNCIL_MANAGER_ABI = [
       },
       {
         "name": "inviteId",
-        "type": "uint32",
-        "internalType": "uint32"
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "outputs": [
@@ -677,7 +701,7 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "function",
-    "name": "getPartial",
+    "name": "getPartialCommitment",
     "inputs": [
       {
         "name": "requestId",
@@ -692,16 +716,26 @@ export const COUNCIL_MANAGER_ABI = [
     ],
     "outputs": [
       {
-        "name": "D",
-        "type": "uint256[2][16]",
-        "internalType": "uint256[2][16]"
+        "name": "accepted",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "dataHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "publishedBlock",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "getParticipant",
+    "name": "getParticipantCompressed",
     "inputs": [
       {
         "name": "cid",
@@ -721,12 +755,7 @@ export const COUNCIL_MANAGER_ABI = [
         "internalType": "address"
       },
       {
-        "name": "pkX",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "pkY",
+        "name": "compressedKey",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -758,6 +787,67 @@ export const COUNCIL_MANAGER_ABI = [
         "name": "values",
         "type": "uint256[]",
         "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getPolicy",
+    "inputs": [
+      {
+        "name": "cid",
+        "type": "bytes12",
+        "internalType": "bytes12"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct PhasePolicyView",
+        "components": [
+          {
+            "name": "registrationMode",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "decryptionMode",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "dealingDuration",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "decryptionOpenAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "manualDecryptionFallbackAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "manualOpenedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "decryptionOpen",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "scheduledRegistrationCloseDue",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -807,7 +897,70 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "function",
-    "name": "getRequest",
+    "name": "getRecoveryDealing",
+    "inputs": [
+      {
+        "name": "cid",
+        "type": "bytes12",
+        "internalType": "bytes12"
+      },
+      {
+        "name": "dealerIndex",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "compressedE",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maskedShares",
+        "type": "uint256[16]",
+        "internalType": "uint256[16]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRecoverySlice",
+    "inputs": [
+      {
+        "name": "cid",
+        "type": "bytes12",
+        "internalType": "bytes12"
+      },
+      {
+        "name": "memberIndex",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "qualBitmap",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "compressedE",
+        "type": "uint256[16]",
+        "internalType": "uint256[16]"
+      },
+      {
+        "name": "maskedShares",
+        "type": "uint256[16]",
+        "internalType": "uint256[16]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRequestCompressed",
     "inputs": [
       {
         "name": "requestId",
@@ -817,29 +970,9 @@ export const COUNCIL_MANAGER_ABI = [
     ],
     "outputs": [
       {
-        "name": "cid",
-        "type": "bytes12",
-        "internalType": "bytes12"
-      },
-      {
-        "name": "fieldCount",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "completedBitmap",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "partialBitmap",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "cts",
-        "type": "uint256[4][]",
-        "internalType": "uint256[4][]"
+        "name": "compressedCts",
+        "type": "uint256[2][]",
+        "internalType": "uint256[2][]"
       }
     ],
     "stateMutability": "view"
@@ -859,25 +992,6 @@ export const COUNCIL_MANAGER_ABI = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getRequestIds",
-    "inputs": [
-      {
-        "name": "cid",
-        "type": "bytes12",
-        "internalType": "bytes12"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
       }
     ],
     "stateMutability": "view"
@@ -907,6 +1021,40 @@ export const COUNCIL_MANAGER_ABI = [
         "name": "",
         "type": "bytes32[]",
         "internalType": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRequestMeta",
+    "inputs": [
+      {
+        "name": "requestId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "cid",
+        "type": "bytes12",
+        "internalType": "bytes12"
+      },
+      {
+        "name": "fieldCount",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "completedBitmap",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "partialBitmap",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -977,6 +1125,25 @@ export const COUNCIL_MANAGER_ABI = [
         "name": "creator",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isDecryptionOpen",
+    "inputs": [
+      {
+        "name": "cid",
+        "type": "bytes12",
+        "internalType": "bytes12"
       }
     ],
     "outputs": [
@@ -1097,6 +1264,36 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "function",
+    "name": "openDecryption",
+    "inputs": [
+      {
+        "name": "a",
+        "type": "tuple",
+        "internalType": "struct OpenDecryption",
+        "components": [
+          {
+            "name": "ceremonyId",
+            "type": "bytes12",
+            "internalType": "bytes12"
+          },
+          {
+            "name": "validUntil",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      },
+      {
+        "name": "orgSig",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "partialVerifier",
     "inputs": [],
     "outputs": [
@@ -1131,6 +1328,42 @@ export const COUNCIL_MANAGER_ABI = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "protocolVersion",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "publishPartialData",
+    "inputs": [
+      {
+        "name": "requestId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "participantIndex",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "D",
+        "type": "uint256[2][16]",
+        "internalType": "uint256[2][16]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1192,6 +1425,11 @@ export const COUNCIL_MANAGER_ABI = [
         "name": "pC",
         "type": "uint256[2]",
         "internalType": "uint256[2]"
+      },
+      {
+        "name": "C1",
+        "type": "uint256[2][]",
+        "internalType": "uint256[2][]"
       }
     ],
     "outputs": [],
@@ -1300,6 +1538,12 @@ export const COUNCIL_MANAGER_ABI = [
         "internalType": "uint8"
       },
       {
+        "name": "registrationMode",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
         "name": "registrationDeadline",
         "type": "uint64",
         "indexed": false,
@@ -1307,6 +1551,24 @@ export const COUNCIL_MANAGER_ABI = [
       },
       {
         "name": "dealingDuration",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "decryptionMode",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "decryptionOpenAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "manualDecryptionFallbackAt",
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
@@ -1385,6 +1647,25 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "event",
+    "name": "DecryptionOpened",
+    "inputs": [
+      {
+        "name": "cid",
+        "type": "bytes12",
+        "indexed": true,
+        "internalType": "bytes12"
+      },
+      {
+        "name": "openedAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "FieldsCombined",
     "inputs": [
       {
@@ -1420,15 +1701,15 @@ export const COUNCIL_MANAGER_ABI = [
       },
       {
         "name": "firstInviteId",
-        "type": "uint32",
+        "type": "uint8",
         "indexed": false,
-        "internalType": "uint32"
+        "internalType": "uint8"
       },
       {
         "name": "count",
-        "type": "uint32",
+        "type": "uint8",
         "indexed": false,
-        "internalType": "uint32"
+        "internalType": "uint8"
       }
     ],
     "anonymous": false
@@ -1448,6 +1729,37 @@ export const COUNCIL_MANAGER_ABI = [
         "type": "uint8",
         "indexed": false,
         "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PartialDataPublished",
+    "inputs": [
+      {
+        "name": "requestId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "index",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "dataHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "D",
+        "type": "uint256[2][16]",
+        "indexed": false,
+        "internalType": "uint256[2][16]"
       }
     ],
     "anonymous": false
@@ -1476,9 +1788,9 @@ export const COUNCIL_MANAGER_ABI = [
       },
       {
         "name": "inviteId",
-        "type": "uint32",
+        "type": "uint8",
         "indexed": false,
-        "internalType": "uint32"
+        "internalType": "uint8"
       }
     ],
     "anonymous": false
@@ -1611,6 +1923,11 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "error",
+    "name": "AlreadyOpen",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "AlreadyPartial",
     "inputs": []
   },
@@ -1656,6 +1973,11 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "error",
+    "name": "BadSchedule",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BadSignature",
     "inputs": []
   },
@@ -1671,12 +1993,27 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "error",
+    "name": "BlockNumberOverflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "CeremonyExists",
     "inputs": []
   },
   {
     "type": "error",
     "name": "CombineCheckFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CompressedPointMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DecryptionNotOpen",
     "inputs": []
   },
   {
@@ -1756,6 +2093,11 @@ export const COUNCIL_MANAGER_ABI = [
   },
   {
     "type": "error",
+    "name": "PartialDataMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "PayloadMismatch",
     "inputs": []
   },
@@ -1767,6 +2109,16 @@ export const COUNCIL_MANAGER_ABI = [
   {
     "type": "error",
     "name": "ProofInvalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RegistrationEnded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RegistrationNotDue",
     "inputs": []
   },
   {
@@ -1802,6 +2154,11 @@ export const COUNCIL_MANAGER_ABI = [
   {
     "type": "error",
     "name": "UnknownRequest",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongMode",
     "inputs": []
   },
   {

@@ -20,7 +20,8 @@ import {
   toExtended,
 } from '../src/curve.js';
 import { evalPoly, buildDealing, provePossession, verifyPossession, type PopContext } from '../src/dealing.js';
-import { recoverShare } from '../src/recovery.js';
+import { compressPoint } from '../src/codec.js';
+import { recoverShare, type RecoveryDealing } from '../src/recovery.js';
 import { computePartialUnchecked, validateCiphertextFields } from '../src/partial.js';
 import {
   buildCombineArgs,
@@ -205,14 +206,23 @@ describe('full local ceremony (n=3, t=2)', () => {
     }
     const qual = [1, 2, 3];
 
-    // Aggregate commitments -> PK and per-member PK_m.
+    // Aggregate commitments -> PK and per-member PK_m (padded to 16, as stored).
     const agg: Point[] = [];
-    for (let k = 0; k < t; k++) {
+    for (let k = 0; k < 16; k++) {
       let acc = IDENTITY;
-      for (const j of qual) acc = addPoints(acc, (dealings.get(j) as Dealing).C[k] as Point);
+      if (k < t) for (const j of qual) acc = addPoints(acc, (dealings.get(j) as Dealing).C[k] as Point);
       agg.push(acc);
     }
     const publicKey = agg[0] as Point;
+
+    // v2 recovery inputs: per dealer compressed(E_j) + this member's masked share.
+    const recDealingsFor = (m: number): Map<number, RecoveryDealing> =>
+      new Map(
+        qual.map((j) => {
+          const d = dealings.get(j) as Dealing;
+          return [j, { compressedE: compressPoint(d.E), masked: d.masked[m - 1] as bigint }];
+        }),
+      );
 
     const shares: bigint[] = [];
     for (let m = 1; m <= n; m++) {
@@ -223,8 +233,9 @@ describe('full local ceremony (n=3, t=2)', () => {
         memberIndex: m,
         shareSecret: key.secret,
         qual,
-        dealings,
-        expectedMemberKey: hornerEval([...agg, IDENTITY], m),
+        dealings: recDealingsFor(m),
+        aggregates: agg,
+        expectedMemberKey: hornerEval(agg, m),
       });
       shares.push(share);
     }
@@ -246,23 +257,33 @@ describe('full local ceremony (n=3, t=2)', () => {
       expect(verifyCombine((plaintexts[k] as bigint) + 1n, ct.c2, memberSet, dForField)).toBe(false);
     });
 
-    // A wrong share-encryption secret cannot recover (Feldman check fires).
+    // A wrong share-encryption secret cannot recover (the aggregate check fires).
     expect(() =>
       recoverShare({
         ctx,
         memberIndex: 1,
         shareSecret: ((shareKeys[0] as { secret: bigint }).secret + 1n) % R,
         qual,
-        dealings,
-        expectedMemberKey: hornerEval([...agg, IDENTITY], 1),
+        dealings: recDealingsFor(1),
+        aggregates: agg,
+        expectedMemberKey: hornerEval(agg, 1),
       }),
     ).toThrow(/halt/);
 
-    const args = buildCombineArgs(`0x${'ab'.repeat(32)}`, memberSet, [
-      { fieldIndex: 2, plaintext: plaintexts[2] as bigint },
-      { fieldIndex: 0, plaintext: plaintexts[0] as bigint },
-    ]);
+    const vectors = new Map(memberSet.map((i) => [i, (partials.get(i) as { D: Point[] }).D]));
+    const args = buildCombineArgs(
+      `0x${'ab'.repeat(32)}`,
+      memberSet,
+      [
+        { fieldIndex: 2, plaintext: plaintexts[2] as bigint, c2: (cts[2] as { c2: Point }).c2 },
+        { fieldIndex: 0, plaintext: plaintexts[0] as bigint, c2: (cts[0] as { c2: Point }).c2 },
+      ],
+      vectors,
+    );
     expect(args.fieldIndexes).toEqual([0, 2]);
+    expect(args.C2).toEqual([(cts[0] as { c2: Point }).c2, (cts[2] as { c2: Point }).c2]);
+    expect(args.partialVectors.map((v) => v.length)).toEqual([16, 16]);
+    expect(args.partialVectors[0]).toEqual(vectors.get(1));
     expect(fieldsPerCombineTx(t)).toBe(4);
     expect(fieldsPerCombineTx(16)).toBe(2);
   });

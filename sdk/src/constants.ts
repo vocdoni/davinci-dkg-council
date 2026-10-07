@@ -46,6 +46,8 @@ export const RESULT_BOUND = 1n << 40n;
 export const MAX_COMBINE_FIELDS = 4;
 export const MAX_INVITES = 64;
 export const MIN_DEALING_DURATION = 600n; // seconds
+/** 365 days: the dealing-window upper bound (protocol §8.1). */
+export const MAX_DEALING_DURATION = 31_536_000n; // seconds
 
 /** Number of public signals of the dealing circuit (protocol §8.5). */
 export const DEAL_PUBLIC_SIGNALS = 87;
@@ -63,6 +65,8 @@ export const TAG_REQUEST = 'davinci-dkg-council/v1/request';
 export const TAG_PARTIAL_PAYLOAD = 'davinci-dkg-council/v1/partial-payload';
 export const TAG_CIRCUIT_RELEASE = 'davinci-dkg-council/v1/circuit-release';
 export const TAG_SHARE_MASK = 'davinci-dkg-council/v1/share-mask-poseidon';
+/** The one v2 tag: deterministic partial-data commitment (protocol §10.2). */
+export const TAG_PARTIAL_DATA = 'davinci-dkg-council/v2/partial-data';
 
 /** Pinned keccak256(utf8(tag)) values; recomputed and asserted in tests. */
 export const TAG_HASHES: Record<string, `0x${string}`> = {
@@ -75,6 +79,7 @@ export const TAG_HASHES: Record<string, `0x${string}`> = {
   [TAG_PARTIAL_PAYLOAD]: '0x790ea2a939d8ccdf25ac8c84f7bffca5476a976d584b89ca4a7f365b8e85c589',
   [TAG_CIRCUIT_RELEASE]: '0x9e489062d0e615d54b9cf250918652a1541571f981e4892e70d382d1536fdf5c',
   [TAG_SHARE_MASK]: '0xd8262d0eb7248e9458410cb71d8ace07c8eabd235f11ed9fb71812260a9dc8f2',
+  [TAG_PARTIAL_DATA]: '0xe9c88d2345099d5c36ae9c5ef6fb2d2396dc1633fee75cfb7680fca2214182af',
 };
 
 /**
@@ -107,7 +112,7 @@ export const DERIVATION_VERSION = 1;
 // --- EIP-712 (protocol §7.1) ---
 
 export const EIP712_NAME = 'DAVINCI DKG Council';
-export const EIP712_VERSION = '1';
+export const EIP712_VERSION = '2';
 
 /** Ceremony phases (architecture §1.2). */
 export enum Phase {
@@ -117,6 +122,15 @@ export enum Phase {
   Live = 3,
   Aborted = 4,
 }
+
+/** Phase-policy modes (protocol §8.1): how registration close / decryption opening happen. */
+export enum PhaseMode {
+  Manual = 0,
+  Scheduled = 1,
+}
+
+/** The on-chain `protocolVersion()` this SDK speaks. */
+export const PROTOCOL_VERSION = 2;
 
 /** Recovery kit format identifier (protocol §5.3). */
 export const KIT_FORMAT = 'davinci-dkg-council-kit/v1';

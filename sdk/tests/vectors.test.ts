@@ -23,7 +23,10 @@ import {
   MAX_N,
   MAX_T,
   MIN_DEALING_DURATION,
+  MAX_DEALING_DURATION,
   P,
+  PhaseMode,
+  PROTOCOL_VERSION,
   R,
   RESULT_BOUND,
   SECP256K1_N,
@@ -32,6 +35,7 @@ import {
   TE_A,
   TE_D,
 } from '../src/constants.js';
+import { compressPoint } from '../src/codec.js';
 import { G, IDENTITY, modP, mulBase, teToReduced } from '../src/curve.js';
 import {
   abiEncode,
@@ -93,6 +97,9 @@ interface ConstantsVectors {
   };
   poseidon7: { inputs: string[]; output: string };
   fixedBaseExceptional: { scalars: string[]; products: string[][] };
+  protocolVersion: number;
+  phaseModes: { Manual: number; Scheduled: number };
+  compressed: { rule: string; G: Hex; minusG: Hex; identity: Hex; orderTwo: Hex };
 }
 
 const constants = loadVectors<ConstantsVectors>('constants');
@@ -132,6 +139,17 @@ describe.skipIf(!constants)(constants ? 'vectors: constants' : skipMsg('constant
     expect(v.sizes.MAX_COMBINE_FIELDS).toBe(MAX_COMBINE_FIELDS);
     expect(v.sizes.MAX_INVITES).toBe(MAX_INVITES);
     expect(BigInt(v.sizes.MIN_DEALING_DURATION as number)).toBe(MIN_DEALING_DURATION);
+    expect(BigInt(v.sizes.MAX_DEALING_DURATION as number)).toBe(MAX_DEALING_DURATION);
+  });
+
+  it('protocol version, phase modes and the §2.5 pinned compressed words', () => {
+    expect(v.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(v.phaseModes).toEqual({ Manual: PhaseMode.Manual, Scheduled: PhaseMode.Scheduled });
+    const word = (p: { x: bigint; y: bigint }) => `0x${compressPoint(p).toString(16).padStart(64, '0')}`;
+    expect(word(G)).toBe(v.compressed.G);
+    expect(word({ x: P - G.x, y: G.y })).toBe(v.compressed.minusG);
+    expect(word(IDENTITY)).toBe(v.compressed.identity);
+    expect(word({ x: 0n, y: P - 1n })).toBe(v.compressed.orderTwo);
   });
 
   it('tag hashes (pinned and recomputed)', () => {
@@ -543,7 +561,7 @@ describe.skipIf(!eip712)(eip712 ? 'vectors: eip712' : skipMsg('eip712'), () => {
   });
 
   it('every action struct: encodeType, typeHash, digest, signature', async () => {
-    expect(v.actions).toHaveLength(9);
+    expect(v.actions).toHaveLength(10); // v2 adds OpenDecryption
     for (const a of v.actions) {
       expect(encodeTypeOf(a.struct)).toBe(a.encodeType);
       expect(keccak256(toBytes(a.encodeType))).toBe(a.typeHash);

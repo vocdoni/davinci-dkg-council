@@ -6,7 +6,7 @@
  * verifies with the exact per-field group equation.
  */
 
-import { MAX_COMBINE_FIELDS, R, RESULT_BOUND } from './constants.js';
+import { MAX_COMBINE_FIELDS, MAX_FIELDS, R, RESULT_BOUND } from './constants.js';
 import { solveDlog, type BsgsOptions } from './bsgs.js';
 import {
   extAdd,
@@ -21,7 +21,8 @@ import {
   addPoints,
   mulPoint,
 } from './curve.js';
-import type { Hex, Point } from './types.js';
+import { partialDataHash } from './partial.js';
+import type { Hex, PartialCommitment, Point } from './types.js';
 
 /**
  * Lagrange coefficients at zero for the member set S (1-based indexes):
@@ -114,16 +115,23 @@ export interface CombineArgs {
   memberSet: number[];
   fieldIndexes: number[];
   plaintexts: bigint[];
+  /** One padded D vector (16 slots) per memberSet entry, in memberSet order (§10.3). */
+  partialVectors: Point[][];
+  /** C2_k per fieldIndexes entry — the contract authenticates them against the stored compressed words. */
+  C2: Point[];
 }
 
 /**
  * Build validated `combine(...)` call arguments for one chunk
- * (1..MAX_COMBINE_FIELDS strictly increasing field indexes).
+ * (1..MAX_COMBINE_FIELDS strictly increasing field indexes). `partialVectors`
+ * maps member index -> that member's full padded D vector (use
+ * `sourcePartialVectors`); the args carry them in memberSet order.
  */
 export function buildCombineArgs(
   requestId: Hex,
   memberSet: number[],
-  fields: { fieldIndex: number; plaintext: bigint }[],
+  fields: { fieldIndex: number; plaintext: bigint; c2: Point }[],
+  partialVectors: ReadonlyMap<number, Point[]>,
 ): CombineArgs {
   if (fields.length < 1 || fields.length > MAX_COMBINE_FIELDS) {
     throw new Error(`combine: 1..${MAX_COMBINE_FIELDS} fields per transaction`);
@@ -131,21 +139,141 @@ export function buildCombineArgs(
   lagrangeCoefficients(memberSet); // validates the set shape
   const sorted = fields.slice().sort((a, b) => a.fieldIndex - b.fieldIndex);
   for (let k = 0; k < sorted.length; k++) {
-    const f = sorted[k] as { fieldIndex: number; plaintext: bigint };
+    const f = sorted[k] as { fieldIndex: number };
     if (!Number.isInteger(f.fieldIndex) || f.fieldIndex < 0 || f.fieldIndex > 15) {
       throw new Error('combine: field index out of range');
     }
     if (k > 0 && f.fieldIndex === (sorted[k - 1] as { fieldIndex: number }).fieldIndex) {
       throw new Error('combine: duplicate field index');
     }
-    if (f.plaintext < 0n || f.plaintext >= RESULT_BOUND) throw new Error('combine: plaintext out of range');
+    const pt = (sorted[k] as { plaintext: bigint }).plaintext;
+    if (pt < 0n || pt >= RESULT_BOUND) throw new Error('combine: plaintext out of range');
   }
+  const vectors = memberSet.map((i) => {
+    const v = partialVectors.get(i);
+    if (!v) throw new Error(`combine: missing partial vector for member ${i}`);
+    if (v.length !== MAX_FIELDS) throw new Error(`combine: member ${i} vector must be padded to 16 slots`);
+    return v.slice();
+  });
   return {
     requestId,
     memberSet,
     fieldIndexes: sorted.map((f) => f.fieldIndex),
     plaintexts: sorted.map((f) => f.plaintext),
+    partialVectors: vectors,
+    C2: sorted.map((f) => f.c2),
   };
+}
+
+/** Per-field view of sourced vectors: member index -> D_{i,k}, for `solvePlaintext`/`verifyCombine`. */
+export function fieldPartials(vectors: ReadonlyMap<number, Point[]>, fieldIndex: number): Map<number, Point> {
+  const out = new Map<number, Point>();
+  for (const [i, v] of vectors) {
+    const d = v[fieldIndex];
+    if (!d) throw new Error(`combine: member ${i} vector has no slot ${fieldIndex}`);
+    out.set(i, d);
+  }
+  return out;
+}
+
+/** Keyed D-vector cache; a plain `Map` satisfies it. */
+export type PartialVectorCache = Pick<Map<string, Point[]>, 'get' | 'set'>;
+
+export function partialVectorCacheKey(
+  chainId: bigint,
+  manager: Hex,
+  requestId: Hex,
+  index: number,
+  dataHash: Hex,
+): string {
+  return `${chainId}:${manager.toLowerCase()}:${requestId.toLowerCase()}:${index}:${dataHash.toLowerCase()}`;
+}
+
+/** The narrow reads `sourcePartialVectors` needs (implemented by the client). */
+export interface PartialVectorSource {
+  /** `getPartialCommitment(requestId, index)` through authenticated reads. */
+  getPartialCommitment(requestId: Hex, index: number): Promise<PartialCommitment>;
+  /**
+   * ONE `eth_getLogs` restricted to the stored `publishedBlock`, filtered on
+   * the pinned manager address and `PartialDataPublished(requestId)` for this
+   * member — the single owner-approved log read of the protocol (§10.4).
+   * Returns the emitted padded D vector, or undefined if the block no longer
+   * holds it (pruned node, reorged provider). May reject when every provider
+   * refuses the historical read; `sourcePartialVectors` treats that as a
+   * missing vector, never as an error.
+   */
+  fetchPublishedVector(requestId: Hex, index: number, publishedBlock: bigint): Promise<Point[] | undefined>;
+}
+
+/**
+ * Source the D vector of every member in `memberSet` in the normative §10.4
+ * order: own cache, else the single-block log fetch at the stored
+ * `publishedBlock` — either way the vector is only used if its recomputed
+ * `partialDataHash` equals the hash stored on chain. Members whose vector
+ * cannot be authenticated land in `missing`: republish via a
+ * `publishPartialData` action (permissionless) and call this again.
+ *
+ * History is optional: a log read that fails (a provider that prunes or
+ * refuses old blocks) makes that member's vector missing — listed in
+ * `unavailable` as well — and never fails the call, so the deterministic
+ * republication from authenticated current state stays reachable. Only the
+ * authenticated commitment read can throw.
+ */
+export async function sourcePartialVectors(args: {
+  chainId: bigint;
+  manager: Hex;
+  ceremonyId: Hex;
+  requestId: Hex;
+  fieldCount: number;
+  memberSet: number[];
+  source: PartialVectorSource;
+  cache?: PartialVectorCache;
+}): Promise<{
+  vectors: Map<number, Point[]>;
+  /** Members whose vector could not be authenticated (republish, then call again). */
+  missing: number[];
+  /** The subset of `missing` whose historical read failed outright (history unavailable). */
+  unavailable: number[];
+}> {
+  const vectors = new Map<number, Point[]>();
+  const missing: number[] = [];
+  const unavailable: number[] = [];
+  for (const i of args.memberSet) {
+    const c = await args.source.getPartialCommitment(args.requestId, i);
+    if (!c.accepted) throw new Error(`combine: member ${i} has no admitted partial`);
+    const matches = (D: Point[]): boolean =>
+      D.length === MAX_FIELDS &&
+      partialDataHash({
+        chainId: args.chainId,
+        manager: args.manager,
+        ceremonyId: args.ceremonyId,
+        requestId: args.requestId,
+        participantIndex: i,
+        fieldCount: args.fieldCount,
+        D,
+      }).toLowerCase() === c.dataHash.toLowerCase();
+    const key = partialVectorCacheKey(args.chainId, args.manager, args.requestId, i, c.dataHash);
+    const cached = args.cache?.get(key);
+    if (cached && matches(cached)) {
+      vectors.set(i, cached);
+      continue;
+    }
+    let fetched: Point[] | undefined;
+    try {
+      fetched = await args.source.fetchPublishedVector(args.requestId, i, c.publishedBlock);
+    } catch {
+      unavailable.push(i);
+      missing.push(i);
+      continue;
+    }
+    if (fetched && matches(fetched)) {
+      args.cache?.set(key, fetched);
+      vectors.set(i, fetched);
+      continue;
+    }
+    missing.push(i);
+  }
+  return { vectors, missing, unavailable };
 }
 
 /** The architecture §1.8 gas guideline: fields per combine transaction for a threshold t. */

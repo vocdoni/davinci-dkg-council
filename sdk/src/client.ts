@@ -19,8 +19,11 @@ import {
   type PublicClient,
 } from 'viem';
 import { COUNCIL_MANAGER_ABI } from './abi.js';
+import { circuitReleaseStatus, type CircuitReleaseStatus } from './artifacts.js';
+import { compressPoint, decompressPoint } from './codec.js';
 import { MAX_FIELDS, Phase } from './constants.js';
-import { normalizeCeremonyId } from './encoding.js';
+import { assertValidSubgroupPoint, hornerEval, pointEq } from './curve.js';
+import { dealContext, normalizeCeremonyId, rosterHash as computeRosterHash } from './encoding.js';
 import { scanLogs, type LogScanResult } from './logs.js';
 import {
   readRequestBinding,
@@ -32,11 +35,13 @@ import {
 import type {
   Action,
   CeremonyView,
-  Dealing,
   Hex,
+  PartialCommitment,
   PartialRequestSnapshot,
+  PhasePolicyView,
   Point,
-  RequestView,
+  RecoverySlice,
+  RequestMeta,
   Roster,
 } from './types.js';
 
@@ -324,55 +329,98 @@ export class CouncilClient {
     return { key, consumed };
   }
 
-  /** The full frozen roster, one authenticated snapshot (§9.3 item 2). */
+  /** The ceremony's phase policy (architecture §1.2; §8.1/§8.7). */
+  async getPolicy(cid: Hex, anchor?: FinalizedAnchor): Promise<PhasePolicyView> {
+    const { results } = await this.authenticatedRead(
+      [{ functionName: 'getPolicy', args: [normalizeCeremonyId(cid)] }],
+      anchor,
+    );
+    return results[0] as PhasePolicyView;
+  }
+
+  /** The §8.7 decryption gate, as the contract evaluates it. */
+  async isDecryptionOpen(cid: Hex, anchor?: FinalizedAnchor): Promise<boolean> {
+    const { results } = await this.authenticatedRead(
+      [{ functionName: 'isDecryptionOpen', args: [normalizeCeremonyId(cid)] }],
+      anchor,
+    );
+    return results[0] as boolean;
+  }
+
+  async protocolVersion(anchor?: FinalizedAnchor): Promise<number> {
+    const { results } = await this.authenticatedRead([{ functionName: 'protocolVersion' }], anchor);
+    return Number(results[0]);
+  }
+
+  async getParticipantCompressed(
+    cid: Hex,
+    index: number,
+    anchor?: FinalizedAnchor,
+  ): Promise<{ auth: Hex; compressedKey: bigint; dealt: boolean }> {
+    const { results } = await this.authenticatedRead(
+      [{ functionName: 'getParticipantCompressed', args: [normalizeCeremonyId(cid), index] }],
+      anchor,
+    );
+    const [auth, compressedKey, dealt] = results[0] as [Hex, bigint, boolean];
+    return { auth, compressedKey, dealt };
+  }
+
+  /**
+   * The full frozen roster, one authenticated snapshot (§9.3 item 2). Every
+   * X_i is stored compressed; it is decompressed per §2.5 and re-validated
+   * (canonical, on curve, prime subgroup, non-identity) here.
+   */
   async getRoster(cid: Hex, anchor?: FinalizedAnchor): Promise<{ roster: Roster; view: CeremonyView; anchor: FinalizedAnchor }> {
     const id = normalizeCeremonyId(cid);
     const first = await this.authenticatedRead([{ functionName: 'getCeremony', args: [id] }], anchor);
     const view = first.results[0] as CeremonyView;
     const n = view.n;
     const calls: ViewCall[] = [];
-    for (let i = 1; i <= n; i++) calls.push({ functionName: 'getParticipant', args: [id, i] });
+    for (let i = 1; i <= n; i++) calls.push({ functionName: 'getParticipantCompressed', args: [id, i] });
     const { results } = await this.authenticatedRead(calls, first.anchor);
     const authAddresses: Hex[] = [];
     const memberKeys: Point[] = [];
-    for (const r of results) {
-      const [auth, pkX, pkY] = r as [Hex, bigint, bigint, boolean];
+    results.forEach((r, i) => {
+      const [auth, compressedKey] = r as [Hex, bigint, boolean];
       authAddresses.push(auth);
-      memberKeys.push({ x: pkX, y: pkY });
-    }
+      const key = decompressPoint(compressedKey);
+      assertValidSubgroupPoint(key, `X_${i + 1}`);
+      memberKeys.push(key);
+    });
     return { roster: { t: view.threshold, n, authAddresses, memberKeys }, view, anchor: first.anchor };
   }
 
-  async getDealing(cid: Hex, dealerIndex: number, anchor?: FinalizedAnchor): Promise<Dealing> {
+  /** The stored aggregates A_0..A_15 (full TE, identity padded above t−1). */
+  async getAggregates(cid: Hex, anchor?: FinalizedAnchor): Promise<Point[]> {
     const { results } = await this.authenticatedRead(
-      [{ functionName: 'getDealing', args: [normalizeCeremonyId(cid), dealerIndex] }],
+      [{ functionName: 'getAggregates', args: [normalizeCeremonyId(cid)] }],
       anchor,
     );
-    const [C, E, masked] = results[0] as [readonly (readonly [bigint, bigint])[], readonly [bigint, bigint], readonly bigint[]];
-    return {
-      C: C.map(([x, y]) => ({ x, y })),
-      E: { x: E[0], y: E[1] },
-      masked: masked.slice(),
-    };
+    return (results[0] as readonly (readonly [bigint, bigint])[]).map(([x, y]) => ({ x, y }));
   }
 
-  /** All accepted dealings of QUAL, one snapshot. */
-  async getQualDealings(cid: Hex, qual: number[], anchor?: FinalizedAnchor): Promise<Map<number, Dealing>> {
-    const id = normalizeCeremonyId(cid);
+  /** One dealer's durable recovery data: compressed(E_j) + its masked-share row. */
+  async getRecoveryDealing(
+    cid: Hex,
+    dealerIndex: number,
+    anchor?: FinalizedAnchor,
+  ): Promise<{ compressedE: bigint; maskedShares: bigint[] }> {
     const { results } = await this.authenticatedRead(
-      qual.map((j) => ({ functionName: 'getDealing', args: [id, j] })),
+      [{ functionName: 'getRecoveryDealing', args: [normalizeCeremonyId(cid), dealerIndex] }],
       anchor,
     );
-    const out = new Map<number, Dealing>();
-    qual.forEach((j, idx) => {
-      const [C, E, masked] = results[idx] as [
-        readonly (readonly [bigint, bigint])[],
-        readonly [bigint, bigint],
-        readonly bigint[],
-      ];
-      out.set(j, { C: C.map(([x, y]) => ({ x, y })), E: { x: E[0], y: E[1] }, masked: masked.slice() });
-    });
-    return out;
+    const [compressedE, maskedShares] = results[0] as [bigint, readonly bigint[]];
+    return { compressedE, maskedShares: maskedShares.slice() };
+  }
+
+  /** One member's recovery slice (§8.6): QUAL bitmap + per-dealer compressed(E_j), masked_{j,m}. */
+  async getRecoverySlice(cid: Hex, memberIndex: number, anchor?: FinalizedAnchor): Promise<RecoverySlice> {
+    const { results } = await this.authenticatedRead(
+      [{ functionName: 'getRecoverySlice', args: [normalizeCeremonyId(cid), memberIndex] }],
+      anchor,
+    );
+    const [qualBitmap, compressedE, maskedShares] = results[0] as [number, readonly bigint[], readonly bigint[]];
+    return { qualBitmap: Number(qualBitmap), compressedE: compressedE.slice(), maskedShares: maskedShares.slice() };
   }
 
   async getPublicKey(cid: Hex, anchor?: FinalizedAnchor): Promise<Point> {
@@ -393,33 +441,50 @@ export class CouncilClient {
     return { x, y };
   }
 
-  async getRequest(requestIdValue: Hex, anchor?: FinalizedAnchor): Promise<RequestView> {
+  async getRequestMeta(requestIdValue: Hex, anchor?: FinalizedAnchor): Promise<RequestMeta> {
     const { results } = await this.authenticatedRead(
-      [{ functionName: 'getRequest', args: [requestIdValue] }],
+      [{ functionName: 'getRequestMeta', args: [requestIdValue] }],
       anchor,
     );
-    const [cid, fieldCount, completedBitmap, partialBitmap, cts] = results[0] as [
-      Hex,
-      number,
-      number,
-      number,
-      readonly (readonly bigint[])[],
-    ];
+    const [cid, fieldCount, completedBitmap, partialBitmap] = results[0] as [Hex, number, number, number];
     return {
       ceremonyId: cid,
-      fieldCount,
-      completedBitmap,
-      partialBitmap,
-      cts: cts.map((row) => [row[0], row[1], row[2], row[3]] as [bigint, bigint, bigint, bigint]),
+      fieldCount: Number(fieldCount),
+      completedBitmap: Number(completedBitmap),
+      partialBitmap: Number(partialBitmap),
     };
+  }
+
+  /** The stored compressed ciphertext words, one `[compressed(C1_k), compressed(C2_k)]` pair per field. */
+  async getRequestCompressed(requestIdValue: Hex, anchor?: FinalizedAnchor): Promise<[bigint, bigint][]> {
+    const { results } = await this.authenticatedRead(
+      [{ functionName: 'getRequestCompressed', args: [requestIdValue] }],
+      anchor,
+    );
+    return (results[0] as readonly (readonly [bigint, bigint])[]).map(([c1, c2]) => [c1, c2]);
+  }
+
+  /** A member's partial commitment (§10.2): admitted bit, stored dataHash, publishedBlock. */
+  async getPartialCommitment(requestIdValue: Hex, index: number, anchor?: FinalizedAnchor): Promise<PartialCommitment> {
+    const { results } = await this.authenticatedRead(
+      [{ functionName: 'getPartialCommitment', args: [requestIdValue, index] }],
+      anchor,
+    );
+    const [accepted, dataHash, publishedBlock] = results[0] as [boolean, Hex, bigint];
+    return { accepted, dataHash, publishedBlock: BigInt(publishedBlock) };
   }
 
   /**
    * The authenticated, frozen snapshot `buildPartialDecryption` requires
-   * (§9.3). Reads request, ceremony and PK_i at one finalized anchor across
-   * every provider, cross-checks them, and refuses if the request does not
-   * exist, belongs to a different ceremony than `expectedCeremonyId`, the
-   * ceremony is not Live, or `participantIndex` is outside the roster.
+   * (§9.3). Reads request meta, ceremony, policy gate, PK_i, aggregates,
+   * roster and the compressed ciphertexts at one finalized anchor across
+   * every provider, and refuses if: the request does not exist or belongs to
+   * a different ceremony than `expectedCeremonyId`; the ceremony is not Live;
+   * the §8.7 gate is closed (read from `isDecryptionOpen`, never a local
+   * clock); `participantIndex` is outside the roster; the stored rosterHash
+   * or ctx differs from the locally recomputed value; PK_i differs from
+   * Horner(A, i) recomputed locally; or any decompressed C1/C2 fails the
+   * canonical/on-curve/subgroup checks.
    */
   async getPartialRequestSnapshot(
     requestIdValue: Hex,
@@ -427,11 +492,11 @@ export class CouncilClient {
     opts?: { expectedCeremonyId?: Hex },
   ): Promise<PartialRequestSnapshot> {
     const anchor = await this.finalizedAnchor();
-    const request = await this.getRequest(requestIdValue, anchor);
-    if (request.fieldCount < 1 || request.fieldCount > MAX_FIELDS) {
+    const meta = await this.getRequestMeta(requestIdValue, anchor);
+    if (meta.fieldCount < 1 || meta.fieldCount > MAX_FIELDS) {
       throw new Error('council client: request does not exist (fieldCount must be 1..16)');
     }
-    const cid = normalizeCeremonyId(request.ceremonyId);
+    const cid = normalizeCeremonyId(meta.ceremonyId);
     if (opts?.expectedCeremonyId !== undefined && normalizeCeremonyId(opts.expectedCeremonyId) !== cid) {
       throw new Error('council client: request belongs to a different ceremony than expected');
     }
@@ -439,6 +504,10 @@ export class CouncilClient {
       [
         { functionName: 'getCeremony', args: [cid] },
         { functionName: 'getMemberKey', args: [cid, participantIndex] },
+        { functionName: 'isDecryptionOpen', args: [cid] },
+        { functionName: 'getRequestCompressed', args: [requestIdValue] },
+        { functionName: 'getAggregates', args: [cid] },
+        { functionName: 'circuitReleaseId' },
       ],
       anchor,
     );
@@ -446,23 +515,58 @@ export class CouncilClient {
     if (view.phase !== Phase.Live) {
       throw new Error(`council client: ceremony is not Live (phase ${view.phase})`);
     }
+    const open = results[2] as boolean;
+    if (!open) {
+      throw new Error(
+        'council client: the decryption gate is closed (§8.7) — refusing to snapshot for a partial before opening',
+      );
+    }
     if (!Number.isInteger(participantIndex) || participantIndex < 1 || participantIndex > view.n) {
       throw new Error('council client: participantIndex is outside the roster (1..n)');
     }
+    // §9.3 item 2: stored rosterHash and ctx must equal the locally recomputed values.
+    const { roster } = await this.getRoster(cid, anchor);
+    const localRosterHash = computeRosterHash(this.chainId, this.manager, cid, roster);
+    if (localRosterHash.toLowerCase() !== view.rosterHash.toLowerCase()) {
+      throw new Error('council client: stored rosterHash does not match the locally recomputed roster — refusing');
+    }
+    const releaseId = results[5] as Hex;
+    const localCtx = dealContext(this.chainId, this.manager, cid, view.rosterHash, releaseId);
+    if (localCtx.toLowerCase() !== view.ctx.toLowerCase()) {
+      throw new Error('council client: stored ctx does not match the locally recomputed deal context — refusing');
+    }
+    // §9.3 item 5 (cross-check half): PK_i must equal Horner(A, i) recomputed locally.
     const [mkX, mkY] = results[1] as [bigint, bigint];
-    const cts = request.cts
-      .slice(0, request.fieldCount)
-      .map(([x1, y1, x2, y2]) => Object.freeze({ c1: Object.freeze({ x: x1, y: y1 }), c2: Object.freeze({ x: x2, y: y2 }) }));
+    const memberKey = { x: mkX, y: mkY };
+    const aggregates = (results[4] as readonly (readonly [bigint, bigint])[]).map(([x, y]) => ({ x, y }));
+    if (!pointEq(hornerEval(aggregates, participantIndex), memberKey)) {
+      throw new Error('council client: stored PK_i does not match Horner(A, i) — refusing');
+    }
+    // §9.3 item 4: decompress and validate every ciphertext point.
+    const compressed = results[3] as readonly (readonly [bigint, bigint])[];
+    if (compressed.length !== meta.fieldCount) {
+      throw new Error('council client: stored ciphertext count does not match fieldCount');
+    }
+    const cts = compressed.map(([w1, w2], k) => {
+      const c1 = decompressPoint(w1);
+      const c2 = decompressPoint(w2);
+      assertValidSubgroupPoint(c1, `C1[${k}]`);
+      assertValidSubgroupPoint(c2, `C2[${k}]`);
+      return Object.freeze({ c1: Object.freeze(c1), c2: Object.freeze(c2) });
+    });
     return Object.freeze({
       chainId: this.chainId,
       manager: this.manager,
       ceremonyId: cid,
       requestId: requestIdValue,
       phase: view.phase,
+      decryptionOpen: open,
+      rosterHash: view.rosterHash,
+      ctx: view.ctx,
       n: view.n,
       participantIndex,
-      memberKey: Object.freeze({ x: mkX, y: mkY }),
-      fieldCount: request.fieldCount,
+      memberKey: Object.freeze(memberKey),
+      fieldCount: meta.fieldCount,
       cts: Object.freeze(cts),
       anchor,
     });
@@ -502,14 +606,14 @@ export class CouncilClient {
     let participantIndex: number | undefined;
     if (count > 0) {
       const calls: ViewCall[] = [];
-      for (let i = 1; i <= count; i++) calls.push({ functionName: 'getParticipant', args: [cid, i] });
+      for (let i = 1; i <= count; i++) calls.push({ functionName: 'getParticipantCompressed', args: [cid, i] });
       const { results } = await this.authenticatedRead(calls, first.anchor);
       for (let i = 0; i < results.length; i++) {
-        const [addr, pkX, pkY] = results[i] as [Hex, bigint, bigint, boolean];
+        const [addr, compressedKey] = results[i] as [Hex, bigint, boolean];
         if (addr.toLowerCase() !== auth) continue;
         participantIndex = i + 1;
         const pk = identity.sharePublicKey;
-        if (pk && (pk.x !== pkX || pk.y !== pkY)) {
+        if (pk && compressPoint(pk) !== compressedKey) {
           mismatches.push(`sharePublicKey: chain X_${i + 1} does not match the derived key`);
         }
         break;
@@ -521,12 +625,45 @@ export class CouncilClient {
     return { ok: mismatches.length === 0, mismatches, phase: view.phase, rosterHash: view.rosterHash, participantIndex };
   }
 
-  async getPartial(requestIdValue: Hex, index: number, anchor?: FinalizedAnchor): Promise<Point[]> {
-    const { results } = await this.authenticatedRead(
-      [{ functionName: 'getPartial', args: [requestIdValue, index] }],
-      anchor,
-    );
-    return (results[0] as readonly (readonly [bigint, bigint])[]).map(([x, y]) => ({ x, y }));
+  /**
+   * The single owner-approved log read of the protocol (§10.4): ONE
+   * `eth_getLogs` restricted to the stored `publishedBlock`, filtered on the
+   * pinned manager address and `PartialDataPublished(requestId)`, returning
+   * this member's emitted padded D vector (or undefined). Unauthenticated by
+   * itself — the caller (`sourcePartialVectors`) only uses the result if its
+   * recomputed `partialDataHash` equals the hash stored on chain. Rejects when
+   * every provider refuses the read; `sourcePartialVectors` turns that into a
+   * missing vector (history is never required, §10.4).
+   */
+  async fetchPublishedVector(requestIdValue: Hex, index: number, publishedBlock: bigint): Promise<Point[] | undefined> {
+    if (publishedBlock === 0n) return undefined;
+    const event = COUNCIL_MANAGER_ABI.find(
+      (e) => e.type === 'event' && e.name === 'PartialDataPublished',
+    ) as AbiEvent;
+    let lastErr: unknown;
+    for (const client of this.clients) {
+      let logs: Log[];
+      try {
+        logs = await client.getLogs({
+          address: this.manager,
+          event,
+          args: { requestId: requestIdValue } as never,
+          fromBlock: publishedBlock,
+          toBlock: publishedBlock,
+        });
+      } catch (err) {
+        lastErr = err;
+        continue;
+      }
+      for (const log of parseEventLogs({ abi: COUNCIL_MANAGER_ABI, logs, eventName: 'PartialDataPublished' })) {
+        if (log.address.toLowerCase() !== this.manager.toLowerCase()) continue;
+        const a = log.args as { requestId: Hex; index: number; D: readonly (readonly [bigint, bigint])[] };
+        if (a.requestId.toLowerCase() !== requestIdValue.toLowerCase() || Number(a.index) !== index) continue;
+        return a.D.map(([x, y]) => ({ x, y }));
+      }
+      return undefined; // provider answered; the block holds no matching log
+    }
+    throw new Error('council client: every provider failed the single-block log fetch', { cause: lastErr });
   }
 
   async getPlaintexts(requestIdValue: Hex, anchor?: FinalizedAnchor): Promise<{ ready: boolean; values: bigint[] }> {
@@ -541,6 +678,15 @@ export class CouncilClient {
   async getCircuitReleaseId(anchor?: FinalizedAnchor): Promise<Hex> {
     const { results } = await this.authenticatedRead([{ functionName: 'circuitReleaseId' }], anchor);
     return results[0] as Hex;
+  }
+
+  /**
+   * The trust status of this manager's circuit release (authenticated id,
+   * looked up in the SDK's pins): apps must warn whenever it is not
+   * `production` — a development setup can be forged by its holder.
+   */
+  async getCircuitReleaseStatus(anchor?: FinalizedAnchor): Promise<CircuitReleaseStatus> {
+    return circuitReleaseStatus(await this.getCircuitReleaseId(anchor));
   }
 
   // --- requests, from state (no logs; protocol §9.3 item 3) ---
@@ -640,6 +786,12 @@ export function decodeManagerLogs(logs: Log[]) {
 
 const pointRow = (p: Point): [bigint, bigint] => [p.x, p.y];
 
+/** A relayer-rebuilt field is optional on the Action but required for direct calldata. */
+function need<T>(v: T | undefined, what: string): T {
+  if (v === undefined) throw new Error(`encodeAction: ${what} is required for direct submission (the relayer rebuilds it)`);
+  return v;
+}
+
 /** Encode an action into CouncilManager calldata (pure; exported for tests). */
 export function encodeAction(action: Action): Hex {
   const abi = COUNCIL_MANAGER_ABI;
@@ -652,6 +804,18 @@ export function encodeAction(action: Action): Hex {
       return encodeFunctionData({
         abi,
         functionName: 'closeRegistration',
+        args: [action.message, action.signature, need(action.rosterKeys, 'rosterKeys').map(pointRow)] as never,
+      });
+    case 'closeRegistrationScheduled':
+      return encodeFunctionData({
+        abi,
+        functionName: 'closeRegistrationScheduled',
+        args: [action.ceremonyId, need(action.rosterKeys, 'rosterKeys').map(pointRow)] as never,
+      });
+    case 'openDecryption':
+      return encodeFunctionData({
+        abi,
+        functionName: 'openDecryption',
         args: [action.message, action.signature] as never,
       });
     case 'allowAdapter':
@@ -681,6 +845,7 @@ export function encodeAction(action: Action): Hex {
           action.payload.proof.pA,
           action.payload.proof.pB,
           action.payload.proof.pC,
+          need(action.rosterKeys, 'rosterKeys').map(pointRow),
         ] as never,
       });
     case 'submitPartial':
@@ -694,6 +859,7 @@ export function encodeAction(action: Action): Hex {
           action.payload.proof.pA,
           action.payload.proof.pB,
           action.payload.proof.pC,
+          need(action.C1, 'C1').map(pointRow),
         ] as never,
       });
     case 'finalize':
@@ -704,7 +870,20 @@ export function encodeAction(action: Action): Hex {
       return encodeFunctionData({
         abi,
         functionName: 'combine',
-        args: [action.requestId, action.memberSet, action.fieldIndexes, action.plaintexts] as never,
+        args: [
+          action.requestId,
+          action.memberSet,
+          action.fieldIndexes,
+          action.plaintexts,
+          action.partialVectors.map((v) => v.map(pointRow)),
+          need(action.C2, 'C2').map(pointRow),
+        ] as never,
+      });
+    case 'publishPartialData':
+      return encodeFunctionData({
+        abi,
+        functionName: 'publishPartialData',
+        args: [action.requestId, action.participantIndex, action.D.map(pointRow)] as never,
       });
   }
 }

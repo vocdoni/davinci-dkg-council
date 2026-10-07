@@ -9,7 +9,7 @@
  * Secret-handling module: pure computation, no I/O, no logging.
  */
 
-import { MAX_FIELDS, Phase } from './constants.js';
+import { MAX_FIELDS, Phase, TAG_PARTIAL_DATA } from './constants.js';
 import {
   assertValidSubgroupPoint,
   G,
@@ -17,8 +17,43 @@ import {
   mulPoint,
   pointEq,
 } from './curve.js';
-import { assertCanonicalScalar, toDecimal } from './encoding.js';
+import { assertCanonicalScalar, taggedHash, toDecimal } from './encoding.js';
 import type { CiphertextField, Hex, PartialRequestSnapshot, Point } from './types.js';
+
+/**
+ * The deterministic partial-data commitment (protocol §10.2):
+ * `K("davinci-dkg-council/v2/partial-data", chainId, manager, ceremonyId,
+ * requestId, participantIndex, fieldCount, D)` with `D` the full TE vector,
+ * identity-padded through slot 15 — exactly as in the Partial payload.
+ * Deliberately proof-free: `D` is deterministic from the recovered share and
+ * the stored ciphertexts, which is what makes permissionless re-publication
+ * (§10.4) possible.
+ */
+export function partialDataHash(args: {
+  chainId: bigint;
+  manager: Hex;
+  ceremonyId: Hex;
+  requestId: Hex;
+  participantIndex: number;
+  fieldCount: number;
+  /** Padded to 16 (identity above fieldCount). */
+  D: Point[];
+}): Hex {
+  if (args.D.length !== MAX_FIELDS) throw new Error('partialDataHash: D must be padded to 16 slots');
+  return taggedHash(
+    TAG_PARTIAL_DATA,
+    'uint256, address, bytes12, bytes32, uint8, uint8, uint256[2][16]',
+    [
+      args.chainId,
+      args.manager,
+      args.ceremonyId,
+      args.requestId,
+      args.participantIndex,
+      args.fieldCount,
+      args.D.map((p) => [p.x, p.y] as [bigint, bigint]),
+    ],
+  );
+}
 
 /**
  * §9.3 item 4: every C1_k and C2_k must be canonical, on curve and in the
@@ -71,7 +106,9 @@ export interface BuiltPartial {
  * pinned deployment, cross-checked against the snapshot's. Checks, in order:
  *
  * 1. snapshot chain id and manager equal the caller's pins;
- * 2. the ceremony is Live;
+ * 2. the ceremony is Live and the §8.7 decryption gate is open (as read from
+ *    the contract's `isDecryptionOpen` view at the anchor — computing a
+ *    partial while the gate is closed is refused, §8.7);
  * 3. the request exists (fieldCount 1..16) and the snapshot is internally
  *    consistent (cts length, participantIndex within 1..n);
  * 4. every C1_k and C2_k is canonical, on curve and in the prime subgroup
@@ -94,6 +131,11 @@ export function buildPartialDecryption(
   }
   if (snapshot.phase !== Phase.Live) {
     throw new Error(`partial: ceremony is not Live (phase ${snapshot.phase})`);
+  }
+  if (!snapshot.decryptionOpen) {
+    throw new Error(
+      'partial: the decryption gate is closed (§8.7) — refusing to compute, export or prove D before opening',
+    );
   }
   if (snapshot.fieldCount < 1 || snapshot.fieldCount > MAX_FIELDS) {
     throw new Error('partial: request does not exist (fieldCount must be 1..16)');

@@ -1,9 +1,11 @@
-/** @vocdoni/davinci-dkg-council-sdk — invite-only threshold DKG for DAVINCI (Council v1). */
+/** @vocdoni/davinci-dkg-council-sdk — invite-only threshold DKG for DAVINCI (Council v2). */
 
 export * from './constants.js';
 export * from './types.js';
 export * from './curve.js';
+export * from './codec.js';
 export * from './encoding.js';
+export * from './schedule.js';
 export * from './keys.js';
 export * from './eip712.js';
 export * from './jcs.js';
@@ -16,6 +18,7 @@ export * from './recovery.js';
 export {
   buildPartialDecryption,
   checkRecoveredShare,
+  partialDataHash,
   partialPublicSignals,
   validateCiphertextFields,
   type BuiltPartial,

@@ -20,6 +20,7 @@ import type {
   Hex,
   InviteMessage,
   JoinMessage,
+  OpenDecryptionMessage,
   PartialMessage,
   PartialPayload,
   Point,
@@ -31,9 +32,17 @@ export const EIP712_TYPES = {
     { name: 'organizer', type: 'address' },
     { name: 'nonce', type: 'uint64' },
     { name: 'threshold', type: 'uint8' },
+    { name: 'registrationMode', type: 'uint8' },
     { name: 'registrationDeadline', type: 'uint64' },
     { name: 'dealingDuration', type: 'uint64' },
+    { name: 'decryptionMode', type: 'uint8' },
+    { name: 'decryptionOpenAt', type: 'uint64' },
+    { name: 'manualDecryptionFallbackAt', type: 'uint64' },
     { name: 'inviteKeys', type: 'address[]' },
+    { name: 'validUntil', type: 'uint64' },
+  ],
+  OpenDecryption: [
+    { name: 'ceremonyId', type: 'bytes12' },
     { name: 'validUntil', type: 'uint64' },
   ],
   AddInvites: [
@@ -106,21 +115,23 @@ export function councilDomain(chainId: bigint, manager: Hex): TypedDataDomain {
 
 type MessageOf<N extends ActionStructName> = N extends 'CreateCeremony'
   ? CreateCeremonyMessage
-  : N extends 'AddInvites'
-    ? AddInvitesMessage
-    : N extends 'CloseRegistration'
-      ? CloseRegistrationMessage
-      : N extends 'AllowAdapter'
-        ? AllowAdapterMessage
-        : N extends 'AuthorizeCreator'
-          ? AuthorizeCreatorMessage
-          : N extends 'Invite'
-            ? InviteMessage
-            : N extends 'Join'
-              ? JoinMessage
-              : N extends 'Deal'
-                ? DealMessage
-                : PartialMessage;
+  : N extends 'OpenDecryption'
+    ? OpenDecryptionMessage
+    : N extends 'AddInvites'
+      ? AddInvitesMessage
+      : N extends 'CloseRegistration'
+        ? CloseRegistrationMessage
+        : N extends 'AllowAdapter'
+          ? AllowAdapterMessage
+          : N extends 'AuthorizeCreator'
+            ? AuthorizeCreatorMessage
+            : N extends 'Invite'
+              ? InviteMessage
+              : N extends 'Join'
+                ? JoinMessage
+                : N extends 'Deal'
+                  ? DealMessage
+                  : PartialMessage;
 
 /** The EIP-712 digest of an action struct. */
 export function actionDigest<N extends ActionStructName>(

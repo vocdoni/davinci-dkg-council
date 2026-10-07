@@ -4,10 +4,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { compressPoint, decompressPoint } from '../src/codec.js';
 import { buildDealing, shareMask } from '../src/dealing.js';
 import { dealPayloadHash, partialPayloadHash } from '../src/eip712.js';
 import { recoverShare } from '../src/recovery.js';
-import { computePartialUnchecked, validateCiphertextFields } from '../src/partial.js';
+import { computePartialUnchecked, partialDataHash, validateCiphertextFields } from '../src/partial.js';
 import {
   combinedPoint,
   elgamalEncrypt,
@@ -18,7 +19,7 @@ import { BsgsTable, solveDlog } from '../src/bsgs.js';
 import { addPoints, G, IDENTITY, mulBase, mulPoint, pointEq } from '../src/curve.js';
 import { toDecimal } from '../src/encoding.js';
 import { loadVectors, skipMsg, vp } from './helpers.js';
-import type { CiphertextField, Dealing as DealingType, Groth16Proof, Hex, Point } from '../src/types.js';
+import type { CiphertextField, Groth16Proof, Hex, Point } from '../src/types.js';
 
 interface PlaceholderProof {
   pA: string[];
@@ -112,15 +113,22 @@ describe.skipIf(!dealingVectors)(dealingVectors ? 'vectors: dealing' : skipMsg('
 interface RecoveryVectors {
   scenarios: {
     name: string;
+    chainId: string;
+    manager: Hex;
+    ceremonyId: Hex;
     ctx: Hex;
     t: number;
     n: number;
     qual: number[];
     qualBitmap: number;
     aggregates: string[][];
+    /** The contract's biased storage encoding: every coordinate stored +1 (§8.3). */
+    aggregatesBiased: string[][];
     publicKey: string[];
+    dealers: { dealerIndex: number; E: string[]; compressedE: Hex }[];
     members: {
       index: number;
+      compressedX: Hex;
       shareSecret: string;
       perDealer: { dealerIndex: number; S: string[]; mask: string; masked: string; share: string }[];
       share: string;
@@ -131,13 +139,11 @@ interface RecoveryVectors {
 
 const recoveryVectors = loadVectors<RecoveryVectors>('recovery');
 
-const dealingsOfScenario = (name: string): Map<number, DealingType> => {
-  const out = new Map<number, DealingType>();
+const dealingCommitments = (name: string): Map<number, Point[]> => {
+  const out = new Map<number, Point[]>();
   const sc = (dealingVectors as DealingVectors).scenarios.find((s) => s.name === name);
   if (!sc) throw new Error(`dealing scenario ${name} missing`);
-  for (const d of sc.dealings) {
-    out.set(d.dealerIndex, { C: d.C.map(vp), E: vp(d.E), masked: d.masked.map(BigInt) });
-  }
+  for (const d of sc.dealings) out.set(d.dealerIndex, d.C.map(vp));
   return out;
 };
 
@@ -145,25 +151,52 @@ describe.skipIf(!recoveryVectors || !dealingVectors)(
   recoveryVectors ? 'vectors: recovery' : skipMsg('recovery'),
   () => {
     for (const sc of recoveryVectors?.scenarios ?? []) {
-      it(`scenario ${sc.name}: share recovery, aggregates and public key`, () => {
-        const dealings = dealingsOfScenario(sc.name);
-        expect(sc.qual.reduce((acc, j) => acc | (1 << (j - 1)), 0)).toBe(sc.qualBitmap);
+      // Padded aggregates as the contract serves them (identity above t−1).
+      const agg16 = (rows: string[][]): Point[] =>
+        Array.from({ length: 16 }, (_, k) => (rows[k] ? vp(rows[k] as string[]) : IDENTITY));
 
-        // Aggregates A_k = sum over QUAL of C_{j,k}; PK = A_0.
+      it(`scenario ${sc.name}: QUAL, dealer encodings, aggregates and bias`, () => {
+        expect(sc.qual.reduce((acc, j) => acc | (1 << (j - 1)), 0)).toBe(sc.qualBitmap);
+        expect(sc.dealers.map((d) => d.dealerIndex)).toEqual(sc.qual);
+        for (const d of sc.dealers) {
+          const E = vp(d.E);
+          expect(compressPoint(E)).toBe(BigInt(d.compressedE));
+          expect(decompressPoint(BigInt(d.compressedE))).toEqual(E);
+        }
+        // Aggregates A_k = sum over QUAL of C_{j,k} (from dealing.json); PK = A_0.
+        const C = dealingCommitments(sc.name);
         for (let k = 0; k < sc.t; k++) {
           let acc = IDENTITY;
-          for (const j of sc.qual) acc = addPoints(acc, (dealings.get(j) as DealingType).C[k] as Point);
+          for (const j of sc.qual) acc = addPoints(acc, (C.get(j) as Point[])[k] as Point);
           expect(acc).toEqual(vp(sc.aggregates[k] as string[]));
         }
         expect(vp(sc.publicKey)).toEqual(vp(sc.aggregates[0] as string[]));
+        // The biased storage rows are exactly (x+1, y+1) of the true aggregates.
+        expect(sc.aggregatesBiased.length).toBe(sc.aggregates.length);
+        sc.aggregatesBiased.forEach((row, k) => {
+          const a = vp(sc.aggregates[k] as string[]);
+          expect(vp(row)).toEqual({ x: a.x + 1n, y: a.y + 1n });
+        });
+      });
 
+      it(`scenario ${sc.name}: share recovery from the self-contained slice data`, () => {
         for (const m of sc.members) {
+          // The member's roster key X_m = x_m·G, stored compressed.
+          expect(compressPoint(mulBase(BigInt(m.shareSecret)))).toBe(BigInt(m.compressedX));
+          const recDealings = new Map(
+            sc.dealers.map((d) => {
+              const pd = m.perDealer.find((p) => p.dealerIndex === d.dealerIndex);
+              if (!pd) throw new Error(`perDealer ${d.dealerIndex} missing for member ${m.index}`);
+              return [d.dealerIndex, { compressedE: BigInt(d.compressedE), masked: BigInt(pd.masked) }];
+            }),
+          );
           const recovered = recoverShare({
             ctx: sc.ctx,
             memberIndex: m.index,
             shareSecret: BigInt(m.shareSecret),
             qual: sc.qual,
-            dealings,
+            dealings: recDealings,
+            aggregates: agg16(sc.aggregates),
             expectedMemberKey: vp(m.PK),
           });
           expect(toDecimal(recovered.share)).toBe(m.share);
@@ -171,11 +204,33 @@ describe.skipIf(!recoveryVectors || !dealingVectors)(
           for (const pd of m.perDealer) {
             expect(toDecimal(recovered.perDealer.get(pd.dealerIndex) as bigint)).toBe(pd.share);
             // Cross-check the vector's intermediate values too.
-            const S = mulPoint((dealings.get(pd.dealerIndex) as DealingType).E, BigInt(m.shareSecret));
+            const E = vp((sc.dealers.find((d) => d.dealerIndex === pd.dealerIndex) as { E: string[] }).E);
+            const S = mulPoint(E, BigInt(m.shareSecret));
             expect([toDecimal(S.x), toDecimal(S.y)]).toEqual(pd.S);
             expect(toDecimal(shareMask(sc.ctx, pd.dealerIndex, m.index, S))).toBe(pd.mask);
           }
         }
+      });
+
+      it(`scenario ${sc.name}: recovery halts on the biased aggregate encoding`, () => {
+        const m = sc.members[0] as RecoveryVectors['scenarios'][number]['members'][number];
+        const recDealings = new Map(
+          sc.dealers.map((d) => {
+            const pd = m.perDealer.find((p) => p.dealerIndex === d.dealerIndex);
+            return [d.dealerIndex, { compressedE: BigInt(d.compressedE), masked: BigInt((pd as { masked: string }).masked) }];
+          }),
+        );
+        expect(() =>
+          recoverShare({
+            ctx: sc.ctx,
+            memberIndex: m.index,
+            shareSecret: BigInt(m.shareSecret),
+            qual: sc.qual,
+            dealings: recDealings,
+            aggregates: agg16(sc.aggregatesBiased),
+            expectedMemberKey: vp(m.PK),
+          }),
+        ).toThrow(/halt/);
       });
     }
   },
@@ -185,6 +240,9 @@ interface CombineVectors {
   placeholderProof: PlaceholderProof;
   scenarios: {
     name: string;
+    chainId: string;
+    manager: Hex;
+    ceremonyId: Hex;
     t: number;
     n: number;
     request: {
@@ -193,12 +251,15 @@ interface CombineVectors {
       plaintexts: string[];
       randomness: string[];
       cts: string[][];
+      /** Per field: [compressed(C1_k), compressed(C2_k)] as the contract stores them. */
+      compressedCts: Hex[][];
     };
     publicKey: string[];
     partials: {
       index: number;
       D: string[][];
       payloadHash: Hex;
+      partialDataHash: Hex;
       witnessInput: Record<string, unknown>;
       publicInputs: string[];
     }[];
@@ -244,6 +305,34 @@ describe.skipIf(!combineVectors || !recoveryVectors)(
           expect(enc.c1).toEqual(ct.c1);
           expect(enc.c2).toEqual(ct.c2);
         });
+      });
+
+      it(`scenario ${sc.name}: stored compressed ciphertext words round-trip (§2.5)`, () => {
+        const cts = ctFields();
+        expect(sc.request.compressedCts).toHaveLength(sc.request.fieldCount);
+        sc.request.compressedCts.forEach((row, k) => {
+          const ct = cts[k] as CiphertextField;
+          expect(compressPoint(ct.c1)).toBe(BigInt((row as Hex[])[0] as Hex));
+          expect(compressPoint(ct.c2)).toBe(BigInt((row as Hex[])[1] as Hex));
+          expect(decompressPoint(BigInt((row as Hex[])[0] as Hex))).toEqual(ct.c1);
+          expect(decompressPoint(BigInt((row as Hex[])[1] as Hex))).toEqual(ct.c2);
+        });
+      });
+
+      it(`scenario ${sc.name}: partialDataHash commitments reproduce (§10.2)`, () => {
+        for (const p of sc.partials) {
+          expect(
+            partialDataHash({
+              chainId: BigInt(sc.chainId),
+              manager: sc.manager,
+              ceremonyId: sc.ceremonyId,
+              requestId: sc.request.requestId,
+              participantIndex: p.index,
+              fieldCount: sc.request.fieldCount,
+              D: p.D.map(vp),
+            }),
+          ).toBe(p.partialDataHash);
+        }
       });
 
       it(`scenario ${sc.name}: partial decryptions reproduce bit-for-bit`, () => {

@@ -13,9 +13,10 @@ import { describe, expect, it } from 'vitest';
 import type { PublicClient } from 'viem';
 import { CouncilClient, NotFinalizedYetError } from '../src/client.js';
 import { buildPartialDecryption } from '../src/partial.js';
-import { addPoints, G, mulBase, mulPoint, pointEq } from '../src/curve.js';
+import { compressPoint } from '../src/codec.js';
+import { addPoints, G, IDENTITY, mulBase, mulPoint, pointEq } from '../src/curve.js';
 import { P, Phase } from '../src/constants.js';
-import { toDecimal } from '../src/encoding.js';
+import { dealContext, rosterHash, toDecimal } from '../src/encoding.js';
 import { kitEntryIdentity, rehearseEntry, type KitManifestEntry } from '../src/kit.js';
 import { participantAuthKey, rootFromMnemonic, shareEncryptionKey } from '../src/keys.js';
 import { WorkerProver, type WorkerLike } from '../src/prover.js';
@@ -37,6 +38,16 @@ const SHARE = 7n;
 const PK = mulBase(SHARE);
 const C1S: Point[] = [mulBase(5n), mulBase(9n)];
 
+// A self-consistent v2 chain world: roster → rosterHash → ctx, and aggregates
+// whose Horner evaluation at every index is PK (A_0 = PK, rest identity).
+const REL: Hex = `0x${'11'.repeat(32)}`;
+const AUTHS: Hex[] = [`0x${'01'.repeat(20)}`, `0x${'02'.repeat(20)}`, `0x${'03'.repeat(20)}`];
+const XKEYS: Point[] = [mulBase(21n), mulBase(22n), mulBase(23n)];
+const ROSTER = { t: 2, n: 3, authAddresses: AUTHS, memberKeys: XKEYS };
+const RHASH = rosterHash(31337n, MANAGER, CID, ROSTER);
+const CTX = dealContext(31337n, MANAGER, CID, RHASH, REL);
+const AGG: Point[] = [PK, ...Array.from({ length: 15 }, () => IDENTITY)];
+
 const ceremonyView = (over: Record<string, unknown> = {}) => ({
   phase: Phase.Live,
   organizer: MANAGER,
@@ -46,8 +57,8 @@ const ceremonyView = (over: Record<string, unknown> = {}) => ({
   dealingDeadline: 0n,
   joinedCount: 3,
   dealtCount: 3,
-  rosterHash: `0x${'dd'.repeat(32)}`,
-  ctx: `0x${'ee'.repeat(32)}`,
+  rosterHash: RHASH,
+  ctx: CTX,
   inviteCount: 3,
   consumedInvites: 0n,
   qualBitmap: 7,
@@ -56,16 +67,7 @@ const ceremonyView = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const requestRow = (c1s: Point[], fieldCount = c1s.length) => [
-  CID,
-  fieldCount,
-  0,
-  0,
-  Array.from({ length: 16 }, (_, k) => {
-    const c1 = c1s[k] ?? G;
-    return [c1.x, c1.y, G.x, G.y];
-  }),
-];
+const compressedRequest = (c1s: Point[]) => c1s.map((c1) => [compressPoint(c1), compressPoint(G)]);
 
 type Views = Record<string, (args: readonly unknown[]) => unknown>;
 
@@ -87,9 +89,17 @@ const PINS = { chainId: 31337n, manager: MANAGER };
 
 describe('fix 1: gated partial decryption (§9.3)', () => {
   const healthy: Views = {
-    getRequest: () => requestRow(C1S),
+    getRequestMeta: () => [CID, C1S.length, 0, 0],
+    getRequestCompressed: () => compressedRequest(C1S),
     getCeremony: () => ceremonyView(),
     getMemberKey: () => [PK.x, PK.y],
+    isDecryptionOpen: () => true,
+    getAggregates: () => AGG.map((p) => [p.x, p.y]),
+    circuitReleaseId: () => REL,
+    getParticipantCompressed: (args) => {
+      const i = args[1] as number;
+      return [AUTHS[i - 1], compressPoint(XKEYS[i - 1] as Point), true];
+    },
   };
   const client = (views: Views = healthy) =>
     new CouncilClient({ chainId: 31337n, manager: MANAGER, clients: twoOf(views) });
@@ -103,8 +113,25 @@ describe('fix 1: gated partial decryption (§9.3)', () => {
   });
 
   it('rejects a nonexistent request (fieldCount 0)', async () => {
-    const c = client({ ...healthy, getRequest: () => requestRow([], 0) });
+    const c = client({ ...healthy, getRequestMeta: () => [CID, 0, 0, 0] });
     await expect(c.getPartialRequestSnapshot(REQ, 1)).rejects.toThrow(/request does not exist/);
+  });
+
+  it('refuses to snapshot while the §8.7 decryption gate is closed', async () => {
+    const c = client({ ...healthy, isDecryptionOpen: () => false });
+    await expect(c.getPartialRequestSnapshot(REQ, 1)).rejects.toThrow(/decryption gate is closed/);
+  });
+
+  it('refuses a stored rosterHash or ctx that does not recompute locally', async () => {
+    const badRoster = client({ ...healthy, getCeremony: () => ceremonyView({ rosterHash: `0x${'dd'.repeat(32)}` }) });
+    await expect(badRoster.getPartialRequestSnapshot(REQ, 1)).rejects.toThrow(/rosterHash does not match/);
+    const badCtx = client({ ...healthy, getCeremony: () => ceremonyView({ ctx: `0x${'ee'.repeat(32)}` }) });
+    await expect(badCtx.getPartialRequestSnapshot(REQ, 1)).rejects.toThrow(/ctx does not match/);
+  });
+
+  it('refuses a stored PK_i that is not Horner(A, i)', async () => {
+    const c = client({ ...healthy, getMemberKey: () => [G.x, G.y] });
+    await expect(c.getPartialRequestSnapshot(REQ, 1)).rejects.toThrow(/Horner/);
   });
 
   it('rejects a request bound to a different ceremony than expected', async () => {
@@ -123,17 +150,24 @@ describe('fix 1: gated partial decryption (§9.3)', () => {
     await expect(client().getPartialRequestSnapshot(REQ, 0)).rejects.toThrow(/outside the roster/);
   });
 
-  it('rejects the order-2 torsion point (0, p-1) as C1', async () => {
-    const c = client({ ...healthy, getRequest: () => requestRow([TORSION, C1S[1] as Point]) });
-    const snapshot = await c.getPartialRequestSnapshot(REQ, 1);
-    expect(() => buildPartialDecryption(snapshot, SHARE, PINS)).toThrow(/prime-order subgroup/);
+  it('rejects the order-2 torsion point (0, p-1) as C1 at snapshot time', async () => {
+    const c = client({ ...healthy, getRequestCompressed: () => compressedRequest([TORSION, C1S[1] as Point]) });
+    await expect(c.getPartialRequestSnapshot(REQ, 1)).rejects.toThrow(/prime-order subgroup/);
   });
 
-  it('rejects a point with a torsion component (G + T)', async () => {
+  it('rejects a point with a torsion component (G + T) at snapshot time', async () => {
     const mixed = addPoints(G, TORSION);
-    const c = client({ ...healthy, getRequest: () => requestRow([mixed]) });
-    const snapshot = await c.getPartialRequestSnapshot(REQ, 1);
-    expect(() => buildPartialDecryption(snapshot, SHARE, PINS)).toThrow(/prime-order subgroup/);
+    const c = client({ ...healthy, getRequestCompressed: () => compressedRequest([mixed, C1S[1] as Point]) });
+    await expect(c.getPartialRequestSnapshot(REQ, 1)).rejects.toThrow(/prime-order subgroup/);
+  });
+
+  it('re-validates ciphertexts in buildPartialDecryption even on a hand-forged snapshot', async () => {
+    const good = await client().getPartialRequestSnapshot(REQ, 1);
+    const forged = {
+      ...good,
+      cts: [{ c1: TORSION, c2: G }, good.cts[1]],
+    } as unknown as PartialRequestSnapshot;
+    expect(() => buildPartialDecryption(forged, SHARE, PINS)).toThrow(/prime-order subgroup/);
   });
 
   it('rejects a share that does not match the on-chain PK_i', async () => {
@@ -240,21 +274,21 @@ describe('fix 4: restore authenticates against chain state', () => {
   };
   const otherAddr: Hex = `0x${'44'.repeat(20)}`;
 
-  const chain = (participants: [Hex, bigint, bigint, boolean][], view = ceremonyView({ n: participants.length })) =>
+  const chain = (participants: [Hex, bigint, boolean][], view = ceremonyView({ n: participants.length })) =>
     new CouncilClient({
       chainId: 31337n,
       manager: MANAGER,
       clients: twoOf({
         getCeremony: () => view,
-        getParticipant: (args) => participants[(args[1] as number) - 1],
+        getParticipantCompressed: (args) => participants[(args[1] as number) - 1],
       }),
     });
 
   it('finds the participant, cross-checks X_i and returns chain-derived index/rosterHash', async () => {
     const identity = kitEntryIdentity(root, entry);
     const client = chain([
-      [otherAddr, 1n, 2n, true],
-      [auth.address.toLowerCase() as Hex, share.publicKey.x, share.publicKey.y, true],
+      [otherAddr, compressPoint(G), true],
+      [auth.address.toLowerCase() as Hex, compressPoint(share.publicKey), true],
     ]);
     const res = await client.verifyRestoredIdentity(identity);
     expect(res.ok).toBe(true);
@@ -264,7 +298,7 @@ describe('fix 4: restore authenticates against chain state', () => {
 
   it('flags a chain X_i that does not match the derived key', async () => {
     const identity = kitEntryIdentity(root, entry);
-    const client = chain([[auth.address.toLowerCase() as Hex, 1n, 2n, true]]);
+    const client = chain([[auth.address.toLowerCase() as Hex, compressPoint(G), true]]);
     const res = await client.verifyRestoredIdentity(identity);
     expect(res.ok).toBe(false);
     expect(res.mismatches.join()).toMatch(/sharePublicKey/);
@@ -272,7 +306,7 @@ describe('fix 4: restore authenticates against chain state', () => {
 
   it('flags an unregistered derived identity', async () => {
     const identity = kitEntryIdentity(root, entry);
-    const client = chain([[otherAddr, 1n, 2n, true]]);
+    const client = chain([[otherAddr, compressPoint(G), true]]);
     const res = await client.verifyRestoredIdentity(identity);
     expect(res.ok).toBe(false);
     expect(res.mismatches.join()).toMatch(/not registered/);
