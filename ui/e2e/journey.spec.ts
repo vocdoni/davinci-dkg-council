@@ -290,7 +290,7 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     // card really signs and sends that grant through the relayer, waits until the finalized state
     // shows both, and only then reports the committee back to Elections.
     const ORG_ID = '123e4567-e89b-42d3-a456-426614174000';
-    const PAIR_CREATOR = '0x00000000000000000000000000000000000000C2';
+    const PAIR_CREATOR = '0x00000000000000000000000000000000000000c2';
     let completedCid = '';
     await org.route('**/config.json', async (route) => {
       const cfg = (await (await route.fetch()).json()) as Record<string, unknown>;
