@@ -24,6 +24,22 @@ export interface LegacyDeployment {
   label?: string;
 }
 
+/** The DAVINCI Elections connection (docs/davinci-integration.md): everything is pinned here. */
+export interface DavinciConfig {
+  /**
+   * The DAVINCI ProcessRegistry this deployment serves. The adapter granted by the pairing flow
+   * is always read on chain from this registry (`councilAdapter()`), never taken from a link or
+   * an API response.
+   */
+  registry: Hex;
+  /**
+   * Allowlist of DAVINCI Elections servers whose pairing codes this app accepts: bare origins
+   * (scheme + host [+ port]), https on a production chain. The pairing calls may only target
+   * these; an origin never comes from a URL parameter, a link or a response.
+   */
+  electionsOrigins: string[];
+}
+
 export interface AppConfig {
   chainId: number;
   /** The current deployment: new committees are created here. */
@@ -50,11 +66,11 @@ export interface AppConfig {
   /** Older managers on this chain still served (current first is `manager`). */
   legacyDeployments: LegacyDeployment[];
   /**
-   * The DAVINCI ProcessRegistry whose `councilAdapter()` the app may grant (optional). Reserved for
-   * the DAVINCI Elections connection (docs/davinci-integration.md): an adapter address is read from
-   * this pinned registry on chain, never taken from a link. Nothing uses it yet.
+   * The DAVINCI Elections connection. Absent (or configured with a zero registry, the committed
+   * placeholder until the registry is deployed): the pairing card is off. config.json also
+   * accepts the older key `davinciRegistry`; without `electionsOrigins` it enables nothing.
    */
-  davinciRegistry?: Hex;
+  davinci?: DavinciConfig;
   /** Blocks per eth_getLogs request of those scans (default 10,000; halved when a provider refuses). */
   logChunkBlocks?: number;
   /** Explicit local development declaration (permits a single RPC). */
@@ -154,6 +170,7 @@ export function validateConfig(raw: unknown): AppConfig {
   if (o.davinciRegistry !== undefined && o.davinciRegistry !== null && !isHexAddress(o.davinciRegistry)) {
     throw new ConfigError('davinciRegistry must be a 0x address or null');
   }
+  const davinci = davinciConfig(o.davinci, devMode);
   const manager = o.manager.toLowerCase() as Hex;
   const legacyDeployments = legacyList(o.legacyDeployments, o.chainId, manager);
   return {
@@ -165,10 +182,48 @@ export function validateConfig(raw: unknown): AppConfig {
     deploymentBlock,
     legacyDeployments,
     ...(logChunkBlocks === undefined ? {} : { logChunkBlocks }),
-    ...(isHexAddress(o.davinciRegistry) ? { davinciRegistry: o.davinciRegistry.toLowerCase() as Hex } : {}),
+    ...(davinci === undefined ? {} : { davinci }),
     devMode,
     devPrivateKey: o.devPrivateKey as Hex | undefined,
   };
+}
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+/** One bare origin (`scheme://host[:port]`): what the pairing flow is allowed to call. */
+function bareOrigin(raw: unknown, devMode: boolean): string {
+  if (typeof raw !== 'string') throw new ConfigError('davinci.electionsOrigins entries must be strings');
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new ConfigError(`davinci.electionsOrigins: invalid origin ${raw}`);
+  }
+  if (u.protocol !== 'https:' && !(devMode && u.protocol === 'http:')) {
+    throw new ConfigError(`davinci.electionsOrigins entries must be https origins (${raw})`);
+  }
+  if ((u.pathname !== '/' && u.pathname !== '') || u.search !== '' || u.hash !== '' || u.username !== '' || u.password !== '') {
+    throw new ConfigError(`davinci.electionsOrigins entries must be bare origins — scheme and host only (${raw})`);
+  }
+  return u.origin;
+}
+
+function davinciConfig(raw: unknown, devMode: boolean): DavinciConfig | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object') throw new ConfigError('davinci must be an object');
+  const d = raw as Record<string, unknown>;
+  if (!isHexAddress(d.registry)) throw new ConfigError('davinci.registry must be a 0x address');
+  if (!Array.isArray(d.electionsOrigins) || d.electionsOrigins.length === 0) {
+    throw new ConfigError('davinci.electionsOrigins must be a non-empty array of origins');
+  }
+  const electionsOrigins = d.electionsOrigins.map((o) => bareOrigin(o, devMode));
+  if (new Set(electionsOrigins).size !== electionsOrigins.length) {
+    throw new ConfigError('davinci.electionsOrigins lists the same origin twice');
+  }
+  const registry = d.registry.toLowerCase() as Hex;
+  // The committed placeholder until the registry is deployed: everything validated, nothing on.
+  if (registry === ZERO_ADDRESS) return undefined;
+  return { registry, electionsOrigins };
 }
 
 function legacyList(raw: unknown, chainId: number, current: Hex): LegacyDeployment[] {

@@ -12,5 +12,10 @@
     "https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/{release}",
     "https://github.com/vocdoni/davinci-dkg-council/releases/download/{release}"
   ],
+  "davinci": {
+    "_TODO": "replace the zero registry with the R2 DAVINCI ProcessRegistry address once deployed; until then the Elections connection is off",
+    "registry": "0x0000000000000000000000000000000000000000",
+    "electionsOrigins": ["https://elections.davinci.vote"]
+  },
   "devMode": false
 }

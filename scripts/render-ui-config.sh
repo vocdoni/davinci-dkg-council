@@ -22,8 +22,11 @@
 #   LEGACY_DEPLOYMENTS JSON array of older managers this copy still serves ("null" for none),
 #                      entries as ui/src/config.ts LegacyDeployment:
 #                      [{"manager":"0x…","deploymentBlock":N,"relayerUrls":["https://…"],"label":"…"}]
-#   DAVINCI_REGISTRY   DAVINCI ProcessRegistry address ("null" to drop it), reserved for the
-#                      DAVINCI Elections connection (docs/davinci-integration.md)
+#   DAVINCI_REGISTRY   DAVINCI ProcessRegistry address: writes davinci.registry, the pinned
+#                      registry of the DAVINCI Elections connection (docs/davinci-integration.md);
+#                      "null" drops the whole davinci object
+#   ELECTIONS_ORIGINS  comma-separated DAVINCI Elections origins (scheme + host only): writes
+#                      davinci.electionsOrigins; "null" drops the whole davinci object
 #   DEPLOYMENT_BLOCK   block the manager was deployed at (where the app's label scans start)
 #   LOG_CHUNK_BLOCKS   blocks per eth_getLogs request of those scans (default 10000)
 #   DEV_MODE           true/false: local chain (31337/1337) with a single RPC
@@ -75,11 +78,25 @@ set('LEGACY_DEPLOYMENTS', 'legacyDeployments', (v) => {
   if (!Array.isArray(parsed)) throw new Error('LEGACY_DEPLOYMENTS must be a JSON array');
   return parsed;
 });
-set('DAVINCI_REGISTRY', 'davinciRegistry', (v) => {
-  if (v === 'null') return null;
-  if (!/^0x[0-9a-fA-F]{40}$/.test(v)) throw new Error(`DAVINCI_REGISTRY is not an address: ${v}`);
-  return v.toLowerCase();
-});
+// The DAVINCI Elections connection is one pinned object (ui/src/config.ts DavinciConfig).
+if (env.DAVINCI_REGISTRY === 'null' || env.ELECTIONS_ORIGINS === 'null') {
+  delete cfg.davinci;
+} else {
+  if ((env.DAVINCI_REGISTRY ?? '') !== '') {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(env.DAVINCI_REGISTRY)) {
+      throw new Error(`DAVINCI_REGISTRY is not an address: ${env.DAVINCI_REGISTRY}`);
+    }
+    cfg.davinci = { ...(cfg.davinci ?? {}), registry: env.DAVINCI_REGISTRY.toLowerCase() };
+  }
+  if ((env.ELECTIONS_ORIGINS ?? '') !== '') {
+    cfg.davinci = { ...(cfg.davinci ?? {}), electionsOrigins: urlList(env.ELECTIONS_ORIGINS) };
+  }
+  if (cfg.davinci && (!cfg.davinci.registry || (cfg.davinci.electionsOrigins ?? []).length === 0)) {
+    throw new Error('the davinci object needs both DAVINCI_REGISTRY and ELECTIONS_ORIGINS');
+  }
+}
+// Comment keys ("_TODO" in the committed gnosis placeholder) stay out of a rendered config.
+if (cfg.davinci) for (const k of Object.keys(cfg.davinci)) if (k.startsWith('_')) delete cfg.davinci[k];
 set('DEPLOYMENT_BLOCK', 'deploymentBlock', int('DEPLOYMENT_BLOCK'));
 set('LOG_CHUNK_BLOCKS', 'logChunkBlocks', int('LOG_CHUNK_BLOCKS'));
 set('DEV_MODE', 'devMode', (v) => v === 'true');

@@ -44,10 +44,19 @@ want artifactsBaseUrls '["https://m1.example/{release}","https://m2.example/coun
 want artifactsBaseUrl undefined
 want legacyDeployments '[{"manager":"0x00000000000000000000000000000000000000bb","deploymentBlock":7,"relayerUrls":["https://old.example"],"label":"2026 rehearsal"}]'
 
-# The DAVINCI registry (reserved for the Elections connection) is an address, lowercased.
+# The DAVINCI Elections connection: DAVINCI_REGISTRY and ELECTIONS_ORIGINS fill the one pinned
+# object (the gnosis file ships a zero-registry placeholder), "null" drops it, a registry
+# without origins (starting from a file that has none) is refused.
 UI_CONFIG=ui/public/config.gnosis.json DAVINCI_REGISTRY=0x00000000000000000000000000000000000000CC render
-want davinciRegistry 0x00000000000000000000000000000000000000cc
+want davinci '{"registry":"0x00000000000000000000000000000000000000cc","electionsOrigins":["https://elections.davinci.vote"]}'
+UI_CONFIG=ui/public/config.gnosis.json DAVINCI_REGISTRY=0x00000000000000000000000000000000000000CC \
+  ELECTIONS_ORIGINS='https://elections.example/, https://staging.example' render
+want davinci '{"registry":"0x00000000000000000000000000000000000000cc","electionsOrigins":["https://elections.example","https://staging.example"]}'
+UI_CONFIG=ui/public/config.gnosis.json DAVINCI_REGISTRY=null render
+want davinci undefined
 refuse env UI_CONFIG=ui/public/config.gnosis.json DAVINCI_REGISTRY=0x12 bash "$here/render-ui-config.sh" "$out"
+refuse env UI_CONFIG=ui/public/config.sepolia.json DAVINCI_REGISTRY=0x00000000000000000000000000000000000000CC \
+  bash "$here/render-ui-config.sh" "$out"
 
 # "null" empties a list ("no relayers"); clearing legacy deployments works the same way.
 UI_CONFIG=ui/public/config.sepolia.json RELAYER_URLS=null LEGACY_DEPLOYMENTS=null render

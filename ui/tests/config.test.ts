@@ -67,12 +67,41 @@ describe('config validation', () => {
     expect(() => validateConfig({ ...base, legacyDeployments: [{ manager: 'nope' }] })).toThrow(/0x address/);
   });
 
-  it('takes an optional DAVINCI registry address (reserved for the Elections connection)', () => {
-    expect(validateConfig(base).davinciRegistry).toBeUndefined();
-    expect(validateConfig({ ...base, davinciRegistry: null }).davinciRegistry).toBeUndefined();
+  it('takes the DAVINCI Elections connection as one pinned object', () => {
+    expect(validateConfig(base).davinci).toBeUndefined();
     const registry = '0x00000000000000000000000000000000000000CC';
-    expect(validateConfig({ ...base, davinciRegistry: registry }).davinciRegistry).toBe(registry.toLowerCase());
+    const davinci = { registry, electionsOrigins: ['https://elections.example'] };
+    expect(validateConfig({ ...base, davinci })).toMatchObject({
+      davinci: { registry: registry.toLowerCase(), electionsOrigins: ['https://elections.example'] },
+    });
+    // The committed placeholder: a zero registry validates and leaves the connection off.
+    expect(
+      validateConfig({ ...base, davinci: { ...davinci, registry: `0x${'00'.repeat(20)}` } }).davinci,
+    ).toBeUndefined();
+    // The legacy key alone enables nothing but stays accepted.
+    expect(validateConfig({ ...base, davinciRegistry: registry }).davinci).toBeUndefined();
     expect(() => validateConfig({ ...base, davinciRegistry: '0x1234' })).toThrow(/davinciRegistry/);
+  });
+
+  it('accepts only bare https Elections origins, without duplicates', () => {
+    const d = (origins: unknown) =>
+      validateConfig({ ...base, davinci: { registry: '0x00000000000000000000000000000000000000CC', electionsOrigins: origins } });
+    expect(d(['https://e.example/']).davinci?.electionsOrigins).toEqual(['https://e.example']);
+    expect(d(['https://e.example:8443']).davinci?.electionsOrigins).toEqual(['https://e.example:8443']);
+    // http only in dev mode; base is a production config, so it is refused there.
+    expect(() => d(['http://e.example'])).toThrow(/https/);
+    const dev = { ...base, chainId: 31337, devMode: true, rpcUrls: ['http://127.0.0.1:8545'] };
+    expect(
+      validateConfig({
+        ...dev,
+        davinci: { registry: '0x00000000000000000000000000000000000000CC', electionsOrigins: ['http://127.0.0.1:9999'] },
+      }).davinci?.electionsOrigins,
+    ).toEqual(['http://127.0.0.1:9999']);
+    expect(() => d([])).toThrow(/non-empty/);
+    expect(() => d(['https://e.example/path'])).toThrow(/bare origins/);
+    expect(() => d(['https://e.example/?x=1'])).toThrow(/bare origins/);
+    expect(() => d(['ftp://e.example'])).toThrow(/https/);
+    expect(() => d(['https://e.example', 'https://E.example/'])).toThrow(/twice/);
   });
 
   it('rejects a devPrivateKey outside devMode', () => {
