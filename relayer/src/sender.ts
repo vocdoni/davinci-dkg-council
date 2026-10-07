@@ -463,12 +463,37 @@ export class TxSender {
   }
 
   /**
+   * A call the shared client could not serve — a provider capping the request body (publicnode
+   * refuses a large eth_call/eth_estimateGas with "Request exceeds defined limit"), a plan limit,
+   * an outage — is retried over the per-URL endpoints one by one, so one refusing provider cannot
+   * sink a large simulation or estimate. A revert is the chain's answer and is never retried.
+   */
+  private async readOverEndpoints<T>(what: string, fn: (client: PublicClient) => Promise<T>): Promise<T> {
+    try {
+      return await fn(this.client);
+    } catch (err) {
+      if (isRevert(err)) throw err;
+      let last: unknown = err;
+      for (const ep of this.endpoints) {
+        this.log.warn(`${what} failed, retrying on the next endpoint`, { endpoint: ep.name, err: shortMessage(last) });
+        try {
+          return await fn(ep.client);
+        } catch (e) {
+          if (isRevert(e)) throw e;
+          last = e;
+        }
+      }
+      throw last;
+    }
+  }
+
+  /**
    * eth_call with the exact calldata from the relayer's address. A revert is
    * returned as SIMULATION_REVERTED with the decoded custom error.
    */
   async simulate(to: Hex, data: Hex): Promise<void> {
     try {
-      await this.client.call({ account: this.address, to, data });
+      await this.readOverEndpoints('simulation', (client) => client.call({ account: this.address, to, data }));
     } catch (err) {
       if (isRevert(err)) throw simulationError(err);
       throw new RelayError('INTERNAL', `simulation failed: ${shortMessage(err)}`);
@@ -477,7 +502,7 @@ export class TxSender {
 
   private async estimateGas(to: Hex, data: Hex): Promise<bigint> {
     try {
-      return await this.client.estimateGas({ account: this.address, to, data });
+      return await this.readOverEndpoints('gas estimation', (client) => client.estimateGas({ account: this.address, to, data }));
     } catch (err) {
       if (isRevert(err)) throw simulationError(err);
       throw new RelayError('INTERNAL', `gas estimation failed: ${shortMessage(err)}`);

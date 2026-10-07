@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { encodeAction, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
-import { HttpRequestError, parseTransaction } from 'viem';
+import { createPublicClient, custom, HttpRequestError, parseTransaction, type PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { classifySendError } from '../src/broadcast.js';
 import { RelayError } from '../src/errors.js';
@@ -19,6 +19,8 @@ const finalizeData = (n: number): Hex => encodeAction({ kind: 'finalize', ceremo
 
 /** 1rpc.io's free plan on Sepolia. */
 const planRefusal = () => rpcError(-32000, 'chain is not available on free plan');
+/** publicnode's cap on the request body: a large contribution on Gnosis (production, 2026-10-07). */
+const sizeRefusal = () => rpcError(-32005, 'Request exceeds defined limit');
 const rateLimited = () => new HttpRequestError({ url: 'https://rpc.example', status: 429, details: 'Too Many Requests' });
 
 function capture() {
@@ -84,6 +86,10 @@ describe('send refusal classification', () => {
     [rpcError(-32601, 'the method eth_sendRawTransaction does not exist/is not available'), 'endpoint'],
     [rpcError(-32000, 'unauthorized: invalid API key'), 'endpoint'],
     [new HttpRequestError({ url: 'https://x', status: 405, details: 'Method Not Allowed' }), 'endpoint'],
+    // viem labels every -32005 "Request exceeds defined limit", a rate limit included: transient,
+    // which moves on to the next endpoint all the same (the production large-contribution refusal).
+    [sizeRefusal(), 'transient'],
+    [new HttpRequestError({ url: 'https://x', status: 413, details: 'Request Entity Too Large' }), 'endpoint'],
     [rateLimited(), 'transient'],
     [new Error('fetch failed'), 'transient'],
     [new Error('RPC Request failed.'), 'unknown'],
@@ -168,6 +174,97 @@ describe('broadcasting over several endpoints', () => {
     const hash = await sender.send(MANAGER, finalizeData(1));
     expect(chain.mempool.map((t) => t.hash)).toEqual([hash]);
     expect(sender.pendingCount).toBe(1);
+  });
+});
+
+describe('a provider capping the request body (publicnode on Gnosis)', () => {
+  /** A client onto the chain that refuses some methods with "Request exceeds defined limit". */
+  function capped(chain: MockChain, refuse: (method: string) => boolean) {
+    let refusals = 0;
+    const client = createPublicClient({
+      transport: custom(
+        {
+          request: ({ method, params }: { method: string; params?: unknown[] }) => {
+            if (refuse(method)) {
+              refusals += 1;
+              return Promise.reject(sizeRefusal());
+            }
+            return chain.request(method, params ?? []);
+          },
+        },
+        { retryCount: 0 },
+      ),
+    }) as PublicClient;
+    return { client, refusals: () => refusals };
+  }
+
+  function largeSetup(refuse: (method: string) => boolean) {
+    const chain = new MockChain({ automine: true });
+    chain.addCeremony(ceremonyIdOf(1), { phase: 2, threshold: 2, n: 3 });
+    const publicnode = capped(chain, refuse);
+    const logs = capture();
+    const sender = new TxSender({
+      client: publicnode.client,
+      account,
+      chainId: chain.chainId,
+      maxFeeWei: 10n ** 11n,
+      bumpAfterMs: 60_000,
+      endpoints: [
+        { name: 'publicnode', client: publicnode.client },
+        { name: 'gnosischain', client: chain.client },
+      ],
+      log: logs.log,
+    });
+    return { chain, sender, logs, publicnode };
+  }
+
+  it('simulation, estimate and broadcast all fall through to an endpoint that accepts them', async () => {
+    const big = new Set(['eth_call', 'eth_estimateGas', 'eth_sendRawTransaction']);
+    const { sender, logs, publicnode } = largeSetup((m) => big.has(m));
+    const hash = await sender.send(MANAGER, finalizeData(1));
+    expect(hash).toMatch(/^0x/);
+    expect(publicnode.refusals()).toBeGreaterThan(0);
+    expect(logs.entries.some((e) => e.msg.includes('retrying on the next endpoint'))).toBe(true);
+    expect(logs.entries.some((e) => e.msg.startsWith('broadcast endpoint refused') && e.fields?.endpoint === 'publicnode')).toBe(true);
+  });
+
+  it('a revert is the chain answer: never retried over the endpoints', async () => {
+    const chain = new MockChain({ automine: true });
+    chain.addCeremony(ceremonyIdOf(1), { phase: 2, threshold: 2, n: 3 });
+    const reverting = capped(chain, () => false);
+    let endpointCalls = 0;
+    const counting = createPublicClient({
+      transport: custom(
+        {
+          request: ({ method, params }: { method: string; params?: unknown[] }) => {
+            endpointCalls += 1;
+            return chain.request(method, params ?? []);
+          },
+        },
+        { retryCount: 0 },
+      ),
+    }) as PublicClient;
+    const sender = new TxSender({
+      client: createPublicClient({
+        transport: custom(
+          {
+            request: ({ method, params }: { method: string; params?: unknown[] }) =>
+              method === 'eth_call' ? Promise.reject(rpcError(3, 'execution reverted: Phase()')) : chain.request(method, params ?? []),
+          },
+          { retryCount: 0 },
+        ),
+      }) as PublicClient,
+      account,
+      chainId: chain.chainId,
+      maxFeeWei: 10n ** 11n,
+      bumpAfterMs: 60_000,
+      endpoints: [{ name: 'other', client: counting }],
+      log: capture().log,
+    });
+    const err = await errorOf(sender.send(MANAGER, finalizeData(1)));
+    expect(err.code).toBe('SIMULATION_REVERTED');
+    expect(endpointCalls).toBe(0);
+    expect(reverting.refusals()).toBe(0);
   });
 });
 

@@ -4,7 +4,11 @@
  * A refusal that says nothing about the transaction — method not allowed, a plan that does not
  * include sends, an auth failure, a rate limit, a transport error — is an *endpoint* failure:
  * the next endpoint is tried. A refusal about the transaction itself (nonce, fees, funds, gas)
- * is authoritative and stops the walk. When every endpoint fails, the most informative refusal
+ * is authoritative and stops the walk. A provider capping the request body (publicnode refuses a
+ * large contribution with -32005 "Request exceeds defined limit", HTTP 413 elsewhere) moves on
+ * too — viem reuses that exact text for every -32005, so it cannot be told from a rate limit,
+ * but either way the same transaction goes through the next endpoint untouched. When every
+ * endpoint fails, the most informative refusal
  * is raised, so an endpoint that cannot send never masks another endpoint's `nonce too low`
  * (viem's `fallback` transport raises the last error instead; the Sepolia run lost a ceremony to
  * that, docs/deployments.md).
@@ -36,10 +40,10 @@ const ACCEPTED = /already known|known transaction|already imported|already in (t
 const NONCE = /nonce too low|nonce too high|invalid nonce|nonce has already been used|nonce is too low|old nonce|replacement transaction underpriced|replacement fee too low|transaction underpriced: replacement/i;
 const TX = /insufficient funds|intrinsic gas too low|gas limit reached|exceeds block gas limit|max fee per gas less than block base fee|fee cap less than block base fee|tip higher than fee cap|max priority fee per gas higher than max fee|feecap|transaction underpriced|tx fee .* exceeds|invalid sender|invalid signature|invalid transaction|oversized data|gas too low|underpriced/i;
 const TRANSIENT = /rate limit|too many requests|request limit|exceeded the (daily|monthly|request)|capacity|timeout|timed out|fetch failed|econnrefused|econnreset|enotfound|eai_again|socket hang up|network error|service unavailable|bad gateway|gateway time|temporarily|try again|overloaded|header not found/i;
-const ENDPOINT = /method not (found|allowed|supported|available)|not supported|unsupported method|does not exist\/is not available|not available on (your|the|this|free)|free plan|paid plan|upgrade (your )?plan|not (included|enabled) (in|on|for) (your|this)|unauthori[sz]ed|forbidden|api key|access denied|invalid project id|not whitelisted|blocked|disabled/i;
+const ENDPOINT = /method not (found|allowed|supported|available)|not supported|unsupported method|does not exist\/is not available|not available on (your|the|this|free)|free plan|paid plan|upgrade (your )?plan|not (included|enabled) (in|on|for) (your|this)|unauthori[sz]ed|forbidden|api key|access denied|invalid project id|not whitelisted|blocked|disabled|(entity|payload|content|body) too large|request too large|content length too large/i;
 
 const TRANSIENT_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
-const ENDPOINT_STATUS = new Set([401, 402, 403, 404, 405, 501]);
+const ENDPOINT_STATUS = new Set([401, 402, 403, 404, 405, 413, 501]);
 const TRANSIENT_NAMES = new Set(['HttpRequestError', 'TimeoutError', 'LimitExceededRpcError', 'ResourceUnavailableRpcError', 'InternalRpcError']);
 const ENDPOINT_NAMES = new Set([
   'MethodNotFoundRpcError',
