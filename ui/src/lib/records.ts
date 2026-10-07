@@ -78,6 +78,8 @@ export interface CeremonyRecord {
    * Display only; never part of a kit.
    */
   pending?: PendingAction[];
+  /** This record came from a restore, so `createdAt` is the restore time, not the creation. */
+  restored?: boolean;
   createdAt: number;
 }
 

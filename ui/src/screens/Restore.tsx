@@ -131,6 +131,7 @@ export function Restore() {
           // kit export for this record must use it too.
           ...(entry.accountIndex !== 0 ? { accountIndex: entry.accountIndex } : {}),
           participantIndex: verdict.participantIndex,
+          restored: true,
           createdAt: Date.now(),
         });
       }
@@ -195,6 +196,7 @@ export function Restore() {
               cid,
               role,
               participantIndex: verdict.participantIndex,
+              restored: true,
               createdAt: Date.now(),
             });
             break search;
