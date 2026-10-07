@@ -3,8 +3,8 @@
 A builder's guide: how a product runs a DAVINCI election whose results only a Council committee
 can decrypt, with `@vocdoni/davinci-sdk` and `keyMode: 'council'`. It covers what the product
 needs, the Gnosis deployment this was proven on, what voters and organizers see on the way to
-the results, a minimal end-to-end example taken from a working run, and the hooks reserved for
-the DAVINCI Elections connection.
+the results, a minimal end-to-end example taken from a working run, and how the DAVINCI
+Elections pairing connects a committee to an Elections organization.
 
 > **Production beta, development trusted setup.** The Council manager on Gnosis is the production
 > beta (hosted app https://council-gnosis-ui-production.up.railway.app, relayer
@@ -328,23 +328,38 @@ writes a record (`run-*.json`, addresses, hashes, states, timings) and a 0600 se
 the recovery phrases and voter keys to `COUNCIL_RUN_DIR`; `COUNCIL_RESUME=<secrets file>` reruns
 the DAVINCI part on Live ceremonies of an earlier run.
 
-## DAVINCI Elections (planned)
+## DAVINCI Elections pairing
 
-DAVINCI Elections will offer a Council committee as one way to hold an election's key. Its design
-is settled outside this repository; nothing below is implemented yet in the Council app, and these
-are the hooks it relies on:
+DAVINCI Elections offers a Council committee as one way to hold an election's key. The Council
+app implements its side of the pairing (the Elections pairing API, version 1); the security rule
+throughout is that **nothing in a link or an API response ever picks the origin, the registry or
+the adapter** — those come from the app's pinned configuration and from chain.
 
-- **Links into the app.** `/c/<committee id>` opens a committee (members, organizer, results), as
-  today. `/new?davinci=v1&creator=0x…&label=…&return=https://…` is **reserved** for starting a
-  committee from Elections: the app ignores the query today and simply opens the create form, so
-  Elections can ship the link first. When supported, the app keeps `creator`, `label` and
-  `return` with the draft and, once the committee is Live, offers one confirmation screen with
-  both grants and then a button back to `return` with `?cid=0x…&chain=<id>&manager=0x…` (https
-  only, its origin shown first).
-- **The adapter is never taken from a link.** The app config's optional `davinciRegistry`
-  (validated now, unused so far; `DAVINCI_REGISTRY` in `scripts/render-ui-config.sh`) names the
-  DAVINCI ProcessRegistry; the app will read `councilAdapter()` from it on chain. The `creator`
-  from a link is shown in full for the organizer to compare with what Elections displays.
+- **Configuration.** `config.json`'s optional `davinci` object pins the connection:
+  `{ "registry": "0x…", "electionsOrigins": ["https://elections.davinci.vote"] }` — the DAVINCI
+  ProcessRegistry and the allowlisted Elections servers (bare `https` origins only; `http` only
+  in dev mode). `DAVINCI_REGISTRY` and `ELECTIONS_ORIGINS` in `scripts/render-ui-config.sh` set
+  them; a zero registry (the committed Gnosis placeholder until the production registry is
+  deployed) validates and leaves the whole connection off. The adapter is **always** read on
+  chain as the pinned registry's `councilAdapter()`, cross-checked against `adapter.manager()`.
+- **The deep link is cosmetic.** `/new?davinci=v1&label=…` opens the create form with `label` as
+  the local display name (collapsed, trimmed, 80 chars) and marks the draft as started for
+  Elections, so the dashboard later points at the pairing step. Every other parameter is
+  ignored — never an address, never a return URL, never a code.
+- **Pairing by one-use code.** Once the committee is Live, the organizer dashboard's "Connect to
+  DAVINCI Elections" card takes a pairing code (Crockford base32, `XXXX-XXXX-XXXX`, typed by
+  hand — never read from a URL, never logged). The app resolves it only at a pinned origin
+  (`GET /api/public/council-pairing/{code}`, `credentials: 'omit'`), then fails closed before
+  any grant: protocol version, `chainId`, `manager`, `registry` against the pinned config, the
+  response's `adapter` against the on-chain read, a non-zero `creator`. Any mismatch shows one
+  plain "different voting network" error and nothing is sent.
+- **Confirmation and grants.** The organizer confirms the organization by name, the committee
+  fingerprint and the creator address (an irreversible act, as on the generic Connections card,
+  which stays unchanged for manual grants). The app then signs `allowAdapter(<on-chain adapter>)`
+  and `authorizeCreator(<resolved creator>)`, skipping any grant already on chain or already in
+  flight (so a retry with a fresh code is idempotent), and reports the ceremony id back
+  (`POST …/{code}/complete`, which consumes the code). The success screen links back to
+  Elections only through the pinned origin and an allowlisted `returnPath` shape.
 - **Elections trusts nothing it is sent**: it verifies a committee on chain (phase,
   `isAdapterAllowed`, `isCreatorAuthorized` for its own creator address, policy) before using it.
   It needs no relayer access and no CORS entry: the app already registers every committee it

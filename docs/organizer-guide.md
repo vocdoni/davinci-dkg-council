@@ -137,6 +137,29 @@ your members' clients will treat as legitimate.
 - When in doubt, don't grant: grants can be added later, but a decryption that a rogue adapter
   obtained can never be taken back.
 
+### Connecting to DAVINCI Elections with a pairing code
+
+If your organization uses DAVINCI Elections and this deployment has the connection configured,
+the dashboard shows a "Connect to DAVINCI Elections" card once the committee is Live. It makes
+both grants for you, safely:
+
+1. In DAVINCI Elections, open **Committees → "Get a pairing code"**. The code (`XXXX-XXXX-XXXX`)
+   works once and only for a short while.
+2. Type it into the card — by hand; the app never reads a code from a link — and press
+   Continue. The app talks only to the Elections server pinned in its configuration and checks
+   that the server runs on the same chain, manager and registry as this committee; on any
+   difference it stops without changing anything.
+3. Confirm the screen: the **organization name**, the committee fingerprint and the **creator
+   address** whose elections you are authorizing. This is the same irreversible act as a manual
+   grant on the Connections card — read it before pressing Connect.
+4. The app signs the two grants (the adapter read on chain from the pinned registry, the creator
+   from the resolved code), tells Elections, and offers a link back. If the code expires midway,
+   ask for a new one and type it; steps already done are skipped.
+
+"This code is not valid anymore" means expired, already used or mistyped — get a fresh one.
+"Different voting network" means the Elections server does not run on this committee's
+deployment; nothing was granted, contact whoever gave you the code.
+
 ## Pre-opening checklist (condensed)
 
 - [ ] T−2 weeks: every member ran the restore check; at least `t` confirmed (chase the rest)

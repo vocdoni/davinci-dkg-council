@@ -1053,10 +1053,21 @@ manager; an empty list means nothing can be sent for its committees), plus an op
 display-only label. Reads use the app's `rpcUrls`; new committees are only ever created on the
 top-level `manager`.
 
+The optional `davinci` object pins the DAVINCI Elections connection
+([davinci-integration.md](davinci-integration.md#davinci-elections-pairing)):
+`{ "registry": "0x…", "electionsOrigins": ["https://elections.davinci.vote"] }` — the DAVINCI
+ProcessRegistry the app reads `councilAdapter()` from, and the allowlisted Elections servers
+(bare `https` origins; `http` only in dev mode). A zero registry validates and leaves the
+connection off (the committed Gnosis placeholder). When pinned, the organizer dashboard's
+"Connect to DAVINCI Elections" card (`ui/src/components/DavinciConnectCard.tsx`,
+`ui/src/lib/davinci.ts`) turns a one-use pairing code into the two grants, failing closed on any
+deployment mismatch before anything is signed.
+
 The older single-URL keys `relayerUrl` and `artifactsBaseUrl` (one URL or `null`) are still
 accepted and are merged ahead of their list counterparts, so an existing config keeps working
 unchanged. `scripts/render-ui-config.sh` renders all of these from environment variables
-(`RELAYER_URLS`, `ARTIFACTS_BASE_URLS`, `LEGACY_DEPLOYMENTS`, and the older singular forms);
+(`RELAYER_URLS`, `ARTIFACTS_BASE_URLS`, `LEGACY_DEPLOYMENTS`, `DAVINCI_REGISTRY`,
+`ELECTIONS_ORIGINS`, and the older singular forms);
 `bash scripts/render-ui-config.test.sh` checks both directions.
 
 ### 6.1 Routes

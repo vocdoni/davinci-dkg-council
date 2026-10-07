@@ -144,8 +144,10 @@ a copy of the circuit files served by the app's own origin and tried first
 ### Binding DAVINCI processes
 
 Once a committee is live, its organizer allows the registry's `CouncilAdapter` and authorizes the
-process creator (both in the app, under "Connections"). The creator then makes a process on the
-committee key with davinci-sdk:
+process creator — in the app under "Connections", or, for a DAVINCI Elections organization, by
+typing a one-use pairing code into the dashboard's "Connect to DAVINCI Elections" card
+([docs/davinci-integration.md](docs/davinci-integration.md#davinci-elections-pairing)). The
+creator then makes a process on the committee key with davinci-sdk:
 
 ```ts
 await sdk.createProcess({
@@ -209,7 +211,7 @@ ceremony (gas, cost and timings) and how to deploy.
 - [docs/deployments.md](docs/deployments.md): release pins, deploying, app configuration.
 - [docs/davinci-integration.md](docs/davinci-integration.md): building a DAVINCI product on a
   Council key — davinci-sdk `keyMode: 'council'`, the grants, scheduled vs manual opening, the
-  Gnosis deployment, a worked end-to-end example and the planned DAVINCI Elections connection.
+  Gnosis deployment, a worked end-to-end example and the DAVINCI Elections pairing.
 - [docs/organizer-guide.md](docs/organizer-guide.md): the organizer runbook — choosing `t` and
   `n`, decryption modes, kit custody, the pre-opening drill, monitoring.
 - [docs/hosting.md](docs/hosting.md): hosting and mirror policy — origins, artifact mirrors,
