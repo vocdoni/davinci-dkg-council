@@ -21,6 +21,7 @@ import {
   PairingError,
   resolvePairing,
   returnLink,
+  waitForGrants,
   type CompletionResult,
   type ResolvedPairing,
 } from '../lib/davinci';
@@ -137,8 +138,8 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
       ];
       for (const g of grants) {
         const draft = grantDraft(g.which, g.address);
-        // Already granted — or already sent from this device — means this step is done;
-        // a repeat would only revert AlreadyListed (which sendTracked also tolerates).
+        // Already granted — or already sent from this device (pending = waiting for the network,
+        // not done) — means nothing to re-send; a repeat would only revert AlreadyListed.
         if (findPending(record, draft) !== undefined || (await g.granted().catch(() => false))) continue;
         const action =
           g.which === 'adapter'
@@ -146,6 +147,13 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
             : await prepareAuthorizeCreator(mnemonic, services.config, record.cid, g.address, record.accountIndex);
         await sendTracked(services, record, action, draft, refreshRecords);
       }
+      // §6: complete only once BOTH grants show in the finalized state this app reads at — a
+      // sent grant can still be unmined or reverted, and completion consumes the one-use code.
+      setBusy('Waiting for the network to confirm the approvals…');
+      await waitForGrants(async () => {
+        const ok = await Promise.all(grants.map((g) => g.granted().catch(() => false)));
+        return ok.every(Boolean);
+      });
       setBusy('Telling DAVINCI Elections…');
       const completion = await completePairing(confirming.origin, confirming.code, record.cid);
       await withRecordLock(recordKey(record.chainId, record.manager, record.cid), async () => {
@@ -230,7 +238,8 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
           <ul className="mt-2 space-y-1 text-xs">
             <li>
               Committee {shortId(record.cid)}: {view.n} members, {thresholdSentence(view.threshold, view.n)}.
-              Created {formatDate(Math.floor(record.createdAt / 1000))}.
+              {/* A restored record's createdAt is the restore time, not the committee's creation. */}
+              {!record.restored && <> Created {formatDate(Math.floor(record.createdAt / 1000))}.</>}
             </li>
             <li>Elections server: {host(confirming.origin)}</li>
             <li className="break-all font-mono">Its votings are created by account {resolved.creator}</li>

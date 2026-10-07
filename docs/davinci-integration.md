@@ -339,8 +339,8 @@ the adapter** — those come from the app's pinned configuration and from chain.
   `{ "registry": "0x…", "electionsOrigins": ["https://elections.davinci.vote"] }` — the DAVINCI
   ProcessRegistry and the allowlisted Elections servers (bare `https` origins only; `http` only
   in dev mode). `DAVINCI_REGISTRY` and `ELECTIONS_ORIGINS` in `scripts/render-ui-config.sh` set
-  them; a zero registry (the committed Gnosis placeholder until the production registry is
-  deployed) validates and leaves the whole connection off. The adapter is **always** read on
+  them; a zero registry validates and leaves the whole connection off (for deployments without
+  an Elections server — the committed Gnosis config pins the production registry). The adapter is **always** read on
   chain as the pinned registry's `councilAdapter()`, cross-checked against `adapter.manager()`.
 - **The deep link is cosmetic.** `/new?davinci=v1&label=…` opens the create form with `label` as
   the local display name (collapsed, trimmed, 80 chars) and marks the draft as started for
@@ -349,7 +349,8 @@ the adapter** — those come from the app's pinned configuration and from chain.
 - **Pairing by one-use code.** Once the committee is Live, the organizer dashboard's "Connect to
   DAVINCI Elections" card takes a pairing code (Crockford base32, `XXXX-XXXX-XXXX`, typed by
   hand — never read from a URL, never logged). The app resolves it only at a pinned origin
-  (`GET /api/public/council-pairing/{code}`, `credentials: 'omit'`), then fails closed before
+  (`GET /api/public/council-pairing/{code}`, `credentials: 'omit'`, `redirect: 'error'` — a
+  redirect could let another server answer for the pinned origin), then fails closed before
   any grant: protocol version, `chainId`, `manager`, `registry` against the pinned config, the
   response's `adapter` against the on-chain read, a non-zero `creator`. Any mismatch shows one
   plain "different voting network" error and nothing is sent.
@@ -357,9 +358,13 @@ the adapter** — those come from the app's pinned configuration and from chain.
   fingerprint and the creator address (an irreversible act, as on the generic Connections card,
   which stays unchanged for manual grants). The app then signs `allowAdapter(<on-chain adapter>)`
   and `authorizeCreator(<resolved creator>)`, skipping any grant already on chain or already in
-  flight (so a retry with a fresh code is idempotent), and reports the ceremony id back
-  (`POST …/{code}/complete`, which consumes the code). The success screen links back to
-  Elections only through the pinned origin and an allowlisted `returnPath` shape.
+  flight (so a retry with a fresh code is idempotent — a sent-but-unconfirmed grant counts as
+  waiting, never as done), waits until the finalized state it reads at shows **both** grants,
+  and only then reports the ceremony id back (`POST …/{code}/complete`, `redirect: 'error'`,
+  which consumes the one-use code). A grant the relayer rejects is retryable without re-sending
+  the one that landed; a completion whose response was lost is simply retried, since the grants
+  are already on chain. The success screen links back to Elections only through the pinned
+  origin and an allowlisted `returnPath` shape.
 - **Elections trusts nothing it is sent**: it verifies a committee on chain (phase,
   `isAdapterAllowed`, `isCreatorAuthorized` for its own creator address, policy) before using it.
   It needs no relayer access and no CORS entry: the app already registers every committee it

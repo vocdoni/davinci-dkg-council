@@ -53,6 +53,30 @@ export const MISMATCH_TEXT =
 export const UNREACHABLE_TEXT = 'We could not reach DAVINCI Elections. Check your connection and try again.';
 export const BAD_CODE_SHAPE_TEXT =
   'That does not look like a pairing code — it is 12 letters and numbers, like K7F4-Q2ND-8HXR.';
+export const GRANTS_UNCONFIRMED_TEXT =
+  'The network has not confirmed the approvals yet. Nothing is lost — press Connect again in a few ' +
+  'minutes; the approvals already made are kept and never re-sent.';
+
+/**
+ * How the grant-confirmation wait polls (§6: complete only after both grants are *finalized*,
+ * since every read this app acts on is at a finalized block). Mutable so tests can shrink it.
+ */
+export const grantWaitTuning = { pollMs: 2_000, maxMs: 30 * 60_000 };
+
+/**
+ * Wait until `allGranted` (authenticated finalized reads for BOTH grants) holds, then return;
+ * after `maxMs` give up with the plain retry message. A sent-but-unmined (or later reverted)
+ * grant must never let the completion consume the one-use code — Elections would verify, find
+ * the grants missing and park the committee in `forming` while this app says it is done.
+ */
+export async function waitForGrants(allGranted: () => Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + grantWaitTuning.maxMs;
+  for (;;) {
+    if (await allGranted()) return;
+    if (Date.now() >= deadline) throw new PairingError(GRANTS_UNCONFIRMED_TEXT);
+    await new Promise((resolve) => setTimeout(resolve, grantWaitTuning.pollMs));
+  }
+}
 
 export interface ResolvedPairing {
   orgId: string;
@@ -74,11 +98,15 @@ export interface CompletionResult {
 
 const isHexAddress = (v: unknown): v is Hex => typeof v === 'string' && /^0x[0-9a-fA-F]{40}$/.test(v);
 
-/** One API call against the pinned origin; errors mapped to plain language per the contract. */
+/**
+ * One API call against the pinned origin; errors mapped to plain language per the contract.
+ * `redirect: 'error'` — following a redirect would let another server answer for the pinned
+ * origin (supply the creator, swallow the completion) while the UI still names the pinned host.
+ */
 async function api(origin: string, path: string, init: RequestInit, fetchFn: typeof fetch): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetchFn(`${origin}${path}`, { ...init, credentials: 'omit' });
+    res = await fetchFn(`${origin}${path}`, { ...init, credentials: 'omit', redirect: 'error' });
   } catch {
     throw new PairingError(UNREACHABLE_TEXT);
   }

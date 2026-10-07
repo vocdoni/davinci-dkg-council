@@ -153,8 +153,10 @@ both grants for you, safely:
    address** whose elections you are authorizing. This is the same irreversible act as a manual
    grant on the Connections card — read it before pressing Connect.
 4. The app signs the two grants (the adapter read on chain from the pinned registry, the creator
-   from the resolved code), tells Elections, and offers a link back. If the code expires midway,
-   ask for a new one and type it; steps already done are skipped.
+   from the resolved code), waits until the network confirms both, tells Elections, and offers a
+   link back. The wait can take a few minutes on a real chain; if the code expires midway, or
+   the confirmation outlasts your patience, ask for a new code and type it — steps already done
+   are skipped and nothing is ever sent twice.
 
 "This code is not valid anymore" means expired, already used or mistyped — get a fresh one.
 "Different voting network" means the Elections server does not run on this committee's

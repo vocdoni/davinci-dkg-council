@@ -16,6 +16,8 @@ import {
   checkDeployment,
   completePairing,
   formatPairingCode,
+  GRANTS_UNCONFIRMED_TEXT,
+  grantWaitTuning,
   MISMATCH_TEXT,
   normalizePairingCode,
   resolvePairing,
@@ -24,7 +26,7 @@ import {
   UNREACHABLE_TEXT,
   type ResolvedPairing,
 } from '../src/lib/davinci';
-import { getRecord } from '../src/lib/records';
+import { getRecord, type CeremonyRecord } from '../src/lib/records';
 import { ADAPTER, CREATOR, DAVINCI_REGISTRY, ELECTIONS_ORIGIN, makeFixture, MANAGER } from './helpers/fake';
 import { fixtureRecord, renderApp } from './helpers/render';
 
@@ -109,6 +111,8 @@ describe('resolvePairing', () => {
     expect(r.creator).toBe(CREATOR);
     expect(calls[0]?.url).toBe(`${ELECTIONS_ORIGIN}/api/public/council-pairing/${CODE}`);
     expect(calls[0]?.init.credentials).toBe('omit');
+    // A followed redirect would let another server answer for the pinned origin.
+    expect(calls[0]?.init.redirect).toBe('error');
   });
 
   it('maps the API errors to the organizer texts', async () => {
@@ -165,6 +169,7 @@ describe('completePairing', () => {
     const r = await completePairing(ELECTIONS_ORIGIN, CODE, cid, fn);
     expect(r.status).toBe('ready');
     expect(calls[0]?.url).toBe(`${ELECTIONS_ORIGIN}/api/public/council-pairing/${CODE}/complete`);
+    expect(calls[0]?.init.redirect).toBe('error'); // a redirected completion is never followed
     expect(String(calls[0]?.init.body)).toContain(cid);
     const lenient = await completePairing(ELECTIONS_ORIGIN, CODE, cid, electionsFetch(res(500), res(200, {})).fn);
     expect(lenient).toEqual({ status: 'forming', statusReason: null, returnPath: '' });
@@ -181,14 +186,30 @@ describe('Connect to DAVINCI Elections card', () => {
     phase?: Phase;
     davinci?: boolean;
     forDavinci?: boolean;
+    /** An accepted grant reaches the fake's (finalized) state at once; false models unmined. */
+    applyGrants?: boolean;
+    record?: Partial<CeremonyRecord>;
   } = {}) => {
     const f = makeFixture({ davinci: opts.davinci ?? true, phase: opts.phase });
+    const submit0 = f.services.submit;
+    f.services.submit = async (action) => {
+      const hash = await submit0(action);
+      if (opts.applyGrants !== false) {
+        if (action.kind === 'allowAdapter') f.chain.allowedAdapters.add(action.message.adapter.toLowerCase());
+        if (action.kind === 'authorizeCreator') f.chain.authorizedCreators.add(action.message.creator.toLowerCase());
+      }
+      return hash;
+    };
     const stub = electionsFetch(
       opts.resolve ?? res(200, resolveBody()),
       opts.complete ?? res(200, { ok: true, status: 'ready', statusReason: null, returnPath: `/organizer/orgs/${ORG_ID}/committees` }),
     );
     vi.stubGlobal('fetch', stub.fn);
-    const record = { ...fixtureRecord(f, 'organizer'), ...(opts.forDavinci ? { forDavinciElections: true } : {}) };
+    const record = {
+      ...fixtureRecord(f, 'organizer'),
+      ...(opts.forDavinci ? { forDavinciElections: true } : {}),
+      ...(opts.record ?? {}),
+    };
     const utils = await renderApp(f, `/c/${f.cid}`, { mnemonic: f.organizerMnemonic, record });
     return { f, stub, record, utils };
   };
@@ -203,10 +224,12 @@ describe('Connect to DAVINCI Elections card', () => {
     const { f, stub } = await setup();
     await typeAndContinue(user);
 
-    // The irreversible confirmation names the org, the committee and the creator account.
+    // The irreversible confirmation names the org, the committee (with its creation date,
+    // this record not being a restored one) and the creator account.
     await screen.findByText(/cannot be undone/);
     expect(document.body.textContent).toContain('Acme');
     expect(document.body.textContent).toContain(CREATOR);
+    expect(document.body.textContent).toContain('Created');
     await user.click(screen.getByRole('button', { name: 'Connect' }));
 
     await waitFor(() => expect(f.actions).toHaveLength(2));
@@ -309,6 +332,97 @@ describe('Connect to DAVINCI Elections card', () => {
     await user.click(await screen.findByRole('button', { name: 'Connect' }));
     await screen.findByText(/approvals themselves are done/);
     expect(f.actions).toHaveLength(2); // the grants landed; only the report is missing
+  });
+
+  it('refuses a redirected resolve: no grants, nothing reported to Elections', async () => {
+    const user = userEvent.setup();
+    const { f, stub } = await setup({
+      resolve: () => {
+        // What fetch does on a 3xx with redirect: 'error' — it rejects instead of following.
+        throw new TypeError('redirect refused');
+      },
+    });
+    await typeAndContinue(user);
+    await screen.findByText(UNREACHABLE_TEXT);
+    expect(f.actions).toHaveLength(0);
+    expect(stub.calls.some((c) => c.url.endsWith('/complete'))).toBe(false);
+  });
+
+  it('refuses a redirected or lost completion, then recovers without re-sending grants', async () => {
+    const user = userEvent.setup();
+    let failCompletion = true;
+    const { f, stub } = await setup({
+      complete: () => {
+        if (failCompletion) throw new TypeError('redirect refused');
+        return res(200, { ok: true, status: 'ready', statusReason: null, returnPath: `/organizer/orgs/${ORG_ID}/committees` });
+      },
+    });
+    await typeAndContinue(user);
+    await user.click(await screen.findByRole('button', { name: 'Connect' }));
+    await screen.findByText(UNREACHABLE_TEXT);
+    // Both grants are on chain, but the committee is not reported as connected.
+    expect(f.actions).toHaveLength(2);
+    expect(screen.queryByText(/Connected to Acme/)).toBeNull();
+    failCompletion = false;
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+    await screen.findByText(/Connected to Acme/);
+    expect(f.actions).toHaveLength(2); // nothing was re-sent
+    expect(stub.calls.filter((c) => c.url.endsWith('/complete'))).toHaveLength(2);
+  });
+
+  it('retries a rejected grant without re-sending the one that succeeded', async () => {
+    const user = userEvent.setup();
+    const { f, stub } = await setup();
+    const submit1 = f.services.submit;
+    let reject = true;
+    f.services.submit = async (a) => {
+      if (a.kind === 'authorizeCreator' && reject) {
+        reject = false;
+        throw new Error('the relayer refused it');
+      }
+      return submit1(a);
+    };
+    await typeAndContinue(user);
+    await user.click(await screen.findByRole('button', { name: 'Connect' }));
+    await screen.findByText(/That did not work: the relayer refused it/);
+    expect(stub.calls.some((c) => c.url.endsWith('/complete'))).toBe(false); // the code is intact
+    expect(f.actions.map((a) => a.kind)).toEqual(['allowAdapter']);
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+    await screen.findByText(/Connected to Acme/);
+    // The adapter grant that landed the first time was not re-sent.
+    expect(f.actions.map((a) => a.kind)).toEqual(['allowAdapter', 'authorizeCreator']);
+  });
+
+  it('holds the completion until the finalized state shows both grants', async () => {
+    const saved = { ...grantWaitTuning };
+    Object.assign(grantWaitTuning, { pollMs: 25, maxMs: 150 });
+    try {
+      const user = userEvent.setup();
+      const { f, stub } = await setup({ applyGrants: false });
+      await typeAndContinue(user);
+      await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      await screen.findByText(GRANTS_UNCONFIRMED_TEXT);
+      // Both grants were sent but neither is finalized: the one-use code must not be consumed.
+      expect(f.actions).toHaveLength(2);
+      expect(stub.calls.some((c) => c.url.endsWith('/complete'))).toBe(false);
+      // They reach the finalized state; the retry completes without re-sending anything.
+      f.chain.allowedAdapters.add(ADAPTER.toLowerCase());
+      f.chain.authorizedCreators.add(CREATOR.toLowerCase());
+      await user.click(screen.getByRole('button', { name: 'Connect' }));
+      await screen.findByText(/Connected to Acme/);
+      expect(f.actions).toHaveLength(2);
+      expect(stub.calls.filter((c) => c.url.endsWith('/complete'))).toHaveLength(1);
+    } finally {
+      Object.assign(grantWaitTuning, saved);
+    }
+  });
+
+  it('omits the creation date for a restored record (its createdAt is the restore time)', async () => {
+    const user = userEvent.setup();
+    await setup({ record: { restored: true } });
+    await typeAndContinue(user);
+    await screen.findByText(/cannot be undone/);
+    expect(document.body.textContent).not.toContain('Created');
   });
 
   it('is absent without a pinned connection; before Live only the deep-link note shows', async () => {
