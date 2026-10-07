@@ -85,6 +85,9 @@ jobs:
         working-directory: solidity
         run: forge test
 
+      - name: Deployment policy on Anvil (DEV release refused on chain 100)
+        run: bash scripts/deploy.test.sh
+
   # ---------------------------------------------------------------------------
   # TypeScript SDK. The real-prover tests skip themselves when the pinned
   # artifacts are not in ~/.davinci-dkg-council/artifacts; everything else

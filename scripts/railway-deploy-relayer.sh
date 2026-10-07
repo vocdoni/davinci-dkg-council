@@ -26,6 +26,9 @@
 #                        the edge's address and share one rate limit)
 #   SERVICE_NAME         default council-relayer;  UI_SERVICE_NAME  default council-ui
 #   EXTRA_VARS           more COUNCIL_* settings, e.g. "COUNCIL_MAX_FEE_WEI=20000000000 COUNCIL_API_TOKENS=…"
+#
+# The service runs the combine worker and the scheduler. scripts/railway-deploy-relayer.test.sh
+# checks the variables it sets, and that no secret is ever a process argument.
 set -euo pipefail
 # shellcheck source=scripts/railway-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/railway-lib.sh"
@@ -52,31 +55,39 @@ if [[ -z ${CORS_ORIGINS:-} ]]; then
 	CORS_ORIGINS=https://$(rw_domain "$ui_service" 80)
 fi
 
-# Variables. The hot key is read from its file straight into the 0600 variables file.
-python3 - "$COUNCIL_KEY_FILE" "$rw_tmp/vars" <<PY
-import json, re, sys
+# Variables. The hot key is read from its file straight into the 0600 variables file; the other
+# values reach python through its environment (never its source or its arguments). The scheduler
+# is on: without it no due close, abort or finalize is sent while no member's browser is open.
+RW_RPC_URLS=$RPC_URLS RW_MANAGER=$manager RW_START_BLOCK=$start_block RW_BUDGET=$DAILY_BUDGET_WEI \
+	RW_STATE_GAS=$STATE_GAS RW_CORS=$CORS_ORIGINS RW_PROXIES=$TRUSTED_PROXIES RW_EXTRA=$EXTRA_VARS \
+	python3 - "$COUNCIL_KEY_FILE" "$rw_tmp/vars" <<'PY'
+import json, os, re, sys
 key = open(sys.argv[1]).read().strip()
 key = key if key.startswith("0x") else "0x" + key
 if not re.fullmatch(r"0x[0-9a-fA-F]{64}", key):
     sys.exit("COUNCIL_KEY_FILE does not hold a 32-byte hex key")
+e = os.environ
 v = {
     "COUNCIL_PRIVATE_KEY": key,
-    "COUNCIL_RPC_URL": "$RPC_URLS",
-    "COUNCIL_MANAGER_ADDRESS": "$manager",
-    "COUNCIL_START_BLOCK": "$start_block",
+    "COUNCIL_RPC_URL": e["RW_RPC_URLS"],
+    "COUNCIL_MANAGER_ADDRESS": e["RW_MANAGER"],
+    "COUNCIL_START_BLOCK": e["RW_START_BLOCK"],
     "COUNCIL_COMBINER_ENABLED": "true",
-    "COUNCIL_DAILY_BUDGET_WEI": "$DAILY_BUDGET_WEI",
-    "COUNCIL_STATE_GAS": "$STATE_GAS",
-    "COUNCIL_CORS_ORIGINS": "$CORS_ORIGINS",
-    "COUNCIL_TRUSTED_PROXIES": "$TRUSTED_PROXIES",
+    "COUNCIL_SCHEDULER_ENABLED": "true",
+    "COUNCIL_DAILY_BUDGET_WEI": e["RW_BUDGET"],
+    "COUNCIL_STATE_GAS": e["RW_STATE_GAS"],
+    "COUNCIL_CORS_ORIGINS": e["RW_CORS"],
+    "COUNCIL_TRUSTED_PROXIES": e["RW_PROXIES"],
     "COUNCIL_DATA_DIR": "/data",
     "COUNCIL_PORT": "8080",
     "PORT": "8080",  # where Railway's health check and edge connect
-    # Railway mounts volumes owned by root; the image runs as \`node\`.
+    # Railway mounts volumes owned by root; the image runs as `node`.
     "RAILWAY_RUN_UID": "0",
 }
-v.update(a.split("=", 1) for a in "$EXTRA_VARS".split())
-open(sys.argv[2], "w").write(json.dumps(v))
+v.update(a.split("=", 1) for a in e["RW_EXTRA"].split())
+fd = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    f.write(json.dumps(v))
 PY
 chmod 600 "$rw_tmp/vars"
 rw_upsert_vars "$service" "$rw_tmp/vars"

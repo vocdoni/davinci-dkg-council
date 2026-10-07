@@ -19,12 +19,12 @@ for name in $SERVICES; do
 		deployments(first: 1, input: {projectId: $project, environmentId: $env, serviceId: $service}) { edges { node { id status createdAt meta } } }
 		domains(projectId: $project, environmentId: $env, serviceId: $service) { serviceDomains { domain } } }' "$rw_tmp/v")
 	read -r id status created domain msg < <(python3 -c 'import json, sys
-d = json.loads(sys.argv[1])
+d = json.load(sys.stdin)
 if d.get("errors"): sys.exit("railway error: " + json.dumps(d["errors"])[:400])
 e = d["data"]["deployments"]["edges"]; n = e[0]["node"] if e else {}
 s = d["data"]["domains"]["serviceDomains"]
 print(n.get("id", "-"), n.get("status", "-"), n.get("createdAt", "-"), s[0]["domain"] if s else "-",
-      (n.get("meta") or {}).get("message") or "-")' "$resp")
+      (n.get("meta") or {}).get("message") or "-")' <<<"$resp")
 	echo "== $name  https://$domain  deployment $status ($created, $msg)"
 	if [[ $id != - ]]; then
 		rw_vars "$rw_tmp/v" id="$id"
@@ -40,5 +40,12 @@ if d.get("errors"): print(json.dumps(d["errors"])[:300])'
 	fi
 	if [[ $name == *relayer* && $domain != - ]]; then
 		echo "  health: $(curl -sS --max-time 20 "https://$domain/v1/health" || true)"
+		# /v1/metrics answers 503 while an alert fires (docs/relayer.md, "Monitoring").
+		curl -sS --max-time 30 "https://$domain/v1/metrics" 2>/dev/null | python3 -c 'import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print("  alerts: " + ("; ".join(d.get("alerts") or []) or "none"))' || true
 	fi
 done
