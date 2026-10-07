@@ -49,6 +49,12 @@ export interface AppConfig {
   deploymentBlock: number;
   /** Older managers on this chain still served (current first is `manager`). */
   legacyDeployments: LegacyDeployment[];
+  /**
+   * The DAVINCI ProcessRegistry whose `councilAdapter()` the app may grant (optional). Reserved for
+   * the DAVINCI Elections connection (docs/davinci-integration.md): an adapter address is read from
+   * this pinned registry on chain, never taken from a link. Nothing uses it yet.
+   */
+  davinciRegistry?: Hex;
   /** Blocks per eth_getLogs request of those scans (default 10,000; halved when a provider refuses). */
   logChunkBlocks?: number;
   /** Explicit local development declaration (permits a single RPC). */
@@ -145,6 +151,9 @@ export function validateConfig(raw: unknown): AppConfig {
   if (o.devPrivateKey !== undefined && !devMode) {
     throw new ConfigError('devPrivateKey is only allowed with "devMode": true');
   }
+  if (o.davinciRegistry !== undefined && o.davinciRegistry !== null && !isHexAddress(o.davinciRegistry)) {
+    throw new ConfigError('davinciRegistry must be a 0x address or null');
+  }
   const manager = o.manager.toLowerCase() as Hex;
   const legacyDeployments = legacyList(o.legacyDeployments, o.chainId, manager);
   return {
@@ -156,6 +165,7 @@ export function validateConfig(raw: unknown): AppConfig {
     deploymentBlock,
     legacyDeployments,
     ...(logChunkBlocks === undefined ? {} : { logChunkBlocks }),
+    ...(isHexAddress(o.davinciRegistry) ? { davinciRegistry: o.davinciRegistry.toLowerCase() as Hex } : {}),
     devMode,
     devPrivateKey: o.devPrivateKey as Hex | undefined,
   };

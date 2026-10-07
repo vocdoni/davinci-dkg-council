@@ -67,6 +67,14 @@ describe('config validation', () => {
     expect(() => validateConfig({ ...base, legacyDeployments: [{ manager: 'nope' }] })).toThrow(/0x address/);
   });
 
+  it('takes an optional DAVINCI registry address (reserved for the Elections connection)', () => {
+    expect(validateConfig(base).davinciRegistry).toBeUndefined();
+    expect(validateConfig({ ...base, davinciRegistry: null }).davinciRegistry).toBeUndefined();
+    const registry = '0x00000000000000000000000000000000000000CC';
+    expect(validateConfig({ ...base, davinciRegistry: registry }).davinciRegistry).toBe(registry.toLowerCase());
+    expect(() => validateConfig({ ...base, davinciRegistry: '0x1234' })).toThrow(/davinciRegistry/);
+  });
+
   it('rejects a devPrivateKey outside devMode', () => {
     expect(() => validateConfig({ ...base, devPrivateKey: `0x${'11'.repeat(32)}` })).toThrow(/devMode/);
   });

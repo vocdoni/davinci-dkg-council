@@ -22,6 +22,8 @@
 #   LEGACY_DEPLOYMENTS JSON array of older managers this copy still serves ("null" for none),
 #                      entries as ui/src/config.ts LegacyDeployment:
 #                      [{"manager":"0x…","deploymentBlock":N,"relayerUrls":["https://…"],"label":"…"}]
+#   DAVINCI_REGISTRY   DAVINCI ProcessRegistry address ("null" to drop it), reserved for the
+#                      DAVINCI Elections connection (docs/davinci-integration.md)
 #   DEPLOYMENT_BLOCK   block the manager was deployed at (where the app's label scans start)
 #   LOG_CHUNK_BLOCKS   blocks per eth_getLogs request of those scans (default 10000)
 #   DEV_MODE           true/false: local chain (31337/1337) with a single RPC
@@ -72,6 +74,11 @@ set('LEGACY_DEPLOYMENTS', 'legacyDeployments', (v) => {
   const parsed = v === 'null' ? [] : JSON.parse(v);
   if (!Array.isArray(parsed)) throw new Error('LEGACY_DEPLOYMENTS must be a JSON array');
   return parsed;
+});
+set('DAVINCI_REGISTRY', 'davinciRegistry', (v) => {
+  if (v === 'null') return null;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(v)) throw new Error(`DAVINCI_REGISTRY is not an address: ${v}`);
+  return v.toLowerCase();
 });
 set('DEPLOYMENT_BLOCK', 'deploymentBlock', int('DEPLOYMENT_BLOCK'));
 set('LOG_CHUNK_BLOCKS', 'logChunkBlocks', int('LOG_CHUNK_BLOCKS'));
