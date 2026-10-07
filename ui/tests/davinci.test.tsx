@@ -63,7 +63,9 @@ function electionsFetch(resolve: Response | (() => Response), complete: Response
   const calls: { url: string; init: RequestInit }[] = [];
   const fn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
-    calls.push({ url: u, init: init ?? {} });
+    // Once stubbed globally, every fetch of the app under test lands here (on a slow CI machine
+    // even after an assertion ran); only pairing-API calls count, the rest keeps its old answer.
+    if (u.startsWith(ELECTIONS_ORIGIN)) calls.push({ url: u, init: init ?? {} });
     if (u.endsWith('/complete')) return typeof complete === 'function' ? complete() : complete;
     return typeof resolve === 'function' ? resolve() : resolve;
   });
@@ -285,6 +287,8 @@ describe('Connect to DAVINCI Elections card', () => {
     await waitFor(() => expect(f.actions).toHaveLength(2));
     const allow = f.actions[0];
     if (allow?.kind === 'allowAdapter') expect(allow.message.adapter.toLowerCase()).toBe(other.toLowerCase());
+    // Drain the flow: ending at the grants leaves the completion fetch to race into the next test.
+    await screen.findByText(/Connected to Acme/);
   });
 
   it('shows plain errors for a malformed code, an expired code and a failed chain read', async () => {
