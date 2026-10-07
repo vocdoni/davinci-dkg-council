@@ -322,6 +322,7 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     });
     await org.reload();
     await expect(org.getByText('Connect to DAVINCI Elections')).toBeVisible({ timeout: 30_000 });
+    await shot(org, 'org-davinci-connect', 'organizer: the DAVINCI Elections pairing card, waiting for a code');
     await org.getByLabel('Pairing code').fill('K7F4-Q2ND-8HXR');
     await org.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(org.getByText(/cannot be undone/)).toBeVisible({ timeout: 20_000 });
