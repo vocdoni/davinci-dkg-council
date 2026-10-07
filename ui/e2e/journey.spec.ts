@@ -365,9 +365,9 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     await expect(org.getByText('Opening the results cannot be undone.')).toBeVisible();
     await shot(org, 'org-open-confirm', 'organizer: opening the results, the consequence stated first');
     await org.getByRole('button', { name: 'I understand — open the results' }).click();
-    await expect(org.getByText('The results are open').or(org.getByText('You opened the results.'))).toBeVisible({
-      timeout: 90_000,
-    });
+    // The heading only renders once the finalized chain state shows the open — a plain getByText
+    // here would match "…until the results are opened…" in the recovery-kit copy and pass vacuously.
+    await expect(org.getByRole('heading', { name: 'The results are open' })).toBeVisible({ timeout: 90_000 });
     await shot(org, 'org-opened', 'organizer: results opened for every vote on this key, current and future');
 
     // --- two members unlock it in the browser ---

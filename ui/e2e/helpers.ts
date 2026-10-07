@@ -73,14 +73,16 @@ export async function chainTimeMs(stack: DevStack): Promise<number> {
 }
 
 /**
- * Put this device on the chain's clock when the two differ by more than a few minutes. The app
+ * Put this device on the chain's clock when the chain runs more than a few minutes ahead. The app
  * dates what it signs and its deadlines from the device clock; a journey that moves the chain
- * months ahead stands for months a real device lives through in real time.
+ * months ahead stands for months a real device lives through in real time. Only ever align
+ * forward: on an idle (reused) chain the latest block's timestamp is merely stale, and a device
+ * set into the past signs instructions whose validUntil the next block has already passed.
  */
 export async function alignClock(context: BrowserContext, stack: DevStack | null = readStack()): Promise<void> {
   if (!stack) return;
   const chainMs = await chainTimeMs(stack);
-  if (Math.abs(chainMs - Date.now()) > 5 * 60_000) await context.clock.setSystemTime(chainMs);
+  if (chainMs - Date.now() > 5 * 60_000) await context.clock.setSystemTime(chainMs);
 }
 
 /** Let `blocks` blocks of `interval` seconds pass on the dev chain (anvil_mine). */
