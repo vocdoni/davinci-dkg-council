@@ -36,8 +36,9 @@ and `release.json`), and on the `circuits-v1` GitHub release.
 > had one contributor, and was deployed with `ALLOW_DEV_SETUP=true`: whoever holds that setup's
 > toxic waste can forge dealings and partial decryptions. It was deployed on 2026-10-07 as a TEST
 > deployment and became the production beta the same day, when the owner accepted the
-> development setup for the beta; the DAVINCI deployment on Gnosis binds to it. The app shows a
-> "Beta — development trusted setup" banner on every page that says so in plain words. A
+> development setup for the beta; the DAVINCI deployment on Gnosis binds to it. The app showed a
+> "Beta — development trusted setup" banner until v0.1.0; the owner dropped it for the beta
+> (v0.2.0), and the release notes carry the caveat instead. A
 > deployment without that trade-off needs the multi-party ceremony release and a new manager.
 > The rehearsal ceremonies below stay on chain; they are tests.
 
@@ -601,10 +602,9 @@ apps below render their own config):
 
 `make ui-gnosis [RELAYER_URL=https://…] [ARTIFACTS_URL=https://…]` serves the app against the
 Gnosis production beta (the hosted relayer by default). Its circuit release is a development
-setup, so the app shows the "Beta — development trusted setup" banner on every page, naming
-`circuits-v1` once the manager's release id is read through both RPCs (the earlier "Test setup —
-do not use for real elections" wording was checked on 2026-10-07 in headless Chromium against
-`config.gnosis.json`, where the committee of run A loads as live).
+setup; up to v0.1.0 the app said so in a banner on every page, which the owner dropped for the
+beta (the release notes state the caveat). The app still checks every circuit file against its
+pinned hash and refuses an unknown release.
 
 A hosted app needs a public relayer and circuit files a browser can read. A browser never reads
 the GitHub release (its downloads redirect without CORS headers, and the repository is private),
