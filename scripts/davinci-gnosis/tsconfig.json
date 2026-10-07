@@ -1,0 +1,15 @@
+{
+  "extends": "../../tests/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["../../tests/node_modules/@types"],
+    "paths": {
+      "@vocdoni/davinci-dkg-council-sdk": ["../../sdk/src/index.ts"],
+      "@vocdoni/davinci-sdk": ["../../../davinci-sdk/dist/index.d.ts"],
+      "ethers": ["../../../davinci-sdk/node_modules/ethers"],
+      "viem": ["../../tests/node_modules/viem"],
+      "viem/*": ["../../tests/node_modules/viem/*"],
+      "vitest": ["../../tests/node_modules/vitest"]
+    }
+  },
+  "include": ["*.ts", "../../sdk/src/snarkjs.d.ts"]
+}

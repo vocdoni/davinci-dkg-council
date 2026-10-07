@@ -1,0 +1,12 @@
+{
+  "chainId": 100,
+  "manager": "0x2f5b110864cbad4017fe8ac59111812278f5f71f",
+  "deploymentBlock": 48627018,
+  "rpcUrls": [
+    "https://gnosis-rpc.publicnode.com",
+    "https://rpc.gnosischain.com"
+  ],
+  "relayerUrl": "https://relayer.davinci-dkg-council.example.invalid",
+  "artifactsBaseUrl": "https://artifacts.davinci-dkg-council.example.invalid/circuits-v1",
+  "devMode": false
+}

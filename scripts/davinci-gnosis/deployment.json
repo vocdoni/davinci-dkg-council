@@ -1,0 +1,31 @@
+{
+  "note": "TEST deployment: Council v2 on the circuits-v1 DEVELOPMENT setup, DAVINCI registry from the unreleased davinci-contracts council branch. Not for real elections.",
+  "chainId": 100,
+  "council": {
+    "manager": "0x2f5b110864cbad4017fe8ac59111812278f5f71f",
+    "views": "0xb6011a651bb8495a837dd9723e6e1f8fea797fcc",
+    "ops": "0x0d5bab4c31bf49da98a386588085e354bd644b47",
+    "deploymentBlock": 48627018,
+    "circuitReleaseId": "0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301"
+  },
+  "davinci": {
+    "processRegistry": "0x847a16cc56e0ef57fec28735105941a0299cdc62",
+    "deploymentBlock": 48627101,
+    "deploymentTx": "0xc3c4b4e6ff079457888f867f54404840c5ea71ed21009dcc982e1a3ef2013a04",
+    "councilAdapter": "0x4817493b792db101dcc75306754242cefd928e40",
+    "dkgAdapter": "0x9d356d42ec5a04abeada1ae31d83eb431f120958",
+    "dkgManager": "0x9999f38ff8bf959e98ddd5d4551f82775219c01b",
+    "ziskVerifier": "0x150547716bd6f15d872508b66b2ae7ce17677c9c",
+    "contractsCommit": "f4abc5d",
+    "pins": {
+      "batchProgramVK": "0x6cfc89d562d0b22f04478a5c15b390433eb52f1b03147030b183076260da7a10",
+      "resultsProgramVK": "0x7bc8c5e9235548386a44b1885732a2a7ffb1badddc8c7fba599d07ece47be794",
+      "rootCVadcopFinal": "0x05006517b6ccde5da4d890587ba62845b5af8a307c00e87d4b9d05099b16dc80",
+      "ballotVKHash": "0xbf1e6590bb1ba883d601c4d7d1c6fa2722a78590716874019db6d68fc776bb0e",
+      "ziskVerifierCodeHash": "0x82385a405b7301345d7e246017846ca3228aaea349cb68b116d76e0e77056566"
+    },
+    "grace": { "default": 180, "floor": 150, "ceil": 600, "maxTotal": 1800, "noticeMin": 60 }
+  },
+  "rpcUrls": ["https://gnosis-rpc.publicnode.com", "https://rpc.gnosischain.com", "https://gnosis.drpc.org"],
+  "beaconUrls": ["https://rpc-gbc.gnosischain.com"]
+}

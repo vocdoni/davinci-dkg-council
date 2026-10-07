@@ -1,0 +1,62 @@
+{
+  "chainId": 100,
+  "protocolVersion": 2,
+  "circuitRelease": {
+    "tag": "circuits-v1",
+    "circuitReleaseId": "0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301",
+    "developmentSetup": true,
+    "allowDevSetup": true
+  },
+  "deployer": "0x42fc20654efd78c6887ff0bd1cc50c9ec1dab589",
+  "deploymentBlock": 48627018,
+  "contracts": {
+    "DealVerifier": {
+      "address": "0xa3484ed88b225f1c613fc7216cbcb822d87414ef",
+      "codehash": "0x11846f7e14acc5efe8e7c97ebc1af97a6fab6350e631aba333715e7cb0cc9c1f",
+      "tx": "0xb663da2f97b1b4095dd5ba23c665cd8be7d73dee5b8d0230ceaa2d1335ff7f1f",
+      "block": 48627016,
+      "gasUsed": 3384996,
+      "effectiveGasPrice": 15
+    },
+    "PartialVerifier": {
+      "address": "0x2bd8729675f9a44b4be79c8d2a4f7128ff3b1e54",
+      "codehash": "0x8599caa2240444a17eea76d829f019a7e5844a183f469f05effeea41d867a177",
+      "tx": "0x8e884f0e90ab2b2e25d14ea22e5b239423df564506c63162fc9e0959377f4def",
+      "block": 48627017,
+      "gasUsed": 2667240,
+      "effectiveGasPrice": 16
+    },
+    "CouncilManager": {
+      "address": "0x2f5b110864cbad4017fe8ac59111812278f5f71f",
+      "codehash": "0x897349a78514ec9e88093c5cd8ae176a406c21007fd6b63b46d0ae663c3d1918",
+      "tx": "0xcb1cdaefe876ec8b53806bdfcf773aa64815284a33d17ffb155858440c957ebc",
+      "block": 48627018,
+      "gasUsed": 7625161,
+      "effectiveGasPrice": 16
+    },
+    "CouncilViews": {
+      "address": "0xb6011a651bb8495a837dd9723e6e1f8fea797fcc",
+      "codehash": "0xbed9e9837a36be1170260fb963887f1b5dc9344e87c7f9afa4f60a61ed345b86",
+      "createdBy": "CouncilManager constructor (CREATE nonce 1)",
+      "tx": "0xcb1cdaefe876ec8b53806bdfcf773aa64815284a33d17ffb155858440c957ebc",
+      "block": 48627018
+    },
+    "CouncilOps": {
+      "address": "0x0d5bab4c31bf49da98a386588085e354bd644b47",
+      "codehash": "0x09d25cd5b5eb40f0cf4f7b60b4129bbbd375c218f6c92b459f4c12b13c1f6c80",
+      "createdBy": "CouncilManager constructor (CREATE nonce 2)",
+      "tx": "0xcb1cdaefe876ec8b53806bdfcf773aa64815284a33d17ffb155858440c957ebc",
+      "block": 48627018
+    },
+    "MockCouncilAdapter": {
+      "address": "0x8f39901009c525495f3e69dc250af5dbb0b97fe7",
+      "codehash": "0xe943d2227634721c51604480017c57e86285a7498633bb9b7229fb2c49516d86",
+      "registry": "0xc6e55867aa3b9128e6dece707324107fc04810de",
+      "testOnly": true,
+      "tx": "0x32058001c2c2b9c78b8cf776180bfc20757cc7ccb075e941175ac14e8887c3e3",
+      "block": 48627036,
+      "gasUsed": 495808,
+      "effectiveGasPrice": 13
+    }
+  }
+}

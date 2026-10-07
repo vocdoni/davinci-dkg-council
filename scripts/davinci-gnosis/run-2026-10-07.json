@@ -1,0 +1,906 @@
+{
+  "startedAt": "2026-10-07T03:10:06.260Z",
+  "finishedAt": "2026-10-07T04:02:22.874Z",
+  "result": "success",
+  "chainId": 100,
+  "manager": "0x2f5b110864cbad4017fe8ac59111812278f5f71f",
+  "registry": "0x847a16cc56e0ef57fec28735105941a0299cdc62",
+  "councilAdapter": "0x4817493b792db101dcc75306754242cefd928e40",
+  "sequencer": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+  "relayer": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+  "davinciOrganizer": "0x654b60367ba66c440d54fc35e76322aaf2f57acf",
+  "ceremonies": {
+    "A": {
+      "cid": "0xf25b9d9fc77e500bc9a76859",
+      "policy": "Manual decryption, fallback 2026-11-06T03:10:05.000Z",
+      "liveAt": "2026-10-07T03:24:19.640Z",
+      "openedAt": "2026-10-07T03:33:10.873Z",
+      "openTx": "0x98f6073cf8b896378a0add20cb928004166b197d68911c2432bc9815d14adefc"
+    },
+    "B": {
+      "cid": "0x7f7d84cb078ef80b507fc10c",
+      "policy": "Scheduled decryption at 2026-10-07T03:55:05.000Z",
+      "liveAt": "2026-10-07T03:24:59.207Z",
+      "openedAt": "2026-10-07T03:55:05.000Z"
+    }
+  },
+  "processes": {
+    "a": {
+      "pid": "0x654b60367ba66c440d54fc35e76322aaf2f57acf0715356300000000000003",
+      "ceremony": "A",
+      "requestId": "0xb646eca18b22bac0e122f97fefc3f4e17e9981333c573509f403926ca274af9a",
+      "createTx": "0x93cdb36164d37306a297ebf94a961a852fd3146bbc7a7790af34414e2a824d0d",
+      "votes": [
+        {
+          "voteId": "0xb4472de3c0b56ad7",
+          "statuses": [
+            "pending",
+            "aggregated",
+            "processed",
+            "settled"
+          ],
+          "settledAfterMs": 140189
+        },
+        {
+          "voteId": "0xc0de2c70176b0c6d",
+          "statuses": [
+            "pending",
+            "aggregated",
+            "processed",
+            "settled"
+          ],
+          "settledAfterMs": 140179
+        },
+        {
+          "voteId": "0xea72435301513279",
+          "statuses": [
+            "pending",
+            "aggregated",
+            "processed",
+            "settled"
+          ],
+          "settledAfterMs": 140190
+        }
+      ],
+      "states": [
+        {
+          "at": "2026-10-07T03:26:55.461Z",
+          "state": "voting",
+          "status": 0,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:29:37.429Z",
+          "state": "grace",
+          "status": 1,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:32:40.546Z",
+          "state": "awaiting-opening",
+          "status": 1,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:33:01.327Z",
+          "state": "awaiting-opening",
+          "status": 1,
+          "resultsRequested": true
+        },
+        {
+          "at": "2026-10-07T03:33:11.648Z",
+          "state": "decrypting",
+          "status": 1,
+          "resultsRequested": true
+        },
+        {
+          "at": "2026-10-07T03:37:51.283Z",
+          "state": "finalizable",
+          "status": 1,
+          "resultsRequested": true
+        },
+        {
+          "at": "2026-10-07T03:38:01.452Z",
+          "state": "results",
+          "status": 4,
+          "resultsRequested": true
+        }
+      ],
+      "waitForResultsStates": [
+        "voting",
+        "grace",
+        "awaiting-opening",
+        "decrypting",
+        "finalizable",
+        "results"
+      ],
+      "events": [
+        {
+          "name": "ProcessCreated",
+          "block": 48628473,
+          "tx": "0x93cdb36164d37306a297ebf94a961a852fd3146bbc7a7790af34414e2a824d0d"
+        },
+        {
+          "name": "ProcessMetadataUpdated",
+          "block": 48628473,
+          "tx": "0x93cdb36164d37306a297ebf94a961a852fd3146bbc7a7790af34414e2a824d0d"
+        },
+        {
+          "name": "ProcessStateTransitioned",
+          "block": 48628506,
+          "tx": "0xb3dc8445670f76f36658033f8c72c4252f8b36c18eb6a2b9cef082d98009ec69"
+        },
+        {
+          "name": "ProcessDurationChanged",
+          "block": 48628508,
+          "tx": "0xe6f188ff0314c6f754d794d61c0bf2f65bcd43ad945e81d0a889d29abdea805b"
+        },
+        {
+          "name": "ProcessStatusChanged",
+          "block": 48628508,
+          "tx": "0xe6f188ff0314c6f754d794d61c0bf2f65bcd43ad945e81d0a889d29abdea805b"
+        },
+        {
+          "name": "ResultsDecryptionRequested",
+          "block": 48628547,
+          "tx": "0x4d2c4b4c8b3757705c2a9258853aedb886a645945c13d57a2727b3baa4bc9343"
+        },
+        {
+          "name": "RequestSubmitted (Council)",
+          "block": 48628547,
+          "tx": "0x4d2c4b4c8b3757705c2a9258853aedb886a645945c13d57a2727b3baa4bc9343"
+        },
+        {
+          "name": "FieldsCombined (Council)",
+          "block": 48628604,
+          "tx": "0xcfc525f6e2f28dd5308e25355aa9d7fcf7ec694317990dc52ba80f37d40bdc84"
+        },
+        {
+          "name": "ProcessStatusChanged",
+          "block": 48628607,
+          "tx": "0x60f781425ba24a86fd410a483fc85ce9e337cc0b70fecccd7842b86408386c08"
+        },
+        {
+          "name": "ProcessResultsSet",
+          "block": 48628607,
+          "tx": "0x60f781425ba24a86fd410a483fc85ce9e337cc0b70fecccd7842b86408386c08"
+        }
+      ],
+      "expected": [
+        "8",
+        "4",
+        "6"
+      ],
+      "endedAt": "2026-10-07T03:29:38.614Z",
+      "requestedAt": "2026-10-07T03:33:01.327Z",
+      "decryptors": [
+        1,
+        3
+      ],
+      "resultsAt": "2026-10-07T03:38:01.452Z",
+      "values": [
+        "8",
+        "4",
+        "6"
+      ]
+    },
+    "c": {
+      "pid": "0x654b60367ba66c440d54fc35e76322aaf2f57acf0715356300000000000004",
+      "ceremony": "A",
+      "requestId": "0x90798b483686e2cdd75e0896c9cadb24f0e12b23edd74299dae02b14fe3bec0e",
+      "createTx": "0x535eaeccf7781f80f337f6ae38d36a21d74bb48df52945c9149a86d08c842e71",
+      "votes": [],
+      "states": [
+        {
+          "at": "2026-10-07T03:26:55.461Z",
+          "state": "voting",
+          "status": 0,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:27:05.567Z",
+          "state": "grace",
+          "status": 1,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:30:08.054Z",
+          "state": "awaiting-opening",
+          "status": 1,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:30:18.370Z",
+          "state": "awaiting-opening",
+          "status": 1,
+          "resultsRequested": true
+        },
+        {
+          "at": "2026-10-07T03:33:14.137Z",
+          "state": "finalizable",
+          "status": 1,
+          "resultsRequested": true
+        },
+        {
+          "at": "2026-10-07T03:34:25.462Z",
+          "state": "results",
+          "status": 4,
+          "resultsRequested": true
+        }
+      ],
+      "waitForResultsStates": [
+        "voting",
+        "grace",
+        "awaiting-opening",
+        "finalizable",
+        "results"
+      ],
+      "events": [
+        {
+          "name": "ProcessCreated",
+          "block": 48628475,
+          "tx": "0x535eaeccf7781f80f337f6ae38d36a21d74bb48df52945c9149a86d08c842e71"
+        },
+        {
+          "name": "ProcessMetadataUpdated",
+          "block": 48628475,
+          "tx": "0x535eaeccf7781f80f337f6ae38d36a21d74bb48df52945c9149a86d08c842e71"
+        },
+        {
+          "name": "ProcessDurationChanged",
+          "block": 48628477,
+          "tx": "0xb2289de66cad4d8ba8f0976cad55cfe9dcc025a45c83c7e2ec917c0305f5c27d"
+        },
+        {
+          "name": "ProcessStatusChanged",
+          "block": 48628477,
+          "tx": "0xb2289de66cad4d8ba8f0976cad55cfe9dcc025a45c83c7e2ec917c0305f5c27d"
+        },
+        {
+          "name": "ResultsDecryptionRequested",
+          "block": 48628515,
+          "tx": "0x7a2b5f356bca911bd1c592de59b2260bd481550556d54c5868b0ab46251998b2"
+        },
+        {
+          "name": "ProcessStatusChanged",
+          "block": 48628565,
+          "tx": "0x97d578692ddc6dff24cfc540e259beb815184f457e98723698f6823a879bb96a"
+        },
+        {
+          "name": "ProcessResultsSet",
+          "block": 48628565,
+          "tx": "0x97d578692ddc6dff24cfc540e259beb815184f457e98723698f6823a879bb96a"
+        }
+      ],
+      "expected": [
+        "0",
+        "0",
+        "0"
+      ],
+      "endedAt": "2026-10-07T03:27:00.401Z",
+      "requestedAt": "2026-10-07T03:30:18.370Z",
+      "resultsAt": "2026-10-07T03:34:25.462Z",
+      "values": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "b": {
+      "pid": "0x654b60367ba66c440d54fc35e76322aaf2f57acf0715356300000000000005",
+      "ceremony": "B",
+      "requestId": "0x722f36127eb7c63910781cda0584ff79de90639c5a882367a04538f843abb437",
+      "createTx": "0x1cf1413cb6cc0ee9eb136bc1e303bb96f2afcdcfe73f00cfae05741a547fd303",
+      "votes": [
+        {
+          "voteId": "0xd822efab9f60fff1",
+          "statuses": [
+            "pending",
+            "aggregated",
+            "processed",
+            "settled"
+          ],
+          "settledAfterMs": 155060
+        },
+        {
+          "voteId": "0x84f26beaacbe354b",
+          "statuses": [
+            "pending",
+            "aggregated",
+            "processed",
+            "settled"
+          ],
+          "settledAfterMs": 155119
+        },
+        {
+          "voteId": "0xa9ca5a8411955315",
+          "statuses": [
+            "pending",
+            "aggregated",
+            "processed",
+            "settled"
+          ],
+          "settledAfterMs": 155668
+        }
+      ],
+      "states": [
+        {
+          "at": "2026-10-07T03:26:55.461Z",
+          "state": "voting",
+          "status": 0,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:48:20.621Z",
+          "state": "grace",
+          "status": 0,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:51:13.003Z",
+          "state": "awaiting-opening",
+          "status": 0,
+          "resultsRequested": false
+        },
+        {
+          "at": "2026-10-07T03:51:23.374Z",
+          "state": "awaiting-opening",
+          "status": 1,
+          "resultsRequested": true
+        },
+        {
+          "at": "2026-10-07T03:55:11.838Z",
+          "state": "decrypting",
+          "status": 1,
+          "resultsRequested": true
+        },
+        {
+          "at": "2026-10-07T03:59:21.774Z",
+          "state": "finalizable",
+          "status": 1,
+          "resultsRequested": true
+        },
+        {
+          "at": "2026-10-07T03:59:31.948Z",
+          "state": "results",
+          "status": 4,
+          "resultsRequested": true
+        }
+      ],
+      "waitForResultsStates": [
+        "voting",
+        "grace",
+        "awaiting-opening",
+        "decrypting",
+        "finalizable",
+        "results"
+      ],
+      "events": [
+        {
+          "name": "ProcessCreated",
+          "block": 48628476,
+          "tx": "0x1cf1413cb6cc0ee9eb136bc1e303bb96f2afcdcfe73f00cfae05741a547fd303"
+        },
+        {
+          "name": "ProcessMetadataUpdated",
+          "block": 48628476,
+          "tx": "0x1cf1413cb6cc0ee9eb136bc1e303bb96f2afcdcfe73f00cfae05741a547fd303"
+        },
+        {
+          "name": "ProcessStateTransitioned",
+          "block": 48628511,
+          "tx": "0xcb9bce209661a412100722971c2b4d5e18f16dbcbd2cde709fc00a46d01e4d57"
+        },
+        {
+          "name": "ProcessStatusChanged",
+          "block": 48628763,
+          "tx": "0xfe6fb267e304a9e624ebfa9ced1594a0acf059b5e00442fd94adad2e08a33289"
+        },
+        {
+          "name": "ResultsDecryptionRequested",
+          "block": 48628763,
+          "tx": "0xfe6fb267e304a9e624ebfa9ced1594a0acf059b5e00442fd94adad2e08a33289"
+        },
+        {
+          "name": "RequestSubmitted (Council)",
+          "block": 48628763,
+          "tx": "0xfe6fb267e304a9e624ebfa9ced1594a0acf059b5e00442fd94adad2e08a33289"
+        },
+        {
+          "name": "FieldsCombined (Council)",
+          "block": 48628856,
+          "tx": "0x1822671b0491572875789dd38a5c601f450c21d9d0ca01f2d44e1e5ab24588ed"
+        },
+        {
+          "name": "ProcessStatusChanged",
+          "block": 48628858,
+          "tx": "0xde5dafa95a7d73c0937398b394c0b100977133c1e38c3bb7ae60cbeac23f2fd5"
+        },
+        {
+          "name": "ProcessResultsSet",
+          "block": 48628858,
+          "tx": "0xde5dafa95a7d73c0937398b394c0b100977133c1e38c3bb7ae60cbeac23f2fd5"
+        }
+      ],
+      "expected": [
+        "1",
+        "0",
+        "2"
+      ],
+      "requestedAt": "2026-10-07T03:51:23.374Z",
+      "decryptors": [
+        2,
+        3
+      ],
+      "resultsAt": "2026-10-07T03:59:31.948Z",
+      "values": [
+        "1",
+        "0",
+        "2"
+      ]
+    }
+  },
+  "txs": [
+    {
+      "step": "A create",
+      "action": "createCeremony (invites=3)",
+      "via": "relayer",
+      "hash": "0xc3ff6d335514f781181335ddb5aabeae34212037a5ae41c3c76812d76ef67141",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628284,
+      "gasUsed": "180288",
+      "costWei": "30840606144"
+    },
+    {
+      "step": "B create",
+      "action": "createCeremony (invites=3)",
+      "via": "relayer",
+      "hash": "0x4d626fb8f8e5a2a7b633d312a57bcb8a57b29f49cdc4ba78a22380645f23077f",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628285,
+      "gasUsed": "180223",
+      "costWei": "30829306826"
+    },
+    {
+      "step": "A join",
+      "action": "join",
+      "via": "relayer",
+      "hash": "0x45625059e0c6887b9e763769a69fcbd3c53a4ccb0b9e22a629421d9bd8c9a4af",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628286,
+      "gasUsed": "519654",
+      "costWei": "94868034240"
+    },
+    {
+      "step": "B join",
+      "action": "join",
+      "via": "relayer",
+      "hash": "0x11f5d395dbc001adadb71be6a8734586265aa8a234cf3484f709d2bb9e615b8f",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628293,
+      "gasUsed": "519276",
+      "costWei": "94799026560"
+    },
+    {
+      "step": "A join",
+      "action": "join",
+      "via": "relayer",
+      "hash": "0x03abc6f40c89ea55a854043062107514032e9298edb87483cacc802117a574c1",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628294,
+      "gasUsed": "521192",
+      "costWei": "125099630992"
+    },
+    {
+      "step": "B join",
+      "action": "join",
+      "via": "relayer",
+      "hash": "0x94de4bdb6a4d80d3d5ebb86e10b8cdce441dd5c2cfc2f1962d50c6c0469cb35a",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628301,
+      "gasUsed": "517289",
+      "costWei": "124163326803"
+    },
+    {
+      "step": "A join",
+      "action": "join",
+      "via": "relayer",
+      "hash": "0x78d3fd82f2f5dadacb88428a8ae19f0e0ed124ac935636cfdbbe35747e6c9e5e",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628309,
+      "gasUsed": "519328",
+      "costWei": "166564069440"
+    },
+    {
+      "step": "B join",
+      "action": "join",
+      "via": "relayer",
+      "hash": "0xf18c00992a4d9143f272d9a70de68e587c9efb6e57e6310970b9d784a9b78cdc",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628311,
+      "gasUsed": "523768",
+      "costWei": "111994168832"
+    },
+    {
+      "step": "A close",
+      "action": "closeRegistration (n=3)",
+      "via": "relayer",
+      "hash": "0xedc7961ce543debb5a88532f044e90190a0092f86c628b7e0a8d11d89ad26adb",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628356,
+      "gasUsed": "112567",
+      "costWei": "54154520329"
+    },
+    {
+      "step": "B close",
+      "action": "closeRegistration (n=3)",
+      "via": "relayer",
+      "hash": "0x23452059ae3e498c3275bba66dde6e0fbeb53a98d0df14835503ae271a7a1628",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628356,
+      "gasUsed": "112593",
+      "costWei": "54167028591"
+    },
+    {
+      "step": "A deal",
+      "action": "deal (n=3, t=2)",
+      "via": "relayer",
+      "hash": "0xf07c7a344a59c0a7d7d8a5c670394cf56ca9f52b9ce3a9780b3f710866103b0f",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628398,
+      "gasUsed": "1059235",
+      "costWei": "764371516110"
+    },
+    {
+      "step": "B deal",
+      "action": "deal (n=3, t=2)",
+      "via": "relayer",
+      "hash": "0xb23cd3bd3e211ae23eaf9967be48c71efad797cee452d3f8872b6fd7ab765b7b",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628398,
+      "gasUsed": "1059211",
+      "costWei": "764354197086"
+    },
+    {
+      "step": "A deal",
+      "action": "deal (n=3, t=2)",
+      "via": "relayer",
+      "hash": "0x09c35b1ebaa080ec7debb77ff703f464d4db42219c628f99a80b915e9a32f383",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628405,
+      "gasUsed": "1000686",
+      "costWei": "720754098360"
+    },
+    {
+      "step": "B deal",
+      "action": "deal (n=3, t=2)",
+      "via": "relayer",
+      "hash": "0x4e45fef8839e9a57dd2429caf5cf080addf51c6e2926fde96441be86e02d29d1",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628405,
+      "gasUsed": "1000690",
+      "costWei": "481420951410"
+    },
+    {
+      "step": "A deal",
+      "action": "deal (n=3, t=2)",
+      "via": "relayer",
+      "hash": "0xb473b19ad7e9c3204df8f05ba2020424d9c783b7b66ed2ce285cb43a4a45a513",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628414,
+      "gasUsed": "1000662",
+      "costWei": "481406480256"
+    },
+    {
+      "step": "B deal",
+      "action": "deal (n=3, t=2)",
+      "via": "relayer",
+      "hash": "0xb5a7ab36ef5c8499575f763180c4e80089dee4c8966bc2e76327c3a6b34c965b",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628419,
+      "gasUsed": "1000738",
+      "costWei": "481444043682"
+    },
+    {
+      "step": "A finalize",
+      "action": "finalize (|QUAL|=3)",
+      "via": "relayer",
+      "hash": "0xac0329d3b617ef1aa112a61d94661895197f013b181d07a285462e153eab1deb",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628425,
+      "gasUsed": "33923",
+      "costWei": "10880123790"
+    },
+    {
+      "step": "A grants",
+      "action": "allowAdapter (registry councilAdapter)",
+      "via": "relayer",
+      "hash": "0x8c1fa2586d60977c9fdeb8fba4e4435fb90d0d7ad65caccef8aecdbb651b47cc",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628433,
+      "gasUsed": "58629",
+      "costWei": "18804079170"
+    },
+    {
+      "step": "B finalize",
+      "action": "finalize (|QUAL|=3)",
+      "via": "relayer",
+      "hash": "0x51b9db361521657b856f5eed26be245248f0221659b31f28afea152022c7aea0",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628433,
+      "gasUsed": "33923",
+      "costWei": "12240096860"
+    },
+    {
+      "step": "A grants",
+      "action": "authorizeCreator (DAVINCI organizer)",
+      "via": "relayer",
+      "hash": "0x842317a58f0b3e4349a5e6f2c252eb0241d2b911fb8d1b9476fcf9781bfea2fe",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628439,
+      "gasUsed": "58804",
+      "costWei": "21217718084"
+    },
+    {
+      "step": "B grants",
+      "action": "allowAdapter (registry councilAdapter)",
+      "via": "relayer",
+      "hash": "0x6440cab165c9854e7d831a0011f385ece42c0248059a74d230be6662f10133fd",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628446,
+      "gasUsed": "58629",
+      "costWei": "1968879078"
+    },
+    {
+      "step": "B grants",
+      "action": "authorizeCreator (DAVINCI organizer)",
+      "via": "relayer",
+      "hash": "0x1d2840b3d26e73aa41d59547a6085cc548376748cc2d5a78f095dda1066818db",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628453,
+      "gasUsed": "58816",
+      "costWei": "2222068480"
+    },
+    {
+      "step": "A open",
+      "action": "openDecryption (organizer)",
+      "via": "relayer",
+      "hash": "0x98f6073cf8b896378a0add20cb928004166b197d68911c2432bc9815d14adefc",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628549,
+      "gasUsed": "41113",
+      "costWei": "822260"
+    },
+    {
+      "step": "(a) partial",
+      "action": "submitPartial (member 1)",
+      "via": "relayer",
+      "hash": "0x71765a66b315d24de7854426ecb7211ceff67ce21451412b1bf49ba6e3a0ad93",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628596,
+      "gasUsed": "819115",
+      "costWei": "16382300"
+    },
+    {
+      "step": "(a) partial",
+      "action": "submitPartial (member 3)",
+      "via": "relayer",
+      "hash": "0x1cae62fbda78d873c7f10e68dacc0adfca9060853888c9c2ad90d79361e49318",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628598,
+      "gasUsed": "803208",
+      "costWei": "16867368"
+    },
+    {
+      "step": "(b) partial",
+      "action": "submitPartial (member 2)",
+      "via": "relayer",
+      "hash": "0x633e43d460f2d9b9d0413316c52b5f60bc3993d1b2a5b8241fa976b293b9f783",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628848,
+      "gasUsed": "819726",
+      "costWei": "15574794"
+    },
+    {
+      "step": "(b) partial",
+      "action": "submitPartial (member 3)",
+      "via": "relayer",
+      "hash": "0xa4aa8f30f0bb0a5a9ac3390aa6c886b50b93c48ad9862159b4d83f4a708dee7f",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628851,
+      "gasUsed": "803160",
+      "costWei": "15260040"
+    },
+    {
+      "step": "(a) ProcessCreated",
+      "action": "ProcessCreated + ProcessMetadataUpdated",
+      "via": "organizer",
+      "hash": "0x93cdb36164d37306a297ebf94a961a852fd3146bbc7a7790af34414e2a824d0d",
+      "from": "0x654b60367ba66c440d54fc35e76322aaf2f57acf",
+      "block": 48628473,
+      "gasUsed": "858595",
+      "costWei": "19747685"
+    },
+    {
+      "step": "(a) ProcessStateTransitioned",
+      "action": "ProcessStateTransitioned",
+      "via": "sequencer",
+      "hash": "0xb3dc8445670f76f36658033f8c72c4252f8b36c18eb6a2b9cef082d98009ec69",
+      "from": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+      "block": 48628506,
+      "gasUsed": "445484",
+      "costWei": "6236776"
+    },
+    {
+      "step": "(a) ProcessDurationChanged",
+      "action": "ProcessDurationChanged + ProcessStatusChanged",
+      "via": "organizer",
+      "hash": "0xe6f188ff0314c6f754d794d61c0bf2f65bcd43ad945e81d0a889d29abdea805b",
+      "from": "0x654b60367ba66c440d54fc35e76322aaf2f57acf",
+      "block": 48628508,
+      "gasUsed": "41087",
+      "costWei": "862827"
+    },
+    {
+      "step": "(a) ResultsDecryptionRequested",
+      "action": "ResultsDecryptionRequested + RequestSubmitted (Council)",
+      "via": "sequencer",
+      "hash": "0x4d2c4b4c8b3757705c2a9258853aedb886a645945c13d57a2727b3baa4bc9343",
+      "from": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+      "block": 48628547,
+      "gasUsed": "1283534",
+      "costWei": "15402408"
+    },
+    {
+      "step": "(a) FieldsCombined (Council)",
+      "action": "FieldsCombined (Council)",
+      "via": "relayer (worker)",
+      "hash": "0xcfc525f6e2f28dd5308e25355aa9d7fcf7ec694317990dc52ba80f37d40bdc84",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628604,
+      "gasUsed": "1258710",
+      "costWei": "26432910"
+    },
+    {
+      "step": "(a) ProcessStatusChanged",
+      "action": "ProcessStatusChanged + ProcessResultsSet",
+      "via": "sequencer",
+      "hash": "0x60f781425ba24a86fd410a483fc85ce9e337cc0b70fecccd7842b86408386c08",
+      "from": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+      "block": 48628607,
+      "gasUsed": "175784",
+      "costWei": "2460976"
+    },
+    {
+      "step": "(b) ProcessCreated",
+      "action": "ProcessCreated + ProcessMetadataUpdated",
+      "via": "organizer",
+      "hash": "0x1cf1413cb6cc0ee9eb136bc1e303bb96f2afcdcfe73f00cfae05741a547fd303",
+      "from": "0x654b60367ba66c440d54fc35e76322aaf2f57acf",
+      "block": 48628476,
+      "gasUsed": "878507",
+      "costWei": "19327154"
+    },
+    {
+      "step": "(b) ProcessStateTransitioned",
+      "action": "ProcessStateTransitioned",
+      "via": "sequencer",
+      "hash": "0xcb9bce209661a412100722971c2b4d5e18f16dbcbd2cde709fc00a46d01e4d57",
+      "from": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+      "block": 48628511,
+      "gasUsed": "445455",
+      "costWei": "5790915"
+    },
+    {
+      "step": "(b) ProcessStatusChanged",
+      "action": "ProcessStatusChanged + ResultsDecryptionRequested + RequestSubmitted (Council)",
+      "via": "sequencer",
+      "hash": "0xfe6fb267e304a9e624ebfa9ced1594a0acf059b5e00442fd94adad2e08a33289",
+      "from": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+      "block": 48628763,
+      "gasUsed": "1288528",
+      "costWei": "18039392"
+    },
+    {
+      "step": "(b) FieldsCombined (Council)",
+      "action": "FieldsCombined (Council)",
+      "via": "relayer (worker)",
+      "hash": "0x1822671b0491572875789dd38a5c601f450c21d9d0ca01f2d44e1e5ab24588ed",
+      "from": "0x21d95b99905d126e1b66f60df09c4a87ba1f253b",
+      "block": 48628856,
+      "gasUsed": "777150",
+      "costWei": "14765850"
+    },
+    {
+      "step": "(b) ProcessStatusChanged",
+      "action": "ProcessStatusChanged + ProcessResultsSet",
+      "via": "sequencer",
+      "hash": "0xde5dafa95a7d73c0937398b394c0b100977133c1e38c3bb7ae60cbeac23f2fd5",
+      "from": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+      "block": 48628858,
+      "gasUsed": "155833",
+      "costWei": "1869996"
+    },
+    {
+      "step": "(c) ProcessCreated",
+      "action": "ProcessCreated + ProcessMetadataUpdated",
+      "via": "organizer",
+      "hash": "0x535eaeccf7781f80f337f6ae38d36a21d74bb48df52945c9149a86d08c842e71",
+      "from": "0x654b60367ba66c440d54fc35e76322aaf2f57acf",
+      "block": 48628475,
+      "gasUsed": "841351",
+      "costWei": "18509722"
+    },
+    {
+      "step": "(c) ProcessDurationChanged",
+      "action": "ProcessDurationChanged + ProcessStatusChanged",
+      "via": "organizer",
+      "hash": "0xb2289de66cad4d8ba8f0976cad55cfe9dcc025a45c83c7e2ec917c0305f5c27d",
+      "from": "0x654b60367ba66c440d54fc35e76322aaf2f57acf",
+      "block": 48628477,
+      "gasUsed": "41087",
+      "costWei": "903914"
+    },
+    {
+      "step": "(c) ResultsDecryptionRequested",
+      "action": "ResultsDecryptionRequested",
+      "via": "sequencer",
+      "hash": "0x7a2b5f356bca911bd1c592de59b2260bd481550556d54c5868b0ab46251998b2",
+      "from": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+      "block": 48628515,
+      "gasUsed": "111108",
+      "costWei": "1444404"
+    },
+    {
+      "step": "(c) ProcessStatusChanged",
+      "action": "ProcessStatusChanged + ProcessResultsSet",
+      "via": "sequencer",
+      "hash": "0x97d578692ddc6dff24cfc540e259beb815184f457e98723698f6823a879bb96a",
+      "from": "0xc56991c2c6479b23c23298e695761ebd2b662daf",
+      "block": 48628565,
+      "gasUsed": "93351",
+      "costWei": "1400265"
+    }
+  ],
+  "steps": [
+    {
+      "step": "preflight",
+      "ms": 1437
+    },
+    {
+      "step": "ceremonies A and B",
+      "ms": 986224
+    },
+    {
+      "step": "create processes",
+      "ms": 20856
+    },
+    {
+      "step": "(a) vote, settle, end, request",
+      "ms": 368502
+    },
+    {
+      "step": "(a)+(c) manual opening, decrypt, results",
+      "ms": 666065
+    },
+    {
+      "step": "(b) vote, settle, end by date, request, scheduled opening, decrypt",
+      "ms": 1956561
+    }
+  ],
+  "balances": {
+    "0x21d95b99905d126e1b66f60df09c4a87ba1f253b": {
+      "start": "99996921203411342",
+      "end": "99992272533334697"
+    },
+    "0x654b60367ba66c440d54fc35e76322aaf2f57acf": {
+      "start": "49992473686227238",
+      "end": "49992473626875936"
+    },
+    "0xc56991c2c6479b23c23298e695761ebd2b662daf": {
+      "start": "499737655153606574",
+      "end": "499475511100961442"
+    }
+  },
+  "notes": []
+}

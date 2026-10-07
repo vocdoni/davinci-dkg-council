@@ -2,9 +2,9 @@
         circuits circuits-restore circuits-test fixtures vectors vectors-check ceremony ceremony-dry-run \
         solidity-build solidity-test solidity-gas \
         sdk sdk-test relayer relayer-test relayer-docker \
-        ui-dev ui-sepolia ui-build ui-lint ui-test ui-config ui-docker \
+        ui-dev ui-sepolia ui-gnosis ui-build ui-lint ui-test ui-config ui-docker \
         e2e e2e-browser dev dev-process dev-settle dev-results \
-        sepolia-deploy sepolia-run gnosis-deploy deploy-test
+        sepolia-deploy sepolia-run gnosis-deploy gnosis-run deploy-test
 
 # pnpm 10 without a global install.
 PNPM ?= npx -y pnpm@10
@@ -114,6 +114,11 @@ ui-sepolia: ## Serve the app against config.sepolia.json (RELAYER_URL, ARTIFACTS
 	VITE_CONFIG=/config.sepolia.json VITE_RELAYER_URL=$(RELAYER_URL) VITE_ARTIFACTS_URL=$(ARTIFACTS_URL) \
 		$(PNPM) --filter ./ui run dev
 
+# The Gnosis TEST deployment (development circuit release): ui/public/config.gnosis.json.
+ui-gnosis: ## Serve the app against config.gnosis.json (RELAYER_URL, ARTIFACTS_URL)
+	VITE_CONFIG=/config.gnosis.json VITE_RELAYER_URL=$(RELAYER_URL) VITE_ARTIFACTS_URL=$(ARTIFACTS_URL) \
+		$(PNPM) --filter ./ui run dev
+
 ui-build: ## Production build of the app into ui/dist
 	$(PNPM) --filter ./ui run build
 
@@ -164,6 +169,9 @@ sepolia-run: ## One n=3, t=2 ceremony against scripts/sepolia/deployment.json (C
 
 gnosis-deploy: ## Deploy verifiers + manager to Gnosis (COUNCIL_KEY_FILE; a DEV release needs ALLOW_DEV_SETUP=true)
 	bash scripts/gnosis/deploy.sh
+
+gnosis-run: ## Rehearsal ceremonies A-E against scripts/gnosis/deployment.json (local relayer, test adapter)
+	bash scripts/gnosis/run.sh
 
 deploy-test: ## The deploy scripts' release policy on throwaway Anvil chains (100, 11155111)
 	bash scripts/deploy.test.sh
