@@ -6,8 +6,9 @@
     "https://gnosis-rpc.publicnode.com",
     "https://rpc.gnosischain.com"
   ],
-  "relayerUrl": "https://relayer.davinci-dkg-council.example.invalid",
+  "relayerUrl": "https://council-gnosis-relayer-production.up.railway.app",
   "artifactsBaseUrls": [
+    "https://council-gnosis-ui-production.up.railway.app/{release}",
     "https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/{release}",
     "https://github.com/vocdoni/davinci-dkg-council/releases/download/{release}"
   ],

@@ -114,7 +114,7 @@ ui-sepolia: ## Serve the app against config.sepolia.json (RELAYER_URL, ARTIFACTS
 	VITE_CONFIG=/config.sepolia.json VITE_RELAYER_URL=$(RELAYER_URL) VITE_ARTIFACTS_URL=$(ARTIFACTS_URL) \
 		$(PNPM) --filter ./ui run dev
 
-# The Gnosis TEST deployment (development circuit release): ui/public/config.gnosis.json.
+# The Gnosis production beta (development circuit release): ui/public/config.gnosis.json.
 ui-gnosis: ## Serve the app against config.gnosis.json (RELAYER_URL, ARTIFACTS_URL)
 	VITE_CONFIG=/config.gnosis.json VITE_RELAYER_URL=$(RELAYER_URL) VITE_ARTIFACTS_URL=$(ARTIFACTS_URL) \
 		$(PNPM) --filter ./ui run dev
