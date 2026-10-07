@@ -11,6 +11,13 @@ price: every action is an EIP-712 signed message that a relayer forwards.
 [![Build and Test](https://github.com/vocdoni/davinci-dkg-council/actions/workflows/main.yml/badge.svg)](https://github.com/vocdoni/davinci-dkg-council/actions/workflows/main.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 
+> **Trusted-setup status.** Every published circuit release so far (`circuits-v1`) uses a
+> **development** phase-2 setup: whoever holds its toxic waste can forge dealings and partial
+> decryptions. It must never be used for a real election — rehearsals only. A production
+> deployment requires the multi-party phase-2 ceremony (a new release and a new manager; tooling
+> is being added under `circuits/scripts/ceremony/`). See
+> [docs/deployments.md](docs/deployments.md#circuit-release).
+
 ## Overview
 
 Council ("the committee" in the app) is the invite-only complement of the permissionless
@@ -34,7 +41,7 @@ allowAdapter + authorizeCreator ─► DAVINCI newProcess (bindProcess) ─► v
 | Component | Path | Purpose |
 |---|---|---|
 | Circuits | `circuits/` | `deal.circom` (87 public inputs) and `partial.circom` (67), circom 2.2.3 + snarkjs Groth16 on BN254 |
-| Contracts | `solidity/` | `CouncilManager` (+ `CouncilViews`) and the two generated verifiers |
+| Contracts | `solidity/` | `CouncilManager` (+ `CouncilViews` and `CouncilOps`) and the two generated verifiers |
 | TypeScript SDK | `sdk/` | `@vocdoni/davinci-dkg-council-sdk`: keys, recovery kit, invites, dealing, recovery, partials, combine, authenticated reads |
 | Relayer | `relayer/` | Sends the signed actions from a funded hot key and runs the public combine step |
 | Web app | `ui/` | The organizer and participant app: create, invite, join, contribute, unlock results |
@@ -42,7 +49,12 @@ allowAdapter + authorizeCreator ─► DAVINCI newProcess (bindProcess) ─► v
 | DAVINCI client | `tools/davinci-test/` | davinci-sdk CLI that creates and settles a Council-keyed process |
 
 The protocol is specified in [docs/protocol.md](docs/protocol.md); it is the source of truth for
-every byte on the wire.
+every byte on the wire. The spec and the implementation in this repository are at **version 2**
+(adopted 2026-10-06: compressed/aggregated on-chain storage and scheduled or manual
+registration/decryption phases), measured end to end (`tests/GAS.md`, `BENCHMARKS.md`). The
+deployed Sepolia contracts are still a protocol-v1 manager — a v2 deployment is a new manager,
+and the migration path lives in
+[docs/architecture.md §9](docs/architecture.md#9-migration-v1--v2).
 
 ## Quick start
 
@@ -152,23 +164,32 @@ app, the relayer combines, and anyone calls `finalizeResultsFromDKG`.
 ### Opening results months later
 
 Results are usually opened weeks or months after the ceremony. A member who comes back needs only
-the twelve recovery words and the committee link: the app re-derives the keys, finds the vote and
-the member's share from current contract state through two public RPCs, and never reads event
-logs on the way (public providers refuse long `eth_getLogs` ranges; logs only feed the
-organizer's labels, through a paged scanner). What has to outlive the ceremony is the chain state,
-a hosted copy of the app with its pinned circuit files, a relayer or anyone willing to pay for the
-transactions, and at least `t` members' words: browsers delete site data (Safari after about a
-week without a visit), so members are told to keep the words until the results are opened.
-[docs/architecture.md §6.6](docs/architecture.md#66-opening-results-months-later) has the details;
+the twelve recovery words and the committee link: the app re-derives the keys and finds the vote
+and the member's share from **current contract state only**, through two public RPCs — a member's
+path never reads event logs or historical calldata (public providers refuse long `eth_getLogs`
+ranges months later). Logs are used in two places, both off the member path and both as a
+convenience: the organizer's labels (a paged scanner), and the relayer's request discovery
+(request ids are enumerable from state for any known committee). The *combine* step is the one
+thing that needs **recent publication data**: partial decryptions are stored as hashes, so the
+`t` partial vectors come from a cache or one bounded single-block log read — and when both are
+gone, any `t` returning members just regenerate and republish theirs (protocol §10.4). What has
+to outlive the ceremony is the chain state, a hosted copy of the app with its pinned circuit
+files, a relayer or anyone willing to pay for the transactions, and at least `t` members' words:
+browsers delete site data (Safari after about a week without a visit), so members are told to
+keep the words until the results are opened.
+[docs/architecture.md §6.6](docs/architecture.md#66-opening-results-months-later) has the details,
+[docs/hosting.md](docs/hosting.md) the policy for keeping all of it alive;
 `tests/tests/long-delay.test.ts` and the browser journey run it after a 700,000-block gap.
 
 ### Deployments
 
 | Network | Circuit release | CouncilManager | Status |
 |---|---|---|---|
-| Sepolia | `circuits-v1` (development setup) | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | rehearsals only (`0x57ef…3070`, the first deployment, is superseded) |
+| Sepolia | `circuits-v1` (development setup) | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | rehearsals only; protocol-v1 manager, v2 redeploy pending (`0x57ef…3070`, the first deployment, is superseded) |
+| Gnosis | `circuits-v1` (development setup) | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | **TEST** deployment, protocol v2; rehearsals and integration tests only, never a real election |
 
-`circuits-v1` is a development phase 2, so it is not for real elections. The Sepolia app runs at
+`circuits-v1` is a **development phase 2, never for real elections** (see the trusted-setup note
+at the top). The Sepolia app runs at
 https://council-ui-production.up.railway.app, with a public relayer.
 [docs/deployments.md](docs/deployments.md) has every address, the release pins, the first live
 ceremony (gas, cost and timings) and how to deploy.
@@ -182,6 +203,19 @@ ceremony (gas, cost and timings) and how to deploy.
   the DAVINCI integration, SDK, relayer API, app, testing and build.
 - [docs/relayer.md](docs/relayer.md): operating a relayer.
 - [docs/deployments.md](docs/deployments.md): release pins, deploying, app configuration.
+- [docs/davinci-integration.md](docs/davinci-integration.md): building a DAVINCI product on a
+  Council key — davinci-sdk `keyMode: 'council'`, the grants, scheduled vs manual opening, the
+  Gnosis test deployment and a worked end-to-end example.
+- [docs/organizer-guide.md](docs/organizer-guide.md): the organizer runbook — choosing `t` and
+  `n`, decryption modes, kit custody, the pre-opening drill, monitoring.
+- [docs/hosting.md](docs/hosting.md): hosting and mirror policy — origins, artifact mirrors,
+  relayer redundancy, public RPC policy, archiving.
+- [docs/audit-2026-10.md](docs/audit-2026-10.md): the October 2026 audit — scope, method,
+  every finding with its fix, what remains open.
+- [docs/incident-response.md](docs/incident-response.md): what to do about a bug found
+  mid-election on an immutable contract.
+- [docs/forks.md](docs/forks.md): the hard-fork checklist and what happens to in-flight
+  ceremonies.
 - [BENCHMARKS.md](BENCHMARKS.md): constraints, proving times, artifact sizes, gas, relayer budget.
 
 ## Development
