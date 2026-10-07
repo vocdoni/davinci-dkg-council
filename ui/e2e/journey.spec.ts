@@ -8,8 +8,9 @@
  * approves the frozen list and contributes with real snarkjs proving in the
  * app's worker; the key goes live; the organizer approves the DAVINCI adapter
  * and a process creator, then pairs the committee with a mocked DAVINCI
- * Elections server by one-use code (the grants, already on chain, are
- * skipped); davinci-test creates a DAVINCI process on the
+ * Elections server by one-use code (the adapter grant, already on chain, is
+ * skipped; the organization's creator grant is really sent and confirmed
+ * finalized before completion); davinci-test creates a DAVINCI process on the
  * ceremony; the dev stack settles a known tally and requests its decryption
  * (as the e2e DAVINCI round-trip does); the results are locked until the
  * organizer opens them (§8.7), which he does through the irreversible
@@ -281,12 +282,15 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     );
     await shot(org, 'org-connections', 'organizer: both connections approved');
 
-    // --- organizer: the same grants through the DAVINCI Elections pairing card (idempotent) ---
+    // --- organizer: the DAVINCI Elections pairing card ---
     // The Elections server is mocked at an allowlisted https origin and the app config gains the
     // pinned davinci object (the dev stack's real registry, so the on-chain councilAdapter() read
-    // runs for real) through a config.json route. Both grants are already on chain, so the card
-    // skips them and only reports the committee back to Elections.
+    // runs for real) through a config.json route. The adapter grant is already on chain, so the
+    // card skips it (idempotency); the mocked organization uses a second creator account, so the
+    // card really signs and sends that grant through the relayer, waits until the finalized state
+    // shows both, and only then reports the committee back to Elections.
     const ORG_ID = '123e4567-e89b-42d3-a456-426614174000';
+    const PAIR_CREATOR = '0x00000000000000000000000000000000000000C2';
     let completedCid = '';
     await org.route('**/config.json', async (route) => {
       const cfg = (await (await route.fetch()).json()) as Record<string, unknown>;
@@ -307,7 +311,7 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
           version: 1,
           orgId: ORG_ID,
           orgName: 'Acme org',
-          creator: davinci.creator,
+          creator: PAIR_CREATOR,
           chainId: stack.chainId,
           manager: stack.manager,
           registry: davinci.registry,
