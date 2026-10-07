@@ -14,7 +14,8 @@ import { normalizeCeremonyId, parseInviteFragment, type Hex } from '@vocdoni/dav
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useApp } from '../App';
-import { Note, Spinner } from '../components/ui';
+import { Page } from '../components/Layout';
+import { Loading, Note } from '../components/ui';
 import { readCeremony } from '../lib/chain';
 import { captureInviteFragment, peekInviteFragment } from '../lib/inviteCapture';
 import type { CeremonyRecord } from '../lib/records';
@@ -113,21 +114,33 @@ export function Ceremony() {
   const record: CeremonyRecord | undefined = mine.find((r) => deployments.forManager(r.manager) !== undefined);
   const probe = useProbedDeployment(deployments, cid, record !== undefined);
 
-  if (!cid) return <Note tone="bad">This link does not point to a committee.</Note>;
+  if (!cid) {
+    return (
+      <Page>
+        <Note tone="bad">This link does not point to a committee.</Note>
+      </Page>
+    );
+  }
   if (!record && mine.length > 0) {
     return (
-      <Note tone="warn">
-        This committee was made with a different copy of this app — open the link you were given for it.
-      </Note>
+      <Page>
+        <Note tone="warn">
+          This committee was made with a different copy of this app — open the link you were given for it.
+        </Note>
+      </Page>
     );
   }
 
   const services = record ? deployments.forManager(record.manager) : probe.services;
   if (!services) {
-    return probe.error ? (
-      <Note tone="bad">We could not reach the public record: {probe.error}. Trying again…</Note>
-    ) : (
-      <Spinner label="Looking up this committee…" />
+    return (
+      <Page>
+        {probe.error ? (
+          <Note tone="bad">We could not reach the public record: {probe.error}. Trying again…</Note>
+        ) : (
+          <Loading label="Looking up this committee…" />
+        )}
+      </Page>
     );
   }
   const ref = deployments.list.find((d) => d.manager.toLowerCase() === services.config.manager.toLowerCase());
@@ -136,7 +149,7 @@ export function Ceremony() {
     // Keyed: a provisional lookup that switches deployment restarts the screens on the new one.
     <ServicesProvider key={services.config.manager} services={services}>
       {ref?.legacy && (
-        <div className="mb-4">
+        <div className="mx-auto mb-5 max-w-5xl">
           <Note tone="info">
             This committee was set up with an earlier version of this service
             {ref.label ? ` (${ref.label})` : ''}. It keeps working here until its results are opened.

@@ -21,7 +21,9 @@ import {
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../App';
-import { Button, Card, Field, Note } from '../components/ui';
+import { Page } from '../components/Layout';
+import { FileIcon, KeyIcon, UploadIcon } from '../components/icons';
+import { Actions, Button, Card, Field, Note, PageHeader } from '../components/ui';
 import { manifestEntryFor, manifestFingerprint } from '../flows/kit';
 import { shortId } from '../lib/format';
 import { putRecord, recordKey, type CeremonyRecord } from '../lib/records';
@@ -216,8 +218,9 @@ export function Restore() {
 
   if (pending) {
     return (
-      <div className="space-y-4">
-        <Card title="This device already holds a different key">
+      <Page>
+        <PageHeader eyebrow="Restore" title="This device already holds a different key" />
+        <Card>
           <Note tone="warn">
             <p className="font-semibold">The kit you opened holds a different key than the one on this device.</p>
             <p className="mt-1">
@@ -225,36 +228,43 @@ export function Restore() {
               current key and its committees aside — they are kept, not deleted, and the matching recovery kit
               brings them back — but this device then acts only with the restored key.
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" disabled={busy} onClick={() => setPending(null)}>
-                Keep what I have
-              </Button>
-              <Button disabled={busy} onClick={() => void confirmSwitch()}>
-                {busy ? 'Working…' : 'Switch to the restored key'}
-              </Button>
-            </div>
           </Note>
+          <Actions className="mt-5">
+            <Button variant="secondary" disabled={busy} onClick={() => setPending(null)}>
+              Keep what I have
+            </Button>
+            <Button disabled={busy} onClick={() => void confirmSwitch()}>
+              {busy ? 'Working…' : 'Switch to the restored key'}
+            </Button>
+          </Actions>
           {error && (
-            <div className="mt-3">
+            <div className="mt-4">
               <Note tone="bad">That did not work: {error}.</Note>
             </div>
           )}
         </Card>
-      </div>
+      </Page>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <Page>
+      <PageHeader eyebrow="Restore" title="Bring your key back">
+        Using a new device, or cleared this browser? Your recovery kit rebuilds your key here. Nothing secret is
+        sent anywhere: the key is checked against the public record.
+      </PageHeader>
       {success && <Note tone="ok">Your key is back. You can act for this committee again.</Note>}
-      <Card title="Restore from a recovery kit">
-        <p className="mb-3 text-sm leading-relaxed">
+      <Card title="Restore from a recovery kit" icon={<FileIcon />}>
+        <p className="text-[15px] leading-relaxed text-ink-2">
           Pick the kit file you saved earlier. We re-create your keys from it and check them against the public
           record; nothing secret is sent anywhere. This takes a few seconds.
         </p>
-        <Button disabled={busy} onClick={() => fileRef.current?.click()}>
-          {busy ? 'Checking…' : 'Open the kit file'}
-        </Button>
+        <div className="mt-5">
+          <Button size="lg" className="w-full sm:w-auto" disabled={busy} onClick={() => fileRef.current?.click()}>
+            <UploadIcon size={18} />
+            {busy ? 'Checking…' : 'Open the kit file'}
+          </Button>
+        </div>
         <input
           ref={fileRef}
           type="file"
@@ -266,34 +276,42 @@ export function Restore() {
           }}
         />
         {error && (
-          <div className="mt-3">
+          <div className="mt-4">
             <Note tone="bad">That did not work: {error}.</Note>
           </div>
         )}
         {warnings.map((w) => (
-          <div key={w} className="mt-3">
+          <div key={w} className="mt-4">
             <Note tone="warn">{w}</Note>
           </div>
         ))}
       </Card>
-      <Card title="No file? Use your twelve words">
-        <p className="mb-3 text-sm leading-relaxed">
+      <div className="flex items-center gap-4 text-xs font-medium tracking-[0.08em] text-faint uppercase" aria-hidden="true">
+        <span className="h-px flex-1 bg-line" />
+        or
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <Card title="No file? Use your twelve words" icon={<KeyIcon />}>
+        <p className="text-[15px] leading-relaxed text-ink-2">
           Type the twelve words from your printed sheet and paste the committee link (or its code) from your
           invitation or from whoever runs the committee. We rebuild your key and check it against the public
           record.
         </p>
-        <textarea
-          className="w-full rounded-lg border border-ink/20 px-3 py-2 font-mono text-sm"
-          rows={3}
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          aria-label="Your twelve recovery words"
-          placeholder="word1 word2 word3 …"
-          value={words}
-          onChange={(e) => setWords(e.target.value)}
-        />
-        <div className="mt-3">
+        <label className="mt-5 block">
+          <span className="label">Your twelve words</span>
+          <textarea
+            className="input font-mono"
+            rows={3}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            aria-label="Your twelve recovery words"
+            placeholder="word1 word2 word3 …"
+            value={words}
+            onChange={(e) => setWords(e.target.value)}
+          />
+        </label>
+        <div className="mt-4">
           <Field
             label="Committee link or code"
             placeholder="https://… or 0x…"
@@ -301,12 +319,17 @@ export function Restore() {
             onChange={(e) => setLink(e.target.value)}
           />
         </div>
-        <div className="mt-3">
-          <Button disabled={busy || words.trim() === '' || link.trim() === ''} onClick={() => void restoreWords()}>
+        <div className="mt-5">
+          <Button
+            size="lg"
+            className="w-full sm:w-auto"
+            disabled={busy || words.trim() === '' || link.trim() === ''}
+            onClick={() => void restoreWords()}
+          >
             {busy ? 'Checking…' : 'Rebuild my key'}
           </Button>
         </div>
       </Card>
-    </div>
+    </Page>
   );
 }

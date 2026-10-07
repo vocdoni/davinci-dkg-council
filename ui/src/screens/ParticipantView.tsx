@@ -18,7 +18,24 @@ import { KitCard } from '../components/KitCard';
 import { OpeningReminder } from '../components/OpeningReminder';
 import { RecoveryKitStep } from '../components/RecoveryKitStep';
 import { StorageNote } from '../components/StorageNote';
-import { Button, Card, ConfirmingNote, Disclosure, Note, ProgressBar, Spinner } from '../components/ui';
+import { Dashboard, Page } from '../components/Layout';
+import { CommitteeHeader, LifecycleSteps } from '../components/Lifecycle';
+import { memberSteps } from '../lib/lifecycle';
+import { AlertIcon, ArrowRightIcon, BallotIcon, CheckIcon, ClockIcon, KeyIcon, LockIcon, UserPlusIcon } from '../components/icons';
+import { EmptyState, ResultValues, VoteBadge } from '../components/Votes';
+import {
+  Button,
+  Card,
+  ConfirmingNote,
+  Disclosure,
+  KeyDots,
+  Loading,
+  Meter,
+  Note,
+  PageHeader,
+  ProgressBar,
+  Spinner,
+} from '../components/ui';
 import { buildKitForRecords, manifestFingerprint } from '../flows/kit';
 import { abortAction, finalizeAction, scheduledCloseAction } from '../flows/organizer';
 import {
@@ -89,9 +106,18 @@ function ProveProgressView({ progress }: { progress: ProveProgress | null }) {
   if (progress.stage === 'download') {
     const ratio =
       progress.totalBytes && progress.loadedBytes ? progress.loadedBytes / progress.totalBytes : null;
-    return <ProgressBar value={ratio} label="Fetching the checking files — a few seconds on most connections…" />;
+    return (
+      <div className="rounded-lg border border-info-line bg-info-soft px-4 py-3.5">
+        <ProgressBar value={ratio} label="Fetching the checking files — a few seconds on most connections…" />
+      </div>
+    );
   }
-  return <Spinner label="Doing the math — a few seconds. Keep this tab open." />;
+  return (
+    <div className="space-y-3 rounded-lg border border-info-line bg-info-soft px-4 py-3.5">
+      <Spinner label="Doing the math — a few seconds. Keep this tab open." />
+      <ProgressBar value={null} />
+    </div>
+  );
 }
 
 // --- join flow (invite link) ---
@@ -190,86 +216,161 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
     }
   };
 
+  const steps = (
+    <div className="card px-3 py-5 sm:px-7">
+      <LifecycleSteps steps={memberSteps({})} />
+    </div>
+  );
+
   if (view === undefined) {
-    if (poll.confirming) return <ConfirmingNote />;
-    return poll.error ? (
-      <Note tone="bad">We could not reach the public record: {poll.error}</Note>
-    ) : (
-      <Spinner label="Opening your invitation…" />
+    if (poll.confirming) {
+      return (
+        <Page>
+          <ConfirmingNote />
+        </Page>
+      );
+    }
+    return (
+      <Page>
+        {poll.error ? (
+          <Note tone="bad">We could not reach the public record: {poll.error}</Note>
+        ) : (
+          <Loading label="Opening your invitation…" />
+        )}
+      </Page>
     );
   }
   // The invite link can arrive before the network confirmed the committee.
-  if (view === null) return <ConfirmingNote lead="This committee was created moments ago." />;
+  if (view === null) {
+    return (
+      <Page>
+        <ConfirmingNote lead="This committee was created moments ago." />
+      </Page>
+    );
+  }
   if (inviteState === 'invalid') {
-    return <Note tone="bad">This invitation is not valid for this committee. Ask for a fresh link.</Note>;
+    return (
+      <Page>
+        <Note tone="bad">This invitation is not valid for this committee. Ask for a fresh link.</Note>
+      </Page>
+    );
   }
   if (inviteState === 'used') {
     return (
-      <Note tone="warn">
-        This invitation was already used. If that was you on another device, use your recovery kit to restore
-        your key here.
-      </Note>
+      <Page>
+        <Note tone="warn">
+          This invitation was already used. If that was you on another device, use your recovery kit to restore
+          your key here.
+        </Note>
+      </Page>
     );
   }
   if (view.phase !== Phase.Registration) {
-    return <Note tone="warn">The joining period for this committee is over.</Note>;
+    return (
+      <Page>
+        <Note tone="warn">The joining period for this committee is over.</Note>
+      </Page>
+    );
   }
 
   if (step === 'explain') {
     return (
-      <div className="space-y-4">
-        <Card title="You are invited to hold a key">
-          <p className="text-sm leading-relaxed">
-            A group of {view.inviteCount} people will jointly hold the key that locks an election’s results.
-            Once ready, {thresholdSentence(view.threshold, view.inviteCount)} — never one person alone.
-          </p>
-          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
-            <li>Create your key on this device and save a recovery kit (about two minutes).</li>
-            <li>Join the member list — one click.</li>
-            <li>Later, when the list is locked, come back once to add your part of the key.</li>
-          </ol>
-          <p className="mt-3 text-sm text-ink/70">
-            Nothing to install, nothing to pay.{' '}
-            {view.registrationDeadline === 0n
-              ? 'The organizer closes joining once everyone is in — join soon.'
-              : `Join before ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
-          </p>
-          <div className="mt-4">
-            <Button onClick={() => setStep('kit')} disabled={inviteState === 'checking'}>
-              Create my key
-            </Button>
+      <Page>
+        {steps}
+        <section className="card overflow-hidden">
+          <div className="p-6 sm:p-9">
+            <p className="eyebrow">Invitation · Step 1 of 3</p>
+            <h1 className="mt-3 text-[28px] leading-tight font-semibold tracking-tight text-ink sm:text-[34px]">
+              You are invited to hold a key
+            </h1>
+            <p className="mt-4 max-w-2xl text-[17px] leading-relaxed text-ink-2">
+              A group of {view.inviteCount} people will jointly hold the key that locks an election’s results.
+              Once ready, {thresholdSentence(view.threshold, view.inviteCount)} — never one person alone.
+            </p>
+            <div className="mt-5 flex items-center gap-3 text-sm text-muted">
+              <KeyDots t={view.threshold} n={view.inviteCount} />
+              <span>
+                {view.threshold} of {view.inviteCount} needed
+              </span>
+            </div>
           </div>
-        </Card>
-      </div>
+          <div className="border-t border-line bg-paper/70 p-6 sm:p-9">
+            <ol className="grid gap-5 sm:grid-cols-3">
+              {[
+                'Create your key on this device and save a recovery kit (about two minutes).',
+                'Join the member list — one click.',
+                'Later, when the list is locked, come back once to add your part of the key.',
+              ].map((text, i) => (
+                <li key={text} className="flex gap-3 text-[15px] leading-relaxed text-ink-2 sm:flex-col">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-sm font-medium text-white">
+                    {i + 1}
+                  </span>
+                  <span>{text}</span>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-6 flex gap-2 text-sm leading-relaxed text-muted">
+              <ClockIcon size={18} className="mt-0.5" />
+              <span>
+                Nothing to install, nothing to pay.{' '}
+                {view.registrationDeadline === 0n
+                  ? 'The organizer closes joining once everyone is in — join soon.'
+                  : `Join before ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
+              </span>
+            </p>
+            <div className="mt-6">
+              <Button
+                size="lg"
+                className="w-full sm:w-auto"
+                onClick={() => setStep('kit')}
+                disabled={inviteState === 'checking'}
+              >
+                Create my key
+                <ArrowRightIcon size={18} />
+              </Button>
+            </div>
+          </div>
+        </section>
+      </Page>
     );
   }
 
   if (step === 'kit') {
     return (
-      <RecoveryKitStep
-        kit={kit}
-        onDone={async () => {
-          // Rejects (and stays on this step) unless the key is committed to this device's storage.
-          await saveMnemonic(draftMnemonic);
-          void join();
-        }}
-      />
+      <Page>
+        {steps}
+        <PageHeader eyebrow="Invitation · Step 2 of 3" title="Your key">
+          This device now makes your key. Keep its recovery kit before you join: it is the only way back in if
+          this device is lost.
+        </PageHeader>
+        <RecoveryKitStep
+          kit={kit}
+          onDone={async () => {
+            // Rejects (and stays on this step) unless the key is committed to this device's storage.
+            await saveMnemonic(draftMnemonic);
+            void join();
+          }}
+        />
+      </Page>
     );
   }
 
   return (
-    <Card title="Joining…">
-      {error ? (
-        <>
-          <Note tone="bad">That did not work: {error}.</Note>
-          <div className="mt-3">
-            <Button onClick={() => void join()}>Try again</Button>
-          </div>
-        </>
-      ) : (
-        <Spinner label="Adding you to the member list — a few seconds…" />
-      )}
-    </Card>
+    <Page>
+      {steps}
+      <Card title="Joining…" icon={<UserPlusIcon />}>
+        {error ? (
+          <>
+            <Note tone="bad">That did not work: {error}.</Note>
+            <div className="mt-4">
+              <Button onClick={() => void join()}>Try again</Button>
+            </div>
+          </>
+        ) : (
+          <Spinner label="Adding you to the member list — a few seconds…" />
+        )}
+      </Card>
+    </Page>
   );
 }
 
@@ -361,28 +462,28 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
 
   if (!mnemonic) {
     return (
-      <Card title="Add your part of the key">
+      <Card title="Add your part of the key" icon={<KeyIcon />}>
         <Note tone="warn">Your key is not on this device. Restore it from your recovery kit first.</Note>
       </Card>
     );
   }
   if (refusal) {
     return (
-      <Card title="Add your part of the key">
+      <Card title="Add your part of the key" icon={<KeyIcon />}>
         <RefusalNote reasons={refusal} />
       </Card>
     );
   }
   if (sent && !dealt) {
     return (
-      <Card title="Your contribution was sent">
+      <Card title="Your contribution was sent" icon={<KeyIcon />}>
         <ConfirmingNote lead="Your part of the key is on its way." />
       </Card>
     );
   }
   if (!snapshot) {
     return (
-      <Card title="Add your part of the key">
+      <Card title="Add your part of the key" icon={<KeyIcon />}>
         {error ? <Note tone="bad">We could not read the member list: {error}</Note> : <Spinner label="Reading the locked member list…" />}
       </Card>
     );
@@ -390,36 +491,52 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
   if (dealt) {
     const done = bitCount(view.qualBitmap);
     return (
-      <Card title="Your contribution is in">
-        <p className="text-sm" aria-live="polite">
+      <Card title="Your contribution is in" icon={<CheckIcon className="text-ok" />}>
+        <p className="text-[15px] leading-relaxed text-ink-2" aria-live="polite">
           {done === view.n
             ? `All ${view.n} contributions are in. Next, someone presses “Finish the key” — anyone can, it takes a few seconds.`
             : `${done} of ${view.n} members have contributed. Nothing more for you to do here — we are waiting for the others.`}
         </p>
-        <p className="mt-2 text-sm font-medium">{KEEP_WORDS_UNTIL_RESULTS}</p>
+        <Meter value={view.n > 0 ? done / view.n : 0} />
+        <p className="mt-4 text-sm leading-relaxed font-medium text-ink">{KEEP_WORDS_UNTIL_RESULTS}</p>
       </Card>
     );
   }
 
   return (
-    <Card title="Add your part of the key">
-      <p className="mb-2 text-sm leading-relaxed">
+    <Card title="Add your part of the key" icon={<KeyIcon />}>
+      <p className="text-[15px] leading-relaxed text-ink-2">
         The member list is now locked. These {snapshot.roster.n} people — and no one else — will hold the key.
         You see codes, not names. Read your code aloud to the group (call or message) and listen to theirs. If
         every code matches a person you know, approve. If one doesn’t, don’t approve — tell whoever runs the
         committee.
       </p>
-      <ul className="mb-3 divide-y divide-ink/10 rounded-lg border border-ink/10">
+      <ul className="mt-5 divide-y divide-line rounded-lg border border-line">
         {snapshot.roster.authAddresses.map((addr, i) => {
           const code = identityCode(addr, snapshot.roster.memberKeys[i] ?? { x: 0n, y: 1n });
           const you = memberIndex === i + 1;
           return (
-            <li key={addr} className="flex flex-wrap items-center justify-between px-3 py-2 text-sm">
-              <span>
-                Member {i + 1} {you && <strong>(you)</strong>}
+            <li
+              key={addr}
+              className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3 text-sm ${you ? 'bg-wash/70' : ''}`}
+            >
+              <span className="flex items-center gap-3">
+                <span
+                  className={`flex size-8 items-center justify-center rounded-full text-xs font-semibold ${
+                    you ? 'bg-ink text-white' : 'border border-line bg-wash text-muted'
+                  }`}
+                  aria-hidden="true"
+                >
+                  {i + 1}
+                </span>
+                <span className="font-medium text-ink">
+                  Member {i + 1} {you && <strong className="font-semibold">(you)</strong>}
+                </span>
               </span>
-              <span className="font-mono text-xs">{code}</span>
-              {you && <span className="w-full text-xs text-ink/60">Your code — share it so the others can check it’s you.</span>}
+              <span className="code-chip text-[13px]">{code}</span>
+              {you && (
+                <span className="w-full pl-11 text-xs text-muted">Your code — share it so the others can check it’s you.</span>
+              )}
             </li>
           );
         })}
@@ -430,21 +547,23 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
         context {snapshot.view.ctx}
       </Disclosure>
       {!approved ? (
-        <div className="mt-4">
-          <Button onClick={() => void approve()}>These are the right people — I approve this list</Button>
-          <p className="mt-2 text-xs text-ink/60">Nothing is sent yet; approving only unlocks the next step.</p>
+        <div className="mt-6 border-t border-line pt-6">
+          <Button size="lg" className="w-full sm:w-auto" onClick={() => void approve()}>
+            These are the right people — I approve this list
+          </Button>
+          <p className="hint">Nothing is sent yet; approving only unlocks the next step.</p>
         </div>
       ) : (
-        <div className="mt-4 space-y-3">
+        <div className="mt-6 space-y-4 border-t border-line pt-6">
           {progress ? (
             <ProveProgressView progress={progress} />
           ) : (
-            <Button disabled={busy} onClick={() => void contribute()}>
+            <Button size="lg" className="w-full sm:w-auto" disabled={busy} onClick={() => void contribute()}>
               {busy ? 'Working…' : error ? 'Try again' : 'Add my contribution now'}
             </Button>
           )}
           {error && <Note tone="bad">That did not work: {error}.</Note>}
-          <p className="text-xs text-ink/60">
+          <p className="text-[13px] leading-relaxed text-muted">
             This fetches two checking files and does a few seconds of math on this device, then sends the
             result.
           </p>
@@ -529,7 +648,7 @@ export function FinishCard({
   if (!canFinalize && !canAbort && !canClose) return null;
   if (finishing) {
     return (
-      <Card title={finishing.abort ? 'Calling it off' : 'Finishing the key'}>
+      <Card title={finishing.abort ? 'Calling it off' : 'Finishing the key'} icon={<KeyIcon />}>
         <ConfirmingNote
           lead={finishing.abort ? 'The committee is being called off.' : 'The key is being finished.'}
         />
@@ -539,22 +658,24 @@ export function FinishCard({
   if (canClose) {
     if (closing) {
       return (
-        <Card title="Closing the joining period">
+        <Card title="Closing the joining period" icon={<LockIcon />}>
           <ConfirmingNote lead="The member list is being locked." />
         </Card>
       );
     }
     return (
-      <Card title="The joining period is over">
-        <p className="mb-3 text-sm">
+      <Card title="The joining period is over" icon={<LockIcon />}>
+        <p className="text-[15px] leading-relaxed text-ink-2">
           The joining date passed and enough people are in. Anyone can lock the list now; it takes a few
           seconds.
         </p>
-        <Button disabled={busy} onClick={() => void run('close')}>
-          {busy ? 'Working…' : 'Lock the member list'}
-        </Button>
+        <div className="mt-5">
+          <Button size="lg" className="w-full sm:w-auto" disabled={busy} onClick={() => void run('close')}>
+            {busy ? 'Working…' : 'Lock the member list'}
+          </Button>
+        </div>
         {note && (
-          <div className="mt-3">
+          <div className="mt-4">
             <Note tone={note.tone}>{note.text}</Note>
           </div>
         )}
@@ -562,17 +683,28 @@ export function FinishCard({
     );
   }
   return (
-    <Card title={canFinalize ? 'Finish the key' : 'This committee looks stuck'}>
-      <p className="mb-3 text-sm">
+    <Card
+      title={canFinalize ? 'Finish the key' : 'This committee looks stuck'}
+      icon={canFinalize ? <KeyIcon /> : <AlertIcon className="text-warn" />}
+    >
+      <p className="text-[15px] leading-relaxed text-ink-2">
         {canFinalize
           ? 'Enough contributions are in. Anyone can press this; it takes a few seconds.'
           : 'The deadline passed without enough contributions. Anyone can call it off so people stop waiting.'}
       </p>
-      <Button disabled={busy} onClick={() => void run(canFinalize ? 'finalize' : 'abort')}>
-        {busy ? 'Working…' : canFinalize ? 'Finish the key' : 'Call it off'}
-      </Button>
+      <div className="mt-5">
+        <Button
+          size="lg"
+          variant={canFinalize ? 'primary' : 'danger'}
+          className="w-full sm:w-auto"
+          disabled={busy}
+          onClick={() => void run(canFinalize ? 'finalize' : 'abort')}
+        >
+          {busy ? 'Working…' : canFinalize ? 'Finish the key' : 'Call it off'}
+        </Button>
+      </div>
       {note && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone={note.tone}>{note.text}</Note>
         </div>
       )}
@@ -747,103 +879,119 @@ function UnlockCard({ record, policy }: { record: CeremonyRecord; policy: PhaseP
   }, [record.liveMode, gateOpen, requests]);
 
   return (
-    <Card title="Unlock requests">
+    <Card title="Unlock requests" icon={<BallotIcon />}>
       {!requests ? (
         <Spinner label="Checking for votes that need unlocking…" />
       ) : requests.length === 0 ? (
-        <p className="text-sm text-ink/70">
-          No vote has asked to be opened yet. When one does, it appears here.
-        </p>
+        <EmptyState icon={<BallotIcon />}>No vote has asked to be opened yet. When one does, it appears here.</EmptyState>
       ) : (
         <>
-        {!gateOpen && requests.some((r) => !r.ready && !r.notSubmitted) && (
-          <div className="mb-3">
-            <Note tone="info">
-              Right now {lockedSentence(policy)}. The date is a rule every member’s device checks against
-              the public record before turning a key — committee members who ignore it could still act
-              early, so it relies on them honoring it.
-            </Note>
-          </div>
-        )}
-        <ul className="space-y-4">
-          {requests.map((r, i) => (
-            <li key={r.requestId} className="rounded-lg border border-ink/10 p-3">
-              <p className="text-sm font-medium">
-                {r.processId
-                  ? voteName(labels[r.processId.toLowerCase()] ?? titles[r.processId.toLowerCase()], i + 1, r.processId)
-                  : `Request ${shortId(r.requestId)}`}
-              </p>
-              <p className="mt-1 text-sm text-ink/70">
-                {r.ready
-                  ? `Open — results: ${(r.values ?? []).map((v) => v.toString(10)).join(', ')}. The numbers are in the ballot’s answer order; the voting system shows what each one means.`
-                  : r.notSubmitted
-                    ? 'This vote has not sent in its locked results yet — there is nothing for you to do. It becomes unlockable once the voting system submits them.'
-                    : !gateOpen
-                      ? `Waiting — ${lockedSentence(policy)}.`
-                      : `${r.partialCount} of the ${r.threshold} needed members have turned their key${r.myPartialDone ? '.' : ' — your turn.'}`}
-              </p>
-              {!r.ready && !r.notSubmitted && r.myPartialDone && (
-                <p className="mt-1 text-sm text-ok">You have done your part.</p>
-              )}
-              {gateOpen && !r.ready && !r.notSubmitted && !r.myPartialDone && turning(r) && (
-                <div className="mt-2">
-                  <ConfirmingNote lead="You turned your key." />
-                </div>
-              )}
-              {gateOpen && !r.ready && !r.notSubmitted && !r.myPartialDone && !turning(r) && (
-                <div className="mt-2 space-y-2">
-                  {busyId === r.requestId && progress ? (
-                    <ProveProgressView progress={progress} />
-                  ) : (
-                    <Button disabled={busyId !== null} onClick={() => void unlock(r)}>
-                      {busyId === r.requestId ? 'Working…' : 'Check and turn my key'}
-                    </Button>
-                  )}
-                  <p className="text-xs text-ink/60">
-                    We first check that this request is genuine; if anything is off, nothing is revealed.
+          {!gateOpen && requests.some((r) => !r.ready && !r.notSubmitted) && (
+            <div className="mb-4">
+              <Note tone="info">
+                Right now {lockedSentence(policy)}. The date is a rule every member’s device checks against
+                the public record before turning a key — committee members who ignore it could still act
+                early, so it relies on them honoring it.
+              </Note>
+            </div>
+          )}
+          <ul className="space-y-3">
+            {requests.map((r, i) => (
+              <li key={r.requestId} className="rounded-lg border border-line p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="min-w-0 font-semibold break-words text-ink">
+                    {r.processId
+                      ? voteName(labels[r.processId.toLowerCase()] ?? titles[r.processId.toLowerCase()], i + 1, r.processId)
+                      : `Request ${shortId(r.requestId)}`}
                   </p>
+                  <VoteBadge
+                    ready={r.ready}
+                    notSubmitted={r.notSubmitted}
+                    gateOpen={gateOpen}
+                    turned={r.partialCount}
+                    needed={r.threshold}
+                  />
                 </div>
-              )}
-              {gateOpen &&
-                !r.ready &&
-                r.myPartialDone &&
-                (needRepub[r.requestId] === 'missing' || needRepub[r.requestId] === 'unverifiable') &&
-                !republishing(r) && (
-                  <div className="mt-2 space-y-2">
-                    <Button disabled={busyId !== null} onClick={() => void republish(r)}>
-                      {busyId === r.requestId ? 'Working…' : 'Help finish opening the results'}
-                    </Button>
-                    <p className="text-xs text-ink/60">
-                      {needRepub[r.requestId] === 'missing'
-                        ? 'Your part went through, but the copy the others need to finish is missing.'
-                        : 'Your part went through, but this device cannot check whether the copy the others need to finish is still available (the public record’s older entries are not served here). If the results do not open, send it again.'}{' '}
-                      This re-sends exactly what you published before — nothing new is revealed.
+                <p className="mt-1.5 text-sm leading-relaxed text-muted">
+                  {r.ready
+                    ? `Open — results: ${(r.values ?? []).map((v) => v.toString(10)).join(', ')}. The numbers are in the ballot’s answer order; the voting system shows what each one means.`
+                    : r.notSubmitted
+                      ? 'This vote has not sent in its locked results yet — there is nothing for you to do. It becomes unlockable once the voting system submits them.'
+                      : !gateOpen
+                        ? `Waiting — ${lockedSentence(policy)}.`
+                        : `${r.partialCount} of the ${r.threshold} needed members have turned their key${r.myPartialDone ? '.' : ' — your turn.'}`}
+                </p>
+                {r.ready && <ResultValues values={r.values ?? []} />}
+                {!r.ready && !r.notSubmitted && r.myPartialDone && (
+                  <p className="mt-3 flex items-center gap-2 text-sm font-medium text-ok">
+                    <CheckIcon size={16} strokeWidth={2.25} />
+                    <span>You have done your part.</span>
+                  </p>
+                )}
+                {gateOpen && !r.ready && !r.notSubmitted && !r.myPartialDone && turning(r) && (
+                  <div className="mt-3">
+                    <ConfirmingNote lead="You turned your key." />
+                  </div>
+                )}
+                {gateOpen && !r.ready && !r.notSubmitted && !r.myPartialDone && !turning(r) && (
+                  <div className="mt-4 space-y-2.5">
+                    {busyId === r.requestId && progress ? (
+                      <ProveProgressView progress={progress} />
+                    ) : (
+                      <Button className="w-full sm:w-auto" disabled={busyId !== null} onClick={() => void unlock(r)}>
+                        <KeyIcon size={18} />
+                        {busyId === r.requestId ? 'Working…' : 'Check and turn my key'}
+                      </Button>
+                    )}
+                    <p className="text-[13px] leading-relaxed text-muted">
+                      We first check that this request is genuine; if anything is off, nothing is revealed.
                     </p>
                   </div>
                 )}
-              {!r.ready && republishing(r) && (
-                <div className="mt-2">
-                  <ConfirmingNote lead="Your unlock data was re-sent." />
-                </div>
-              )}
-              {refusals[r.requestId] && <div className="mt-2"><RefusalNote reasons={refusals[r.requestId] as string[]} /></div>}
-              {errors[r.requestId] && (
-                <div className="mt-2">
-                  <Note tone="bad">That did not work: {errors[r.requestId]}. You can try again.</Note>
-                </div>
-              )}
-              <Disclosure>
-                request {r.requestId}
-                {r.processId && (
-                  <>
-                    <br />
-                    vote {r.processId}
-                  </>
+                {gateOpen &&
+                  !r.ready &&
+                  r.myPartialDone &&
+                  (needRepub[r.requestId] === 'missing' || needRepub[r.requestId] === 'unverifiable') &&
+                  !republishing(r) && (
+                    <div className="mt-4 space-y-2.5">
+                      <Button className="w-full sm:w-auto" disabled={busyId !== null} onClick={() => void republish(r)}>
+                        {busyId === r.requestId ? 'Working…' : 'Help finish opening the results'}
+                      </Button>
+                      <p className="text-[13px] leading-relaxed text-muted">
+                        {needRepub[r.requestId] === 'missing'
+                          ? 'Your part went through, but the copy the others need to finish is missing.'
+                          : 'Your part went through, but this device cannot check whether the copy the others need to finish is still available (the public record’s older entries are not served here). If the results do not open, send it again.'}{' '}
+                        This re-sends exactly what you published before — nothing new is revealed.
+                      </p>
+                    </div>
+                  )}
+                {!r.ready && republishing(r) && (
+                  <div className="mt-3">
+                    <ConfirmingNote lead="Your unlock data was re-sent." />
+                  </div>
                 )}
-              </Disclosure>
-            </li>
-          ))}
-        </ul>
+                {refusals[r.requestId] && (
+                  <div className="mt-3">
+                    <RefusalNote reasons={refusals[r.requestId] as string[]} />
+                  </div>
+                )}
+                {errors[r.requestId] && (
+                  <div className="mt-3">
+                    <Note tone="bad">That did not work: {errors[r.requestId]}. You can try again.</Note>
+                  </div>
+                )}
+                <Disclosure>
+                  request {r.requestId}
+                  {r.processId && (
+                    <>
+                      <br />
+                      vote {r.processId}
+                    </>
+                  )}
+                </Disclosure>
+              </li>
+            ))}
+          </ul>
         </>
       )}
     </Card>
@@ -889,24 +1037,36 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
   ));
 
   if (view === undefined) {
-    if (poll.confirming) return <ConfirmingNote />;
-    return poll.error ? (
-      <Note tone="bad">We could not reach the public record: {poll.error}</Note>
-    ) : (
-      <Spinner label="Opening your committee…" />
+    if (poll.confirming) {
+      return (
+        <Page>
+          <ConfirmingNote />
+        </Page>
+      );
+    }
+    return (
+      <Page>
+        {poll.error ? (
+          <Note tone="bad">We could not reach the public record: {poll.error}</Note>
+        ) : (
+          <Loading label="Opening your committee…" />
+        )}
+      </Page>
     );
   }
   // We hold a role here, but the committee is not at the network's confirmed
   // height yet (the views revert UnknownCeremony()): a wait, not an error.
   if (view === null) {
     return (
-      <div className="space-y-4">
+      <Page>
         {failures}
         <ConfirmingNote />
-      </div>
+      </Page>
     );
   }
   const joining = findPending(record, { kind: 'join' }) !== undefined;
+  const dealt =
+    record.participantIndex !== undefined && ((view.qualBitmap >> (record.participantIndex - 1)) & 1) === 1;
 
   const toggleLive = async () => {
     await updateRecord(record.chainId, record.manager, record.cid, { liveMode: !record.liveMode });
@@ -914,56 +1074,98 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
   };
 
   return (
-    <div className="space-y-4">
-      {failures}
-      <Card title={record.name || 'Your committee'}>
-        <p className="text-sm leading-relaxed">{phaseSentence(view)}</p>
-        {view.phase === Phase.Registration && joining && (
-          <div className="mt-2">
-            <ConfirmingNote lead="You joined the member list." />
-          </div>
-        )}
-        {view.phase === Phase.Registration && !joining && record.participantIndex !== undefined && (
-          <p className="mt-1 text-sm text-ink/70">
-            {view.registrationDeadline === 0n
-              ? 'You are on the list. The organizer locks it once everyone joined.'
-              : `You are on the list. Joining closes ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
-          </p>
-        )}
-        {view.phase === Phase.Registration && !joining && record.participantIndex === undefined && (
-          <div className="mt-2">
-            <Note tone="warn">
-              We cannot see you on the member list yet. Open your invitation link again to join — if you
-              already did, it resumes where you left off.
-            </Note>
-          </div>
-        )}
-        {view.phase === Phase.Dealing && (
-          <p className="mt-1 text-sm text-ink/70">
-            Contributions close {formatDate(Number(view.dealingDeadline))} ({timeLeft(Number(view.dealingDeadline))}).
-          </p>
-        )}
-        <label className="mt-3 flex items-start gap-2 text-sm">
-          <input type="checkbox" className="mt-0.5" checked={record.liveMode ?? false} onChange={() => void toggleLive()} />
-          <span>
-            {view.phase === Phase.Live || record.approvedRosterHash
-              ? 'Keep this tab open and turn my key automatically when a genuine unlock request arrives.'
-              : 'Keep this tab open and do each step for me when it is my turn. We still wait for your explicit approval of the member list.'}
-          </span>
-        </label>
-      </Card>
+    <Dashboard
+      header={
+        <>
+          {failures}
+          <CommitteeHeader
+            eyebrow={
+              <>
+                Member · <span className="font-mono tracking-normal normal-case">{shortId(record.cid)}</span>
+              </>
+            }
+            title={record.name || 'Your committee'}
+            view={view}
+            resultsOpen={policy?.decryptionOpen ?? false}
+            steps={view.phase === Phase.Aborted ? undefined : memberSteps({ view, dealt })}
+            footer={
+              <label className="flex cursor-pointer items-start gap-3 text-sm leading-relaxed text-ink-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 shrink-0 accent-ink"
+                  checked={record.liveMode ?? false}
+                  onChange={() => void toggleLive()}
+                />
+                <span>
+                  {view.phase === Phase.Live || record.approvedRosterHash
+                    ? 'Keep this tab open and turn my key automatically when a genuine unlock request arrives.'
+                    : 'Keep this tab open and do each step for me when it is my turn. We still wait for your explicit approval of the member list.'}
+                </span>
+              </label>
+            }
+          >
+            <p>{phaseSentence(view)}</p>
+            {view.phase === Phase.Registration && joining && <ConfirmingNote lead="You joined the member list." />}
+            {view.phase === Phase.Registration && !joining && record.participantIndex !== undefined && (
+              <p className="flex gap-2 text-muted">
+                <CheckIcon size={18} className="mt-0.5 text-ok" />
+                <span>
+                  {view.registrationDeadline === 0n
+                    ? 'You are on the list. The organizer locks it once everyone joined.'
+                    : `You are on the list. Joining closes ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
+                </span>
+              </p>
+            )}
+            {view.phase === Phase.Registration && !joining && record.participantIndex === undefined && (
+              <Note tone="warn">
+                We cannot see you on the member list yet. Open your invitation link again to join — if you already
+                did, it resumes where you left off.
+              </Note>
+            )}
+            {view.phase === Phase.Dealing && (
+              <p className="flex gap-2 text-muted">
+                <ClockIcon size={18} className="mt-0.5" />
+                <span>
+                  Contributions close {formatDate(Number(view.dealingDeadline))} ({timeLeft(Number(view.dealingDeadline))}).
+                </span>
+              </p>
+            )}
+          </CommitteeHeader>
+        </>
+      }
+      main={
+        <>
+          {view.phase === Phase.Dealing && <ContributeCard record={record} view={view} />}
+          {policy && view.phase === Phase.Dealing && <FinishCard record={record} view={view} policy={policy} />}
+          {policy && view.phase === Phase.Registration && <FinishCard record={record} view={view} policy={policy} />}
+          {policy && view.phase === Phase.Live && <UnlockCard record={record} policy={policy} />}
+          {policy && view.phase === Phase.Live && <OpeningReminder cid={record.cid} name={record.name} policy={policy} />}
+          {view.phase === Phase.Aborted && (
+            <Note tone="warn">This committee was called off. If a new one starts, you will get a fresh invitation.</Note>
+          )}
+          {view.phase === Phase.Registration && !joining && record.participantIndex !== undefined && (
+            <WaitingCard />
+          )}
+        </>
+      }
+      aside={
+        <>
+          <StorageNote />
+          <KitCard record={record} />
+        </>
+      }
+    />
+  );
+}
 
-      {view.phase === Phase.Dealing && <ContributeCard record={record} view={view} />}
-      {policy && view.phase === Phase.Dealing && <FinishCard record={record} view={view} policy={policy} />}
-      {policy && view.phase === Phase.Registration && <FinishCard record={record} view={view} policy={policy} />}
-      {policy && view.phase === Phase.Live && <UnlockCard record={record} policy={policy} />}
-      {policy && view.phase === Phase.Live && <OpeningReminder cid={record.cid} name={record.name} policy={policy} />}
-      {view.phase === Phase.Aborted && (
-        <Note tone="warn">This committee was called off. If a new one starts, you will get a fresh invitation.</Note>
-      )}
-
-      <StorageNote />
-      <KitCard record={record} />
-    </div>
+/** Between joining and the locked list there is nothing to do: say so, and what comes next. */
+function WaitingCard() {
+  return (
+    <Card title="Nothing to do right now" icon={<ClockIcon />}>
+      <p className="text-[15px] leading-relaxed text-ink-2">
+        When the member list is locked, come back to this page once to add your part of the key. It takes a
+        minute and happens on this device. Bookmark this page, or open your invitation link again.
+      </p>
+    </Card>
   );
 }

@@ -13,7 +13,8 @@ import { mnemonicMatches } from '../flows/kit';
 import { reminderCalendar, upcomingOpening } from '../lib/calendar';
 import { downloadTextFile } from '../lib/download';
 import { dateWithUtc, shortId, timeLeft } from '../lib/format';
-import { Button, Card, Note } from './ui';
+import { CalendarIcon, ShieldIcon } from './icons';
+import { Actions, Button, Card, Note } from './ui';
 
 const SOON_SECONDS = 14 * 86_400;
 
@@ -38,9 +39,9 @@ export function WordsCheck({ mnemonic }: { mnemonic: string | null }) {
     );
   }
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <textarea
-        className="w-full rounded-lg border border-ink/20 px-3 py-2 font-mono text-sm"
+        className="input font-mono"
         rows={3}
         autoComplete="off"
         autoCapitalize="none"
@@ -53,7 +54,7 @@ export function WordsCheck({ mnemonic }: { mnemonic: string | null }) {
           setResult(null);
         }}
       />
-      <div className="flex flex-wrap gap-2">
+      <Actions>
         <Button
           disabled={entered.trim() === ''}
           onClick={() => {
@@ -73,7 +74,7 @@ export function WordsCheck({ mnemonic }: { mnemonic: string | null }) {
         >
           Close
         </Button>
-      </div>
+      </Actions>
       {result === 'ok' && (
         <Note tone="ok">Those are the right words. Keep them safe until the results are opened.</Note>
       )}
@@ -108,21 +109,24 @@ export function OpeningReminder({
     ? `The results can be opened from ${dateWithUtc(opening.at)} (${timeLeft(opening.at, nowSeconds)}).`
     : `The organizer opens the results when ready — on ${dateWithUtc(opening.at)} at the latest (${timeLeft(opening.at, nowSeconds)}).`;
   return (
-    <Card title={soon ? 'The results open soon — check your recovery words now' : 'Before the results open'}>
+    <Card
+      title={soon ? 'The results open soon — check your recovery words now' : 'Before the results open'}
+      icon={<ShieldIcon className={soon ? 'text-warn' : undefined} />}
+    >
       {soon ? (
         <Note tone="warn">
           {when} Make sure your twelve words are at hand and right: without them, this device losing your key
           means you cannot help open the results.
         </Note>
       ) : (
-        <p className="text-sm leading-relaxed">
+        <p className="text-[15px] leading-relaxed text-ink-2">
           {when} Your twelve words are the only way back if this browser loses your key. Check that you still have
           them and that they are right — now, and again shortly before that date.
         </p>
       )}
-      <div className="mt-3 space-y-3">
+      <div className="mt-5 space-y-4">
         <WordsCheck mnemonic={mnemonic} />
-        <div>
+        <div className="border-t border-line pt-4">
           <Button
             variant="secondary"
             onClick={() =>
@@ -133,9 +137,10 @@ export function OpeningReminder({
               )
             }
           >
+            <CalendarIcon size={17} />
             Add a reminder to my calendar
           </Button>
-          <p className="mt-1 text-xs text-ink/60">
+          <p className="hint">
             The calendar file reminds you to check your words two weeks before the date, and of the date itself
             the day before. It holds the committee link only — nothing secret.
           </p>

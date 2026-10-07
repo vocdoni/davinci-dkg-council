@@ -2,8 +2,11 @@
 
 import { Phase, type CeremonyView, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
 import { useState } from 'react';
-import { Card, ConfirmingNote, Note, Spinner } from '../components/ui';
-import { bitCount, thresholdSentence } from '../lib/format';
+import { Page } from '../components/Layout';
+import { PhaseBadge } from '../components/Lifecycle';
+import { EyeIcon } from '../components/icons';
+import { ConfirmingNote, KeyDots, Loading, Note } from '../components/ui';
+import { bitCount, shortId, thresholdSentence } from '../lib/format';
 import { usePoll } from '../lib/hooks';
 import { useServices } from '../services';
 
@@ -34,19 +37,49 @@ export function ViewerView({ cid }: { cid: Hex }) {
   );
 
   if (!view) {
-    if (poll.confirming) return <ConfirmingNote />;
-    return poll.error ? <Note tone="bad">We could not reach the public record: {poll.error}</Note> : <Spinner label="Looking up this committee…" />;
+    return (
+      <Page>
+        {poll.confirming ? (
+          <ConfirmingNote />
+        ) : poll.error ? (
+          <Note tone="bad">We could not reach the public record: {poll.error}</Note>
+        ) : (
+          <Loading label="Looking up this committee…" />
+        )}
+      </Page>
+    );
   }
-  if (view.phase === Phase.None) return <Note tone="warn">No committee with this id exists here.</Note>;
+  if (view.phase === Phase.None) {
+    return (
+      <Page>
+        <Note tone="warn">No committee with this id exists here.</Note>
+      </Page>
+    );
+  }
   return (
-    <Card title="A key-holder committee">
-      <p className="text-sm leading-relaxed">{phaseSentence(view)}</p>
-      {view.phase >= Phase.Dealing && view.phase !== Phase.Aborted && (
-        <p className="mt-2 text-sm text-ink/70">Once ready, {thresholdSentence(view.threshold, view.n)}.</p>
-      )}
-      <p className="mt-3 text-xs text-ink/50">
-        You are viewing this as a visitor. If you were invited, open the exact link you were sent.
-      </p>
-    </Card>
+    <Page>
+      <section className="card overflow-hidden">
+        <div className="p-6 sm:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="eyebrow">Committee {shortId(cid)}</p>
+              <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-ink">A key-holder committee</h1>
+            </div>
+            <PhaseBadge view={view} />
+          </div>
+          <p className="mt-4 text-[15px] leading-relaxed text-ink-2">{phaseSentence(view)}</p>
+          {view.phase >= Phase.Dealing && view.phase !== Phase.Aborted && (
+            <div className="mt-4 flex items-center gap-3">
+              <KeyDots t={view.threshold} n={view.n} />
+              <p className="text-sm text-muted">Once ready, {thresholdSentence(view.threshold, view.n)}.</p>
+            </div>
+          )}
+        </div>
+        <p className="flex gap-2.5 border-t border-line bg-paper/70 px-6 py-4 text-sm leading-relaxed text-muted sm:px-8">
+          <EyeIcon size={18} className="mt-0.5" />
+          <span>You are viewing this as a visitor. If you were invited, open the exact link you were sent.</span>
+        </p>
+      </section>
+    </Page>
   );
 }

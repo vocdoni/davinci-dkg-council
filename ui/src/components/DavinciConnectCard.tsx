@@ -29,7 +29,9 @@ import { formatDate, shortId, thresholdSentence } from '../lib/format';
 import { findPending, sendTracked, type PendingDraft } from '../lib/pending';
 import { getRecord, putRecord, recordKey, withRecordLock, type CeremonyRecord } from '../lib/records';
 import { useServices } from '../services';
-import { Button, Card, Disclosure, Field, Note, Spinner } from './ui';
+import { ArrowRightIcon, ChevronDownIcon, LinkIcon } from './icons';
+import { buttonClass } from './buttonClass';
+import { Actions, Button, Card, Disclosure, Field, Note, Spinner } from './ui';
 
 /** A resolved, deployment-checked code waiting for the organizer's confirmation. */
 interface Confirming {
@@ -71,7 +73,7 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
     // Started from an Elections deep link: say where this step lives once the key is ready.
     if (!record.forDavinciElections || view.phase === (Phase.Aborted as number)) return null;
     return (
-      <Card title="Connect to DAVINCI Elections">
+      <Card title="Connect to DAVINCI Elections" icon={<LinkIcon />}>
         <Note tone="info">
           This committee was started for DAVINCI Elections. Finish setting it up first — once the key is
           ready, you connect it to your organization here with a pairing code.
@@ -197,7 +199,7 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
 
   if (done) {
     return (
-      <Card title="Connect to DAVINCI Elections">
+      <Card title="Connect to DAVINCI Elections" icon={<LinkIcon />}>
         <Note tone={done.status === 'unusable' ? 'warn' : 'ok'}>
           <p className="font-semibold">Connected to {done.orgName} on DAVINCI Elections.</p>
           {done.status === 'forming' && (
@@ -210,14 +212,15 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
             <p className="mt-1">DAVINCI Elections reports this committee as called off, so it cannot be used.</p>
           )}
         </Note>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <a className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90" href={done.link}>
+        <Actions className="mt-5">
+          <a className={buttonClass('primary', 'lg')} href={done.link}>
             Done — back to DAVINCI Elections
+            <ArrowRightIcon size={18} />
           </a>
-          <Button variant="secondary" onClick={() => setDone(null)}>
+          <Button variant="secondary" size="lg" onClick={() => setDone(null)}>
             Close
           </Button>
-        </div>
+        </Actions>
         {done.statusReason && <Disclosure>status reason: {done.statusReason}</Disclosure>}
       </Card>
     );
@@ -226,7 +229,7 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
   if (confirming) {
     const { resolved } = confirming;
     return (
-      <Card title="Connect to DAVINCI Elections">
+      <Card title="Connect to DAVINCI Elections" icon={<LinkIcon />}>
         <Note tone="warn">
           <p className="font-semibold">
             Connect committee {shortId(record.cid)} to organization “{resolved.orgName}” on DAVINCI Elections?
@@ -235,14 +238,14 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
             This allows {resolved.orgName}’s votings to use this committee’s key. It cannot be undone for this
             committee.
           </p>
-          <ul className="mt-2 space-y-1 text-xs">
+          <ul className="mt-3 space-y-1.5 rounded-md border border-warn-line bg-white/70 p-3 text-xs leading-relaxed text-ink-2">
             <li>
               Committee {shortId(record.cid)}: {view.n} members, {thresholdSentence(view.threshold, view.n)}.
               {/* A restored record's createdAt is the restore time, not the committee's creation. */}
               {!record.restored && <> Created {formatDate(Math.floor(record.createdAt / 1000))}.</>}
             </li>
             <li>Elections server: {host(confirming.origin)}</li>
-            <li className="break-all font-mono">Its votings are created by account {resolved.creator}</li>
+            <li className="font-mono break-all">Its votings are created by account {resolved.creator}</li>
           </ul>
           <Disclosure>
             ceremony id {record.cid}
@@ -257,7 +260,7 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
             <br />
             origin {confirming.origin}
           </Disclosure>
-          <div className="mt-3 flex items-center gap-2">
+          <Actions className="mt-4">
             <Button disabled={busy !== null} onClick={() => void connect()}>
               Connect
             </Button>
@@ -271,11 +274,15 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
             >
               Cancel
             </Button>
-            {busy && <Spinner label={busy} />}
-          </div>
+          </Actions>
+          {busy && (
+            <div className="mt-3">
+              <Spinner label={busy} />
+            </div>
+          )}
         </Note>
         {error && (
-          <div className="mt-3">
+          <div className="mt-4">
             <Note tone="bad">{error}</Note>
           </div>
         )}
@@ -284,54 +291,61 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
   }
 
   return (
-    <Card title="Connect to DAVINCI Elections">
+    <Card title="Connect to DAVINCI Elections" icon={<LinkIcon />}>
       {connections.map((c) => (
-        <p key={`${c.origin}:${c.orgId}`} className="mb-2 text-sm text-ok">
-          Connected to {c.orgName} ({host(c.origin)}) on {formatDate(Math.floor(c.connectedAt / 1000))}.
-        </p>
+        <div key={`${c.origin}:${c.orgId}`} className="mb-4">
+          <Note tone="ok">
+            Connected to {c.orgName} ({host(c.origin)}) on {formatDate(Math.floor(c.connectedAt / 1000))}.
+          </Note>
+        </div>
       ))}
-      <p className="mb-3 text-sm text-ink/70">
+      <p className="text-[15px] leading-relaxed text-ink-2">
         If your organization uses DAVINCI Elections, connect this committee so the organization’s votings can
         use its key. In DAVINCI Elections, open Committees → “Get a pairing code”, then type the code here.
         The code works once and only for a short while.
       </p>
-      {davinci.electionsOrigins.length > 1 && (
-        <label className="mb-3 block">
-          <span className="mb-1 block text-sm font-medium">Elections server</span>
-          <select
-            className="w-full rounded-lg border border-ink/20 px-3 py-2 text-sm"
-            value={origin}
-            onChange={(e) => setOrigin(e.target.value)}
-          >
-            {davinci.electionsOrigins.map((o) => (
-              <option key={o} value={o}>
-                {host(o)}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-56 flex-1">
-          <Field
-            label="Pairing code"
-            placeholder="XXXX-XXXX-XXXX"
-            autoComplete="off"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-          />
+      <div className="mt-5 space-y-4">
+        {davinci.electionsOrigins.length > 1 && (
+          <label className="block">
+            <span className="label">Elections server</span>
+            <span className="relative block">
+              <select className="input appearance-none pr-10" value={origin} onChange={(e) => setOrigin(e.target.value)}>
+                {davinci.electionsOrigins.map((o) => (
+                  <option key={o} value={o}>
+                    {host(o)}
+                  </option>
+                ))}
+              </select>
+              <ChevronDownIcon
+                size={18}
+                className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-muted"
+              />
+            </span>
+          </label>
+        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1">
+            <Field
+              label="Pairing code"
+              placeholder="XXXX-XXXX-XXXX"
+              autoComplete="off"
+              className="font-mono tracking-wider uppercase placeholder:normal-case placeholder:tracking-normal"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+          </div>
+          <Button disabled={busy !== null || code.trim() === ''} onClick={() => void start()}>
+            Continue
+          </Button>
         </div>
-        <Button disabled={busy !== null || code.trim() === ''} onClick={() => void start()}>
-          Continue
-        </Button>
       </div>
       {busy && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Spinner label={busy} />
         </div>
       )}
       {expiredAfterGrants && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone="warn">
             The code ran out while the approvals were being made — the approvals themselves are done. Ask for
             a new code in DAVINCI Elections (Committees → Get a pairing code) and type it here; the steps
@@ -340,7 +354,7 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
         </div>
       )}
       {error && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone="bad">{error}</Note>
         </div>
       )}

@@ -13,12 +13,49 @@ import {
   type Hex,
   type PhasePolicyView,
 } from '@vocdoni/davinci-dkg-council-sdk';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp } from '../App';
 import { DavinciConnectCard } from '../components/DavinciConnectCard';
 import { KitCard } from '../components/KitCard';
 import { QrCode } from '../components/QrCode';
-import { Button, Card, ConfirmingNote, CopyButton, Disclosure, Field, Note, Spinner } from '../components/ui';
+import { Dashboard, Page } from '../components/Layout';
+import { CommitteeHeader, LifecycleSteps } from '../components/Lifecycle';
+import { organizerSteps } from '../lib/lifecycle';
+import {
+  BallotIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ClockIcon,
+  DownloadIcon,
+  FileIcon,
+  KeyIcon,
+  LinkIcon,
+  LockIcon,
+  MailIcon,
+  PlusIcon,
+  SettingsIcon,
+  ShareIcon,
+  UnlockIcon,
+  UploadIcon,
+  UsersIcon,
+} from '../components/icons';
+import { EmptyState, ResultValues, VoteBadge } from '../components/Votes';
+import { buttonClass } from '../components/buttonClass';
+import {
+  Actions,
+  Badge,
+  Button,
+  Card,
+  ConfirmingNote,
+  CopyButton,
+  Disclosure,
+  Field,
+  KeyDots,
+  Loading,
+  Meter,
+  Note,
+  Spinner,
+} from '../components/ui';
 import {
   organizerInviteLink,
   prepareAddInvites,
@@ -81,6 +118,9 @@ import { FinishCard } from './ParticipantView';
 import { phaseSentence } from './ViewerView';
 
 const isAddress = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
+
+/** One dashboard card with a stable key, so the page can order the cards by phase. */
+type Block = [string, ReactNode];
 
 interface Joined {
   auth: Hex;
@@ -170,46 +210,72 @@ function InviteRow({
     : '';
 
   return (
-    <li className="px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
+    <li className="px-3 py-3 sm:px-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span
+          className={`order-1 flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+            used ? 'bg-ink text-white' : 'border border-line bg-wash text-muted'
+          }`}
+          aria-hidden="true"
+        >
+          {used ? <CheckIcon size={16} strokeWidth={2.25} /> : inviteId + 1}
+        </span>
         <input
-          className="w-36 rounded border border-ink/15 px-2 py-1 text-sm"
+          className="input order-2 min-w-0 flex-1 py-2 sm:w-48 sm:flex-none"
           placeholder={`Person ${inviteId + 1}`}
           aria-label={`Name for invitation ${inviteId + 1} (stays on this device)`}
           value={label}
           onChange={(e) => onLabel(e.target.value)}
         />
-        <span className={used ? 'text-ok' : 'text-ink/60'}>{used ? 'joined' : 'not joined yet'}</span>
-        {joined && <span className="font-mono text-xs text-ink/60">{identityCode(joined.auth, joined.key)}</span>}
+        <span className="order-4 flex w-full flex-wrap items-center gap-2 pl-12 sm:order-3 sm:w-auto sm:pl-0">
+          <Badge tone={used ? 'ok' : 'neutral'} dot>
+            {used ? 'joined' : 'not joined yet'}
+          </Badge>
+          {joined && <span className="code-chip">{identityCode(joined.auth, joined.key)}</span>}
+        </span>
         {link && (open || action) && (
-          <Button variant="secondary" className="ml-auto" onClick={() => setOpen((v) => !v)}>
+          <Button
+            variant={open ? 'ghost' : 'secondary'}
+            size="sm"
+            className="order-3 sm:order-4 sm:ml-auto"
+            onClick={() => setOpen((v) => !v)}
+          >
             {open ? 'Close' : action}
           </Button>
         )}
       </div>
       {open && link && (
-        <div className="mt-3 space-y-3 rounded-lg bg-paper p-3">
-          <p className="break-all font-mono text-xs">{link}</p>
-          <div className="flex flex-wrap gap-2">
-            <CopyButton text={link} label="Copy the link" />
-            {'share' in navigator && (
-              <Button variant="secondary" onClick={() => void navigator.share({ url: link }).catch(() => undefined)}>
-                Share…
-              </Button>
-            )}
-            <a
-              className="rounded-lg bg-accent-soft px-4 py-2.5 text-sm font-semibold text-accent hover:opacity-80"
-              href={`mailto:?subject=${encodeURIComponent('Invitation: help hold an election key')}&body=${encodeURIComponent(mailBody)}`}
-            >
-              Send by email
-            </a>
+        <div className="mt-3 flex flex-col gap-5 rounded-xl border border-line bg-paper p-4 sm:flex-row sm:p-5">
+          <div className="min-w-0 flex-1 space-y-3">
+            <p className="eyebrow">Personal invitation link</p>
+            <p className="rounded-md border border-line bg-white px-3 py-2.5 font-mono text-xs leading-relaxed break-all text-ink-2">
+              {link}
+            </p>
+            <Actions>
+              <CopyButton text={link} label="Copy the link" />
+              {'share' in navigator && (
+                <Button variant="secondary" onClick={() => void navigator.share({ url: link }).catch(() => undefined)}>
+                  <ShareIcon size={17} />
+                  Share…
+                </Button>
+              )}
+              <a
+                className={buttonClass('secondary')}
+                href={`mailto:?subject=${encodeURIComponent('Invitation: help hold an election key')}&body=${encodeURIComponent(mailBody)}`}
+              >
+                <MailIcon size={17} />
+                Send by email
+              </a>
+            </Actions>
+            <p className="text-[13px] leading-relaxed text-muted">
+              {used
+                ? 'They already joined — send the same link again to remind them of the next step.'
+                : 'Each link works for one person, once. Send it over a channel you trust.'}
+            </p>
           </div>
-          <QrCode text={link} />
-          <p className="text-xs text-ink/60">
-            {used
-              ? 'They already joined — send the same link again to remind them of the next step.'
-              : 'Each link works for one person, once. Send it over a channel you trust.'}
-          </p>
+          <div className="mx-auto w-44 shrink-0 rounded-lg border border-line bg-white p-2 sm:mx-0 sm:self-start">
+            <QrCode text={link} label={`QR code of invitation ${inviteId + 1}`} />
+          </div>
         </div>
       )}
     </li>
@@ -302,14 +368,24 @@ function PeopleCard({
     }
   };
 
+  const joinedCount = Number(view.joinedCount);
   return (
-    <Card title="People">
-      <p className="mb-2 text-sm text-ink/70">
+    <Card
+      title="People"
+      icon={<UsersIcon />}
+      aside={
+        <span className="text-sm font-medium text-ink-2 tabular-nums">
+          {joinedCount}/{view.inviteCount} joined
+        </span>
+      }
+    >
+      <p className="text-sm leading-relaxed text-muted">
         {Number(view.joinedCount)} of {view.inviteCount} invited people have joined. Names you type here stay on
         this device. The code next to each person lets you double-check who joined: it must match the code that
         person reads to you.
       </p>
-      <ul className="divide-y divide-ink/10 rounded-lg border border-ink/10">
+      <Meter value={view.inviteCount > 0 ? joinedCount / view.inviteCount : 0} />
+      <ul className="mt-5 divide-y divide-line rounded-lg border border-line">
         {Array.from({ length: view.inviteCount }, (_, inviteId) => (
           <InviteRow
             key={inviteId}
@@ -327,22 +403,24 @@ function PeopleCard({
       </ul>
 
       {view.phase === (Phase.Registration as number) && mnemonic && locking && (
-        <div className="mt-4">
+        <div className="mt-5">
           <ConfirmingNote lead="You locked the member list." />
         </div>
       )}
       {view.phase === (Phase.Registration as number) && mnemonic && !locking && (
-        <div className="mt-4 space-y-4">
+        <div className="mt-5 space-y-5">
           {adding && <ConfirmingNote lead="You added invitations; their links appear here once confirmed." />}
-          <div className="flex flex-wrap items-end gap-2">
-            <Field
-              label="Add more invitations"
-              type="number"
-              min={1}
-              max={MAX_N - view.inviteCount}
-              value={addCount}
-              onChange={(e) => setAddCount(Number(e.target.value))}
-            />
+          <div className="flex items-end gap-2">
+            <div className="w-40">
+              <Field
+                label="Add more invitations"
+                type="number"
+                min={1}
+                max={MAX_N - view.inviteCount}
+                value={addCount}
+                onChange={(e) => setAddCount(Number(e.target.value))}
+              />
+            </div>
             <Button
               variant="secondary"
               disabled={
@@ -367,86 +445,96 @@ function PeopleCard({
                 )
               }
             >
+              <PlusIcon size={17} />
               Add
             </Button>
           </div>
 
-          {!manualReg ? (
-            <p className="text-sm text-ink/70">
-              Joining closes by itself on {dateWithUtc(Number(view.registrationDeadline))} — no step for you
-              here, as long as at least {view.threshold} people joined by then.
-            </p>
-          ) : !review ? (
-            <div>
-              <Button disabled={!canClose || busy} onClick={() => void startReview()}>
-                Everyone is in — lock the member list
-              </Button>
-              {!canClose && (
-                <p className="mt-2 text-xs text-ink/60">
-                  You need at least {view.threshold} joined members before locking the list.
-                </p>
-              )}
-            </div>
-          ) : (
-            <Note tone="warn">
-              <p className="font-semibold">Lock the list with these {review.count} members?</p>
-              <ul className="mt-2 space-y-1">
-                {review.members.map((p, i) => (
-                  <li key={p.auth} className="font-mono text-xs">
-                    {i + 1}.{' '}
-                    {p.inviteId !== undefined
-                      ? labels[p.inviteId] || `Person ${p.inviteId + 1}`
-                      : `Member ${i + 1}`}{' '}
-                    — {identityCode(p.auth, p.key)}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2">No one else can join afterwards; members then add their contributions.</p>
-              {reviewStale ? (
-                <div className="mt-3 space-y-2">
-                  <p className="font-semibold">
-                    The member list changed since you reviewed it — please review it again before locking.
-                  </p>
-                  <div className="flex gap-2">
-                    <Button disabled={busy} onClick={() => void startReview()}>
-                      Review the new list
+          <div className="border-t border-line pt-5">
+            {!manualReg ? (
+              <p className="flex gap-2.5 text-sm leading-relaxed text-ink-2">
+                <ClockIcon size={18} className="mt-0.5 text-muted" />
+                <span>
+                  Joining closes by itself on {dateWithUtc(Number(view.registrationDeadline))} — no step for you
+                  here, as long as at least {view.threshold} people joined by then.
+                </span>
+              </p>
+            ) : !review ? (
+              <div>
+                <Button
+                  size="lg"
+                  className="w-full sm:w-auto"
+                  disabled={!canClose || busy}
+                  onClick={() => void startReview()}
+                >
+                  <LockIcon size={18} />
+                  Everyone is in — lock the member list
+                </Button>
+                {!canClose && (
+                  <p className="hint">You need at least {view.threshold} joined members before locking the list.</p>
+                )}
+              </div>
+            ) : (
+              <Note tone="warn">
+                <p className="font-semibold">Lock the list with these {review.count} members?</p>
+                <ol className="mt-3 space-y-1.5 rounded-md border border-warn-line bg-white/70 p-3">
+                  {review.members.map((p, i) => (
+                    <li key={p.auth} className="font-mono text-xs leading-relaxed">
+                      {i + 1}.{' '}
+                      {p.inviteId !== undefined
+                        ? labels[p.inviteId] || `Person ${p.inviteId + 1}`
+                        : `Member ${i + 1}`}{' '}
+                      — {identityCode(p.auth, p.key)}
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-3">No one else can join afterwards; members then add their contributions.</p>
+                {reviewStale ? (
+                  <div className="mt-3 space-y-3">
+                    <p className="font-semibold">
+                      The member list changed since you reviewed it — please review it again before locking.
+                    </p>
+                    <Actions>
+                      <Button disabled={busy} onClick={() => void startReview()}>
+                        Review the new list
+                      </Button>
+                      <Button variant="secondary" disabled={busy} onClick={() => setReview(null)}>
+                        Not yet
+                      </Button>
+                    </Actions>
+                  </div>
+                ) : (
+                  <Actions className="mt-4">
+                    <Button
+                      disabled={busy}
+                      onClick={() =>
+                        void run(
+                          () =>
+                            prepareCloseRegistration(
+                              mnemonic,
+                              services.config,
+                              record.cid,
+                              review.count,
+                              record.accountIndex,
+                            ),
+                          { kind: 'close' },
+                        )
+                      }
+                    >
+                      {busy ? 'Working…' : 'Yes, lock it'}
                     </Button>
                     <Button variant="secondary" disabled={busy} onClick={() => setReview(null)}>
                       Not yet
                     </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      void run(
-                        () =>
-                          prepareCloseRegistration(
-                            mnemonic,
-                            services.config,
-                            record.cid,
-                            review.count,
-                            record.accountIndex,
-                          ),
-                        { kind: 'close' },
-                      )
-                    }
-                  >
-                    {busy ? 'Working…' : 'Yes, lock it'}
-                  </Button>
-                  <Button variant="secondary" disabled={busy} onClick={() => setReview(null)}>
-                    Not yet
-                  </Button>
-                </div>
-              )}
-            </Note>
-          )}
+                  </Actions>
+                )}
+              </Note>
+            )}
+          </div>
         </div>
       )}
       {error && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone="bad">That did not work: {error}.</Note>
         </div>
       )}
@@ -466,19 +554,40 @@ function KeyCard({ record, view, joined }: { record: CeremonyRecord; view: Cerem
   if (view.phase < (Phase.Dealing as number)) return null;
   const done = bitCount(view.qualBitmap);
   return (
-    <Card title="The shared key">
+    <Card
+      title="The shared key"
+      icon={<KeyIcon />}
+      aside={
+        view.phase === (Phase.Dealing as number) ? (
+          <span className="text-sm font-medium text-ink-2 tabular-nums">
+            {done}/{view.n} in
+          </span>
+        ) : undefined
+      }
+    >
       {view.phase === (Phase.Dealing as number) && (
         <>
-          <p className="text-sm" aria-live="polite">
+          <p className="text-[15px] leading-relaxed text-ink-2" aria-live="polite">
             {done === view.n
               ? `All ${view.n} contributions are in — finish the key below.`
               : `${done} of ${view.n} members have added their contribution (${timeLeft(Number(view.dealingDeadline))}). Remind the missing ones with their link above.`}
           </p>
-          <ul className="mt-2 space-y-1 text-sm">
+          <Meter value={view.n > 0 ? done / view.n : 0} />
+          <ul className="mt-5 divide-y divide-line rounded-lg border border-line">
             {joined.map((p, i) => (
-              <li key={p.auth}>
-                {(p.inviteId !== undefined && labels[p.inviteId]) || `Member ${i + 1}`} —{' '}
-                {p.dealt ? 'contributed' : 'waiting'}
+              <li key={p.auth} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <span className="min-w-0 truncate font-medium text-ink">
+                  {(p.inviteId !== undefined && labels[p.inviteId]) || `Member ${i + 1}`}
+                </span>
+                {p.dealt ? (
+                  <Badge tone="ok" dot>
+                    contributed
+                  </Badge>
+                ) : (
+                  <Badge tone="neutral" dot>
+                    waiting
+                  </Badge>
+                )}
               </li>
             ))}
           </ul>
@@ -486,10 +595,13 @@ function KeyCard({ record, view, joined }: { record: CeremonyRecord; view: Cerem
       )}
       {view.phase === (Phase.Live as number) && (
         <>
-          <p className="text-sm text-ink/80">
-            The key is ready: {thresholdSentence(view.threshold, view.n)}.
-          </p>
-          <div className="mt-2">
+          <div className="flex flex-col gap-3 rounded-lg border border-ok-line bg-ok-soft px-4 py-3.5 sm:flex-row sm:items-center">
+            <KeyDots t={view.threshold} n={view.n} />
+            <p className="text-[15px] font-medium text-ink">
+              The key is ready: {thresholdSentence(view.threshold, view.n)}.
+            </p>
+          </div>
+          <div className="mt-4">
             <Note tone="info">
               {view.n - view.threshold === 0
                 ? `Every one of the ${view.n} members is needed: if a single one loses their twelve words, the results can never be opened.`
@@ -566,17 +678,19 @@ function OrganizerRecordCard({
   };
 
   return (
-    <Card title="Organizer record">
-      <p className="mb-3 text-sm leading-relaxed">
+    <Card title="Organizer record" icon={<FileIcon />}>
+      <p className="text-sm leading-relaxed text-muted">
         The names you typed, which invitation each person used and the vote names exist only on this device.
         Save them to a file and keep it with your recovery kit — months from now, or on another device, load it
         here. The file holds no keys and no invitation links, but it does hold the names: keep it private.
       </p>
-      <div className="flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-col gap-2 [&>.btn]:w-full">
         <Button variant="secondary" onClick={() => void save()}>
+          <DownloadIcon size={17} />
           Save the organizer record
         </Button>
         <Button variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+          <UploadIcon size={17} />
           {busy ? 'Loading…' : 'Load a saved record'}
         </Button>
         <input
@@ -592,7 +706,7 @@ function OrganizerRecordCard({
         />
       </div>
       {note && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone={note.tone}>{note.text}</Note>
         </div>
       )}
@@ -664,15 +778,15 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
   };
 
   return (
-    <Card title="Connections">
-      <p className="mb-3 text-sm text-ink/70">
+    <Card title="Connections" icon={<LinkIcon />}>
+      <p className="text-sm leading-relaxed text-muted">
         Whoever runs the voting system (for example DAVINCI) will send you two long addresses. Paste each one
         exactly as you received it: the voting system connection that may ask this committee to open results,
         and the election organizer allowed to use this key.
       </p>
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-64 flex-1">
+      <div className="mt-5 space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1">
             <Field label="Voting system connection" placeholder="0x…" value={adapter} onChange={(e) => setAdapter(e.target.value)} />
           </div>
           <Button
@@ -683,8 +797,8 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
             Approve…
           </Button>
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-64 flex-1">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1">
             <Field label="Election organizer" placeholder="0x…" value={creator} onChange={(e) => setCreator(e.target.value)} />
           </div>
           <Button
@@ -697,7 +811,7 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
         </div>
       </div>
       {pending && (
-        <div className="mt-3">
+        <div className="mt-5">
           <Note tone="warn">
             <p className="font-semibold">This approval is permanent — it can never be taken back.</p>
             <p className="mt-1">
@@ -706,7 +820,9 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
                 : 'Once allowed, this election organizer can use this key for as long as the committee exists.'}{' '}
               Make sure the address is exactly the one you were given:
             </p>
-            <p className="mt-2 break-all font-mono text-xs">{pending.address}</p>
+            <p className="mt-2 rounded-md border border-warn-line bg-white/70 px-3 py-2 font-mono text-xs break-all">
+              {pending.address}
+            </p>
             <div className="mt-3">
               <Field
                 label={`To confirm, type its last 6 characters (${tail.slice(0, 2)}…)`}
@@ -714,7 +830,7 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
                 onChange={(e) => setTyped(e.target.value)}
               />
             </div>
-            <div className="mt-3 flex gap-2">
+            <Actions className="mt-4">
               <Button disabled={!typedOk || busy} onClick={() => void confirm()}>
                 {busy ? 'Working…' : 'I checked the address — approve it forever'}
               </Button>
@@ -728,12 +844,12 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
               >
                 Cancel
               </Button>
-            </div>
+            </Actions>
           </Note>
         </div>
       )}
       {sentGrants.map((p) => (
-        <div key={pendingKey(p)} className="mt-3">
+        <div key={pendingKey(p)} className="mt-4">
           <ConfirmingNote
             lead={
               p.grant === 'adapter'
@@ -744,7 +860,7 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
         </div>
       ))}
       {lastDone && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone="ok">
             {lastSent.grant === 'adapter'
               ? 'Done — this voting system can now ask the committee to open results.'
@@ -753,7 +869,7 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
         </div>
       )}
       {note && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone={note.tone}>{note.text}</Note>
         </div>
       )}
@@ -792,8 +908,8 @@ function OpenResultsCard({ record, policy }: { record: CeremonyRecord; policy: P
 
   if (opened) {
     return (
-      <Card title="The results are open">
-        <p className="text-sm text-ink/80">
+      <Card title="The results are open" icon={<UnlockIcon />}>
+        <p className="text-[15px] leading-relaxed text-ink-2">
           {policy.manualOpenedAt !== 0n
             ? `You opened the results on ${formatDate(Number(policy.manualOpenedAt))}. The members can now unlock every vote using this key.`
             : 'The safety date passed, so the results opened by themselves. The members can now unlock every vote using this key.'}
@@ -802,8 +918,8 @@ function OpenResultsCard({ record, policy }: { record: CeremonyRecord; policy: P
     );
   }
   return (
-    <Card title="Open the results">
-      <p className="text-sm text-ink/80">
+    <Card title="Open the results" icon={<LockIcon />}>
+      <p className="text-[15px] leading-relaxed text-ink-2">
         Votes using this key stay locked until you open the results
         {policy.manualDecryptionFallbackAt !== 0n
           ? ` — or until ${dateWithUtc(Number(policy.manualDecryptionFallbackAt))}, when they open by themselves as a safety measure`
@@ -811,38 +927,41 @@ function OpenResultsCard({ record, policy }: { record: CeremonyRecord; policy: P
         .
       </p>
       {opening ? (
-        <div className="mt-3">
+        <div className="mt-4">
           <ConfirmingNote lead="You opened the results." />
         </div>
       ) : !mnemonic ? (
-        <p className="mt-2 text-sm text-ink/60">
+        <p className="mt-3 text-sm text-muted">
           Your organizer key is not on this device — restore it from your recovery kit to open the results.
         </p>
       ) : !confirming ? (
-        <div className="mt-3">
-          <Button onClick={() => setConfirming(true)}>Open the results now</Button>
+        <div className="mt-5">
+          <Button className="w-full sm:w-auto" onClick={() => setConfirming(true)}>
+            <UnlockIcon size={18} />
+            Open the results now
+          </Button>
         </div>
       ) : (
-        <div className="mt-3">
+        <div className="mt-5">
           <Note tone="warn">
             <p className="font-semibold">Opening the results cannot be undone.</p>
             <p className="mt-1">
               From this moment on, the committee members can reveal the results of every vote using this key —
               current and future ones. If voting is still going on, wait.
             </p>
-            <div className="mt-3 flex gap-2">
+            <Actions className="mt-4">
               <Button disabled={busy} onClick={() => void open()}>
                 {busy ? 'Working…' : 'I understand — open the results'}
               </Button>
               <Button variant="secondary" disabled={busy} onClick={() => setConfirming(false)}>
                 Not yet
               </Button>
-            </div>
+            </Actions>
           </Note>
         </div>
       )}
       {error && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone="bad">That did not work: {error}. Nothing was opened — you can try again.</Note>
         </div>
       )}
@@ -881,37 +1000,32 @@ function ResultsCard({
     [record.cid],
   );
   return (
-    <Card title="Votes using this key">
+    <Card title="Votes using this key" icon={<BallotIcon />}>
       {!requests ? (
         <Spinner label="Checking…" />
       ) : requests.length === 0 ? (
-        <p className="text-sm text-ink/70">No vote has asked to be opened yet.</p>
+        <EmptyState icon={<BallotIcon />}>No vote has asked to be opened yet.</EmptyState>
       ) : (
-        <ul className="space-y-2 text-sm">
+        <ul className="space-y-3">
           {requests.map((r, i) => {
             const pid = r.processId?.toLowerCase();
             return (
-              <li key={r.requestId} className="rounded-lg border border-ink/10 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium">
+              <li key={r.requestId} className="rounded-lg border border-line p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="min-w-0 font-semibold break-words text-ink">
                     {r.processId
                       ? voteName(labels[pid as string] ?? titles[pid as string], i + 1, r.processId)
                       : `Request ${shortId(r.requestId)}`}
                   </p>
-                  {pid && (
-                    <input
-                      className="w-40 rounded border border-ink/15 px-2 py-1 text-sm"
-                      placeholder="Name this vote"
-                      aria-label={`Name for vote ${i + 1} (stays on this device)`}
-                      value={labels[pid] ?? ''}
-                      onChange={(e) => {
-                        setLabels((m) => ({ ...m, [pid]: e.target.value }));
-                        void setVoteLabel(record.chainId, record.manager, record.cid, pid, e.target.value);
-                      }}
-                    />
-                  )}
+                  <VoteBadge
+                    ready={r.ready}
+                    notSubmitted={r.notSubmitted}
+                    gateOpen={policy.decryptionOpen}
+                    turned={r.partialCount}
+                    needed={view.threshold}
+                  />
                 </div>
-                <p className="mt-1 text-ink/70">
+                <p className="mt-1.5 text-sm leading-relaxed text-muted">
                   {r.ready
                     ? `Open — results: ${(r.values ?? []).map((v) => v.toString(10)).join(', ')}. The numbers are in the ballot’s answer order; the voting system shows what each one means.`
                     : r.notSubmitted
@@ -922,6 +1036,19 @@ function ResultsCard({
                           : 'Locked — open the results from the Advanced section below to let the members act.'
                         : `${r.partialCount} of the ${view.threshold} needed members have turned their key.`}
                 </p>
+                {r.ready && <ResultValues values={r.values ?? []} />}
+                {pid && (
+                  <input
+                    className="input mt-3 py-2 sm:max-w-64"
+                    placeholder="Name this vote"
+                    aria-label={`Name for vote ${i + 1} (stays on this device)`}
+                    value={labels[pid] ?? ''}
+                    onChange={(e) => {
+                      setLabels((m) => ({ ...m, [pid]: e.target.value }));
+                      void setVoteLabel(record.chainId, record.manager, record.cid, pid, e.target.value);
+                    }}
+                  />
+                )}
                 <Disclosure>
                   request {r.requestId}
                   {r.processId && (
@@ -992,11 +1119,21 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
   ));
 
   if (view === undefined) {
-    if (poll.confirming) return <ConfirmingNote />;
-    return poll.error ? (
-      <Note tone="bad">We could not reach the public record: {poll.error}</Note>
-    ) : (
-      <Spinner label="Opening your committee…" />
+    if (poll.confirming) {
+      return (
+        <Page>
+          <ConfirmingNote />
+        </Page>
+      );
+    }
+    return (
+      <Page>
+        {poll.error ? (
+          <Note tone="bad">We could not reach the public record: {poll.error}</Note>
+        ) : (
+          <Loading label="Opening your committee…" />
+        )}
+      </Page>
     );
   }
   // We hold the organizer record, but the committee is not at the network's
@@ -1005,74 +1142,147 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
   if (view === null) {
     const created = findPending(record, { kind: 'create' }) !== undefined;
     return (
-      <div className="space-y-4">
+      <Page>
         {failures}
         {!failed.some((f) => f.action.kind === 'create') && (
-          <ConfirmingNote lead={created ? 'Your committee was created.' : undefined} />
+          <div className="card space-y-5 p-5 sm:p-7">
+            <div>
+              <p className="eyebrow">Organizer</p>
+              <p className="mt-1.5 text-2xl leading-tight font-semibold tracking-tight text-ink">
+                {record.name || 'New committee'}
+              </p>
+            </div>
+            <ConfirmingNote lead={created ? 'Your committee was created.' : undefined} />
+            <div className="border-t border-line pt-5">
+              <LifecycleSteps
+                steps={organizerSteps({ davinci: Boolean(services.config.davinci), connected: false, resultsOpen: false })}
+              />
+            </div>
+          </div>
         )}
-      </div>
+      </Page>
     );
   }
 
+  const davinci = Boolean(services.config.davinci);
+  const resultsOpen = policy?.decryptionOpen ?? false;
+  const live = view.phase === (Phase.Live as number);
+  // The cards in the order that puts the next thing to do first (phase by phase).
+  const people: Block = ['people', policy && <PeopleCard record={record} view={view} joined={joined} policy={policy} />];
+  const key: Block = ['key', <KeyCard record={record} view={view} joined={joined} />];
+  const finish: Block = ['finish', policy && <FinishCard record={record} view={view} policy={policy} />];
+  const connect: Block = ['connect', <DavinciConnectCard record={record} view={view} />];
+  const results: Block = ['results', policy && live && <ResultsCard record={record} view={view} policy={policy} />];
+  const aborted: Block = [
+    'aborted',
+    <Note tone="warn">This committee was called off. Start a new one when your group is ready.</Note>,
+  ];
+  // Raw connections stay visible when there is no pairing card — they are then the only path.
+  const access: Block = [
+    'access',
+    live && !(services.config.davinci && mnemonic) && <AccessCard record={record} failed={failed} />,
+  ];
+  const advanced: Block = [
+    'advanced',
+    policy &&
+      live &&
+      (policy.decryptionMode === (PhaseMode.Manual as number) || Boolean(services.config.davinci && mnemonic)) && (
+        <details className="card group p-5 sm:p-7">
+          <summary className="flex cursor-pointer items-center gap-3.5 select-none">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-line bg-wash text-ink">
+              <SettingsIcon />
+            </span>
+            <span className="flex-1 text-[17px] font-semibold tracking-tight text-ink">Advanced</span>
+            <ChevronDownIcon size={20} className="text-muted transition-transform group-open:rotate-180" />
+          </summary>
+          <p className="mt-4 text-sm leading-relaxed text-muted">
+            Rarely needed, and some of it is permanent. For a committee made for DAVINCI Elections, the pairing
+            card above is the connection you want.
+          </p>
+          <div className="mt-5 space-y-5">
+            <OpenResultsCard record={record} policy={policy} />
+            {services.config.davinci && mnemonic && <AccessCard record={record} failed={failed} />}
+          </div>
+        </details>
+      ),
+  ];
   return (
-    <div className="space-y-4">
-      {failures}
-      <Card title={record.name || 'Your committee'}>
-        <p className="text-sm leading-relaxed">{phaseSentence(view)}</p>
-        {view.phase === (Phase.Registration as number) && (
-          <p className="mt-1 text-sm text-ink/70">
-            {view.registrationDeadline === 0n
-              ? 'You close joining yourself once everyone is in.'
-              : `Joining closes ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
-          </p>
-        )}
-        {policy && view.phase === (Phase.Live as number) && !policy.decryptionOpen && (
-          <p className="mt-1 text-sm text-ink/70">
-            {policy.decryptionMode === (PhaseMode.Scheduled as number)
-              ? `Results can be opened from ${dateWithUtc(Number(policy.decryptionOpenAt))}.`
-              : policy.manualDecryptionFallbackAt !== 0n
-                ? `Results open when you say so — or on ${dateWithUtc(Number(policy.manualDecryptionFallbackAt))} at the latest.`
-                : 'Results open only when you say so.'}
-          </p>
-        )}
-      </Card>
-      {!mnemonic && (
-        <Note tone="warn">
-          Your organizer key is not on this device — restore it from your recovery kit to manage this
-          committee. You can still watch its progress.
-        </Note>
-      )}
-      {policy && <PeopleCard record={record} view={view} joined={joined} policy={policy} />}
-      <KeyCard record={record} view={view} joined={joined} />
-      {policy && <FinishCard record={record} view={view} policy={policy} />}
-      <DavinciConnectCard record={record} view={view} />
-      {policy && view.phase === (Phase.Live as number) && (
-        <ResultsCard record={record} view={view} policy={policy} />
-      )}
-      {/* Raw connections stay visible when there is no pairing card — they are then the only path. */}
-      {view.phase === (Phase.Live as number) && !(services.config.davinci && mnemonic) && (
-        <AccessCard record={record} failed={failed} />
-      )}
-      {policy &&
-        view.phase === (Phase.Live as number) &&
-        (policy.decryptionMode === (PhaseMode.Manual as number) || Boolean(services.config.davinci && mnemonic)) && (
-          <details className="rounded-xl border border-ink/10 bg-white p-4 sm:p-6">
-            <summary className="cursor-pointer select-none text-base font-semibold">Advanced</summary>
-            <p className="mt-2 text-sm text-ink/70">
-              Rarely needed, and some of it is permanent. For a committee made for DAVINCI Elections, the
-              pairing card above is the connection you want.
-            </p>
-            <div className="mt-3 space-y-4">
-              <OpenResultsCard record={record} policy={policy} />
-              {services.config.davinci && mnemonic && <AccessCard record={record} failed={failed} />}
-            </div>
-          </details>
-        )}
-      {view.phase === (Phase.Aborted as number) && (
-        <Note tone="warn">This committee was called off. Start a new one when your group is ready.</Note>
-      )}
-      <OrganizerRecordCard record={record} view={view} policy={policy} />
-      <KitCard record={record} />
-    </div>
+    <Dashboard
+      header={
+        <>
+          {failures}
+          <CommitteeHeader
+            eyebrow={
+              <>
+                Organizer · <span className="font-mono tracking-normal normal-case">{shortId(record.cid)}</span>
+              </>
+            }
+            title={record.name || 'Your committee'}
+            view={view}
+            resultsOpen={resultsOpen}
+            steps={
+              view.phase === (Phase.Aborted as number)
+                ? undefined
+                : organizerSteps({
+                    view,
+                    davinci,
+                    connected: (record.davinciConnections ?? []).length > 0,
+                    resultsOpen,
+                  })
+            }
+          >
+            <p>{phaseSentence(view)}</p>
+            {view.phase === (Phase.Registration as number) && (
+              <p className="flex gap-2 text-muted">
+                <ClockIcon size={18} className="mt-0.5" />
+                <span>
+                  {view.registrationDeadline === 0n
+                    ? 'You close joining yourself once everyone is in.'
+                    : `Joining closes ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
+                </span>
+              </p>
+            )}
+            {policy && view.phase === (Phase.Live as number) && !policy.decryptionOpen && (
+              <p className="flex gap-2 text-muted">
+                <LockIcon size={18} className="mt-0.5" />
+                <span>
+                  {policy.decryptionMode === (PhaseMode.Scheduled as number)
+                    ? `Results can be opened from ${dateWithUtc(Number(policy.decryptionOpenAt))}.`
+                    : policy.manualDecryptionFallbackAt !== 0n
+                      ? `Results open when you say so — or on ${dateWithUtc(Number(policy.manualDecryptionFallbackAt))} at the latest.`
+                      : 'Results open only when you say so.'}
+                </span>
+              </p>
+            )}
+          </CommitteeHeader>
+          {!mnemonic && (
+            <Note tone="warn">
+              Your organizer key is not on this device — restore it from your recovery kit to manage this
+              committee. You can still watch its progress.
+            </Note>
+          )}
+        </>
+      }
+      main={
+        <>
+          {(view.phase === (Phase.Live as number)
+            ? [connect, results, key, people, access, advanced]
+            : view.phase === (Phase.Dealing as number)
+              ? [finish, key, people, connect]
+              : view.phase === (Phase.Aborted as number)
+                ? [aborted, people, key]
+                : [finish, people, connect]
+          ).map(([k, node]) => (
+            <Fragment key={k}>{node}</Fragment>
+          ))}
+        </>
+      }
+      aside={
+        <>
+          <KitCard record={record} />
+          <OrganizerRecordCard record={record} view={view} policy={policy} />
+        </>
+      }
+    />
   );
 }

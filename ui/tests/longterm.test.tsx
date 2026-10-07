@@ -211,6 +211,7 @@ describe('organizer page: attrition note and names from the stored links', () =>
     );
     f.services.joinedEvents = async () => Promise.reject(new Error('history pruned'));
     await renderApp(f, `/c/${f.cid}`, { mnemonic: f.organizerMnemonic, record });
-    await waitFor(() => expect(screen.getByText(/Bob —/)).toBeInTheDocument());
+    // The contribution list names the member (name and status are separate elements).
+    await waitFor(() => expect(screen.getByText('Bob')).toBeInTheDocument());
   });
 });

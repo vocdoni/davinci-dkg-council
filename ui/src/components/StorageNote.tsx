@@ -35,9 +35,10 @@ export function StorageNote() {
         words until the results are opened: with them and the committee link you can always come back.
       </p>
       {state === 'best-effort' && !asked && (
-        <div className="mt-2">
+        <div className="mt-3">
           <Button
             variant="secondary"
+            size="sm"
             onClick={() => {
               setAsked(true);
               void requestPersistentStorage().then(setState);

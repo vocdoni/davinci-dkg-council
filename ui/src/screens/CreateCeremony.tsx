@@ -1,11 +1,15 @@
 /** Organizer: create-ceremony wizard (architecture §6.3 screen 1, protocol §8.1 schedule). */
 
 import { generateMnemonic, PhaseMode, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../App';
+import { Page } from '../components/Layout';
+import { LifecycleSteps } from '../components/Lifecycle';
+import { organizerSteps } from '../lib/lifecycle';
 import { RecoveryKitStep } from '../components/RecoveryKitStep';
-import { Button, Card, Disclosure, Field, Note, Spinner } from '../components/ui';
+import { CalendarIcon, ChevronDownIcon, KeyIcon, UnlockIcon, UserPlusIcon, UsersIcon } from '../components/icons';
+import { Actions, Button, Card, Disclosure, Fact, Field, KeyDots, Note, PageHeader, Spinner } from '../components/ui';
 import { buildKitForRecords, manifestFingerprint } from '../flows/kit';
 import {
   ceremonyIdFor,
@@ -27,13 +31,47 @@ function toLocalInput(ms: number): string {
 
 const toUnix = (local: string): number => Math.floor(new Date(local).getTime() / 1000);
 
-/** A radio row with a label; native input, no component library. */
+/** A radio option drawn as a selectable card; native input, no component library. */
 function Choice(props: { name: string; checked: boolean; onSelect: () => void; label: string }) {
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input type="radio" name={props.name} className="mt-1" checked={props.checked} onChange={props.onSelect} />
+    <label
+      className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3.5 text-[15px] leading-snug transition-colors ${
+        props.checked ? 'border-ink bg-white ring-1 ring-ink' : 'border-line bg-white hover:border-line-strong'
+      }`}
+    >
+      <input
+        type="radio"
+        name={props.name}
+        className="mt-0.5 size-4 shrink-0 accent-ink"
+        checked={props.checked}
+        onChange={props.onSelect}
+      />
+      <span className={props.checked ? 'font-medium text-ink' : 'text-ink-2'}>{props.label}</span>
+    </label>
+  );
+}
+
+/** A checkbox with its sentence. */
+function Check(props: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 text-[15px] leading-snug text-ink-2">
+      <input
+        type="checkbox"
+        className="mt-0.5 size-4 shrink-0 accent-ink"
+        checked={props.checked}
+        onChange={(e) => props.onChange(e.target.checked)}
+      />
       <span>{props.label}</span>
     </label>
+  );
+}
+
+/** A form section inside a wizard card: a small heading and its controls. */
+function Section({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
+  return (
+    <Card title={title} icon={icon}>
+      <div className="space-y-5">{children}</div>
+    </Card>
   );
 }
 
@@ -41,7 +79,7 @@ function Choice(props: { name: string; checked: boolean; onSelect: () => void; l
 function UtcEcho({ local }: { local: string }) {
   const ts = toUnix(local);
   if (!Number.isFinite(ts)) return null;
-  return <p className="mt-1 text-xs text-ink/60">That is {dateWithUtc(ts)}.</p>;
+  return <p className="hint">That is {dateWithUtc(ts)}.</p>;
 }
 
 export function CreateCeremony() {
@@ -175,23 +213,36 @@ export function CreateCeremony() {
     }
   };
 
+  const total = mnemonic ? 2 : 3;
+  const lifecycle = (
+    <div className="card px-4 py-5 sm:px-7">
+      <LifecycleSteps steps={organizerSteps({ davinci: Boolean(services.config.davinci), connected: false, resultsOpen: false })} />
+    </div>
+  );
+
   if (step === 'params') {
     return (
-      <div className="space-y-4">
-        <Card title="Set up your committee">
-          <div className="space-y-4">
-            {forDavinci && (
-              <Note tone="info">
-                This committee is for DAVINCI Elections. Set it up as usual — once its key is ready, you
-                connect it to your organization with a pairing code from DAVINCI Elections.
-              </Note>
-            )}
-            <Field
-              label="Name (only you see this)"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="City council election 2026"
-            />
+      <Page>
+        {lifecycle}
+        <PageHeader eyebrow={`New committee · Step 1 of ${total}`} title="Set up your committee">
+          Choose how many people hold the key, how joining ends and when the results may be opened. Nothing is
+          sent until the last step.
+        </PageHeader>
+        {forDavinci && (
+          <Note tone="info">
+            This committee is for DAVINCI Elections. Set it up as usual — once its key is ready, you
+            connect it to your organization with a pairing code from DAVINCI Elections.
+          </Note>
+        )}
+
+        <Section title="Members" icon={<UsersIcon />}>
+          <Field
+            label="Name (only you see this)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="City council election 2026"
+          />
+          <div className="grid gap-5 sm:grid-cols-2">
             <Field
               label="How many people are in the committee?"
               type="number"
@@ -208,59 +259,59 @@ export function CreateCeremony() {
               value={threshold}
               onChange={(e) => setThreshold(Number(e.target.value))}
             />
-            <Note tone="info">
+          </div>
+          <div className="flex flex-col gap-3 rounded-lg border border-line bg-wash/70 px-4 py-3.5 sm:flex-row sm:items-center">
+            <KeyDots t={threshold} n={members} />
+            <p className="text-sm leading-relaxed text-ink-2">
               With these numbers, {thresholdSentence(threshold, members)}. If fewer than {threshold} members can
               still take part, results can never be opened.
+            </p>
+          </div>
+        </Section>
+
+        <Section title="Joining" icon={<UserPlusIcon />}>
+          <fieldset className="space-y-2.5">
+            <legend className="label">How does joining end?</legend>
+            <Choice
+              name="joinMode"
+              checked={joinMode === 'scheduled'}
+              onSelect={() => setJoinMode('scheduled')}
+              label="Joining closes on a date I pick"
+            />
+            <Choice
+              name="joinMode"
+              checked={joinMode === 'manual'}
+              onSelect={() => setJoinMode('manual')}
+              label="I'll close joining myself when everyone is in"
+            />
+          </fieldset>
+          {joinMode === 'manual' && (
+            <Check
+              checked={joinExpiry}
+              onChange={setJoinExpiry}
+              label="…or close automatically on a date, if enough people joined by then"
+            />
+          )}
+          {deadlineUsed ? (
+            <div>
+              <Field
+                label={joinMode === 'scheduled' ? 'Joining closes on' : 'Close automatically on'}
+                type="datetime-local"
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
+              />
+              <UtcEcho local={deadline} />
+            </div>
+          ) : (
+            <Note tone="info">
+              There is no automatic cutoff: if not enough people join, nothing happens until you act.
             </Note>
-
-            <fieldset className="space-y-2">
-              <legend className="mb-1 block text-sm font-medium">How does joining end?</legend>
-              <Choice
-                name="joinMode"
-                checked={joinMode === 'scheduled'}
-                onSelect={() => setJoinMode('scheduled')}
-                label="Joining closes on a date I pick"
-              />
-              <Choice
-                name="joinMode"
-                checked={joinMode === 'manual'}
-                onSelect={() => setJoinMode('manual')}
-                label="I'll close joining myself when everyone is in"
-              />
-              {joinMode === 'manual' && (
-                <label className="ml-6 flex items-start gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={joinExpiry}
-                    onChange={(e) => setJoinExpiry(e.target.checked)}
-                  />
-                  <span>…or close automatically on a date, if enough people joined by then</span>
-                </label>
-              )}
-              {deadlineUsed ? (
-                <div className="ml-6">
-                  <Field
-                    label={joinMode === 'scheduled' ? 'Joining closes on' : 'Close automatically on'}
-                    type="datetime-local"
-                    value={deadline}
-                    onChange={(e) => setDeadline(e.target.value)}
-                  />
-                  <UtcEcho local={deadline} />
-                </div>
-              ) : (
-                <Note tone="info">
-                  There is no automatic cutoff: if not enough people join, nothing happens until you act.
-                </Note>
-              )}
-            </fieldset>
-
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium">
-                After the list is locked, how long do members get to contribute?
-              </span>
+          )}
+          <label className="block">
+            <span className="label">After the list is locked, how long do members get to contribute?</span>
+            <span className="relative block">
               <select
-                className="w-full rounded-lg border border-ink/20 px-3 py-2 text-sm"
+                className="input appearance-none pr-10"
                 value={dealingHours}
                 onChange={(e) => setDealingHours(Number(e.target.value))}
               >
@@ -269,121 +320,134 @@ export function CreateCeremony() {
                 <option value={24}>24 hours</option>
                 <option value={72}>3 days</option>
               </select>
-            </label>
+              <ChevronDownIcon size={18} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-muted" />
+            </span>
+          </label>
+        </Section>
 
-            <fieldset className="space-y-2">
-              <legend className="mb-1 block text-sm font-medium">When can the results be opened?</legend>
-              <Choice
-                name="resultsMode"
-                checked={resultsMode === 'scheduled'}
-                onSelect={() => setResultsMode('scheduled')}
-                label="From a date I pick — nobody needs me on the day"
+        <Section title="Opening the results" icon={<UnlockIcon />}>
+          <fieldset className="space-y-2.5">
+            <legend className="label">When can the results be opened?</legend>
+            <Choice
+              name="resultsMode"
+              checked={resultsMode === 'scheduled'}
+              onSelect={() => setResultsMode('scheduled')}
+              label="From a date I pick — nobody needs me on the day"
+            />
+            <Choice
+              name="resultsMode"
+              checked={resultsMode === 'manual'}
+              onSelect={() => setResultsMode('manual')}
+              label="I'll open the results myself when the time comes"
+            />
+          </fieldset>
+          {resultsMode === 'scheduled' && (
+            <div>
+              <Field
+                label="Results can be opened from"
+                type="datetime-local"
+                value={openAt}
+                onChange={(e) => setOpenAt(e.target.value)}
               />
-              <Choice
-                name="resultsMode"
-                checked={resultsMode === 'manual'}
-                onSelect={() => setResultsMode('manual')}
-                label="I'll open the results myself when the time comes"
-              />
-              {resultsMode === 'scheduled' && (
-                <div className="ml-6">
-                  <Field
-                    label="Results can be opened from"
-                    type="datetime-local"
-                    value={openAt}
-                    onChange={(e) => setOpenAt(e.target.value)}
-                  />
-                  <UtcEcho local={openAt} />
-                </div>
-              )}
-              {resultsMode === 'manual' && (
-                <>
-                  <label className="ml-6 flex items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={fallbackOn}
-                      onChange={(e) => setFallbackOn(e.target.checked)}
-                    />
-                    <span>…or automatically on a safety date, in case I never do</span>
-                  </label>
-                  {fallbackOn ? (
-                    <div className="ml-6">
-                      <Field
-                        label="If I have not opened them by"
-                        type="datetime-local"
-                        value={fallbackAt}
-                        onChange={(e) => setFallbackAt(e.target.value)}
-                      />
-                      <UtcEcho local={fallbackAt} />
-                      <p className="mt-1 text-xs text-ink/60">
-                        The safety date protects everyone if you lose access or disappear: from that day the
-                        members can open the results without you.
-                      </p>
-                    </div>
-                  ) : (
-                    <Note tone="warn">
-                      Without a safety date, the results can never be opened if you lose access or disappear.
-                      Most committees should leave it on.
-                    </Note>
-                  )}
-                </>
-              )}
-            </fieldset>
-          </div>
-          {paramsProblem && (
-            <div className="mt-3">
-              <Note tone="warn">{paramsProblem}</Note>
+              <UtcEcho local={openAt} />
             </div>
           )}
-          <div className="mt-4">
-            <Button disabled={paramsProblem !== null} onClick={() => setStep(mnemonic ? 'review' : 'kit')}>
-              Continue
-            </Button>
-          </div>
-        </Card>
-      </div>
+          {resultsMode === 'manual' && (
+            <>
+              <Check
+                checked={fallbackOn}
+                onChange={setFallbackOn}
+                label="…or automatically on a safety date, in case I never do"
+              />
+              {fallbackOn ? (
+                <div>
+                  <Field
+                    label="If I have not opened them by"
+                    type="datetime-local"
+                    value={fallbackAt}
+                    onChange={(e) => setFallbackAt(e.target.value)}
+                  />
+                  <UtcEcho local={fallbackAt} />
+                  <p className="hint">
+                    The safety date protects everyone if you lose access or disappear: from that day the members
+                    can open the results without you.
+                  </p>
+                </div>
+              ) : (
+                <Note tone="warn">
+                  Without a safety date, the results can never be opened if you lose access or disappear. Most
+                  committees should leave it on.
+                </Note>
+              )}
+            </>
+          )}
+        </Section>
+
+        {paramsProblem && <Note tone="warn">{paramsProblem}</Note>}
+        <Actions className="sm:justify-end">
+          <Button size="lg" disabled={paramsProblem !== null} onClick={() => setStep(mnemonic ? 'review' : 'kit')}>
+            Continue
+          </Button>
+        </Actions>
+      </Page>
     );
   }
 
   if (step === 'kit') {
     return (
-      <RecoveryKitStep
-        kit={kit}
-        onDone={async () => {
-          // Rejects (and stays on this step) unless the key is committed to this device's storage.
-          await saveMnemonic(draftMnemonic);
-          setStep('review');
-        }}
-      />
+      <Page>
+        {lifecycle}
+        <PageHeader eyebrow={`New committee · Step 2 of ${total}`} title="Your organizer key">
+          This device now makes the key you run the committee with. Keep its recovery kit before anything is
+          sent: it is the only way back in if this device is lost.
+        </PageHeader>
+        <RecoveryKitStep
+          kit={kit}
+          onDone={async () => {
+            // Rejects (and stays on this step) unless the key is committed to this device's storage.
+            await saveMnemonic(draftMnemonic);
+            setStep('review');
+          }}
+        />
+      </Page>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <Card title="Ready to create">
-        <ul className="space-y-2 text-sm">
-          <li>
-            <strong>{members} members</strong>, and {thresholdSentence(threshold, members)}.
-          </li>
-          <li>
+    <Page>
+      {lifecycle}
+      <PageHeader eyebrow={`New committee · Step ${total} of ${total}`} title="Ready to create">
+        Check the details below before creating the committee.
+      </PageHeader>
+      <Card>
+        {name.trim() && <p className="mb-4 text-lg font-semibold tracking-tight text-ink">{name.trim()}</p>}
+        <ul className="divide-y divide-line">
+          <Fact icon={<UsersIcon />}>
+            <strong className="font-semibold">{members} members</strong>, and {thresholdSentence(threshold, members)}.
+          </Fact>
+          <Fact icon={<UserPlusIcon />}>
             {joinMode === 'scheduled'
               ? `Joining closes on ${dateWithUtc(deadlineTs)}.`
               : joinExpiry
                 ? `You close joining yourself — or it closes automatically on ${dateWithUtc(deadlineTs)} if enough people joined.`
                 : 'You close joining yourself. There is no automatic cutoff.'}
-          </li>
-          <li>
+          </Fact>
+          <Fact icon={<CalendarIcon />}>
+            After the list is locked, members have{' '}
+            {dealingHours === 72 ? '3 days' : `${dealingHours} ${dealingHours === 1 ? 'hour' : 'hours'}`} to add their
+            part.
+          </Fact>
+          <Fact icon={<UnlockIcon />}>
             {resultsMode === 'scheduled'
               ? `Results can be opened from ${dateWithUtc(openAtTs)}.`
               : fallbackOn
                 ? `You open the results yourself — or they unlock automatically on ${dateWithUtc(fallbackTs)} if you have not.`
                 : 'You open the results yourself. There is no automatic date: only you can open them.'}
-          </li>
-          <li>
+          </Fact>
+          <Fact icon={<KeyIcon />}>
             Creating takes a few seconds. You hand out the invitation links on the next screen — nothing is sent
             to anyone yet.
-          </li>
+          </Fact>
         </ul>
         <Disclosure>
           ceremony id {cid}
@@ -397,17 +461,17 @@ export function CreateCeremony() {
           {schedule.manualDecryptionFallbackAt.toString(10)}
         </Disclosure>
         {error && (
-          <div className="mt-3">
+          <div className="mt-5">
             <Note tone="bad">That did not work: {error}. Nothing was created — you can try again.</Note>
           </div>
         )}
-        <div className="mt-4 flex items-center gap-3">
-          <Button disabled={busy} onClick={() => void submit()}>
+        <div className="mt-6 flex flex-col gap-3 border-t border-line pt-6 sm:flex-row sm:items-center">
+          <Button size="lg" className="w-full sm:w-auto" disabled={busy} onClick={() => void submit()}>
             Create the committee
           </Button>
           {busy && <Spinner label="Creating — a few seconds…" />}
         </div>
       </Card>
-    </div>
+    </Page>
   );
 }

@@ -7,6 +7,7 @@ import { buildKitForRecords, kitFileName, manifestFingerprint } from '../flows/k
 import { downloadTextFile, printTextSheet } from '../lib/download';
 import { KEEP_WORDS_UNTIL_RESULTS } from '../lib/storage';
 import { updateRecord, type CeremonyRecord } from '../lib/records';
+import { DownloadIcon, KeyIcon, PrinterIcon } from './icons';
 import { Button, Card, Note } from './ui';
 
 export function KitCard({ record }: { record: CeremonyRecord }) {
@@ -24,7 +25,7 @@ export function KitCard({ record }: { record: CeremonyRecord }) {
 
   if (!mnemonic || !kit) {
     return (
-      <Card title="Recovery kit">
+      <Card title="Recovery kit" icon={<KeyIcon />}>
         <Note tone="warn">
           Your key is not on this device. Restore it from your recovery kit first (menu on the start page).
         </Note>
@@ -48,19 +49,19 @@ export function KitCard({ record }: { record: CeremonyRecord }) {
   };
 
   return (
-    <Card title="Recovery kit">
+    <Card title="Recovery kit" icon={<KeyIcon />}>
       {neverSaved && (
-        <div className="mb-3">
+        <div className="mb-4">
           <Note tone="info">This device has no saved kit yet. Download one now in case you lose this browser.</Note>
         </div>
       )}
       {stale && (
-        <div className="mb-3">
+        <div className="mb-4">
           <Note tone="warn">Your saved kit does not cover everything on this device yet — save a fresh copy.</Note>
         </div>
       )}
-      <p className="mb-3 text-sm leading-relaxed">{KEEP_WORDS_UNTIL_RESULTS}</p>
-      <div className="flex flex-wrap gap-2">
+      <p className="text-sm leading-relaxed text-muted">{KEEP_WORDS_UNTIL_RESULTS}</p>
+      <div className="mt-4 flex flex-col gap-2 [&>.btn]:w-full">
         <Button
           variant="secondary"
           onClick={() => {
@@ -68,6 +69,7 @@ export function KitCard({ record }: { record: CeremonyRecord }) {
             void markExported();
           }}
         >
+          <DownloadIcon size={17} />
           Download the kit file
         </Button>
         <Button
@@ -81,11 +83,12 @@ export function KitCard({ record }: { record: CeremonyRecord }) {
             }
           }}
         >
+          <PrinterIcon size={17} />
           Print the words
         </Button>
       </div>
       {printError && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Note tone="bad">{printError}</Note>
         </div>
       )}
