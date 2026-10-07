@@ -682,7 +682,7 @@ of 2^24 ([relayer.md](relayer.md#sizing-the-budget)). At
 
 | Service | URL | Configuration |
 |---|---|---|
-| `council-gnosis-ui` | https://council-gnosis-ui-production.up.railway.app | `config.gnosis.json` as committed: the relayer below, publicnode and `rpc.gnosischain.com` for the authenticated reads; circuit files from the app's own origin (`/circuits-v1/`, baked into the image), then the CDN, then the GitHub release |
+| `council-gnosis-ui` | https://council-gnosis-ui-production.up.railway.app | `config.gnosis.json` as committed: the relayer below, publicnode and `rpc.gnosischain.com` for the authenticated reads; circuit files from the app's own origin (`/circuits-v1/`, baked into the image), then the CDN, then the GitHub release; the DAVINCI Elections pairing pinned to registry [`0x20b96e465ca7c3536b9c733571ec1ecf42b2ea21`](https://gnosisscan.io/address/0x20b96e465ca7c3536b9c733571ec1ecf42b2ea21) and https://elections.davinci.vote |
 | `council-gnosis-relayer` | https://council-gnosis-relayer-production.up.railway.app | open admission, scheduler and combine worker on (from block 48,627,018), `COUNCIL_STATE_GAS=false`, a 0.5 xDAI rolling 24 h budget, balance alert below 0.2 xDAI, CORS for the app's origin only, reads and sends through publicnode, `rpc.gnosischain.com` and dRPC, state on a volume at `/data` |
 
 The relayer's hot key,
