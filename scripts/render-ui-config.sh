@@ -11,8 +11,17 @@
 #   CHAIN_ID           chain id (decimal)
 #   MANAGER_ADDRESS    CouncilManager address
 #   RPC_URLS           comma-separated JSON-RPC endpoints (two independent providers or more)
-#   RELAYER_URL        relayer base URL; "null" for none (direct sending, dev mode only)
-#   ARTIFACTS_BASE_URL mirror of the pinned circuit files; "null" for the GitHub release
+#   RELAYER_URL        one relayer base URL; "null" for none (direct sending, dev mode only)
+#   RELAYER_URLS       comma-separated relayers, tried in order ("null" for none); writes
+#                      `relayerUrls` and drops `relayerUrl`; exclusive with RELAYER_URL
+#   ARTIFACTS_BASE_URL one mirror of the pinned circuit files; "null" for the GitHub release
+#   ARTIFACTS_BASE_URLS comma-separated mirrors, tried in order ("null" for the release URL;
+#                      `{release}` in an entry is replaced with the release tag at download
+#                      time); writes `artifactsBaseUrls` and drops `artifactsBaseUrl`;
+#                      exclusive with ARTIFACTS_BASE_URL
+#   LEGACY_DEPLOYMENTS JSON array of older managers this copy still serves ("null" for none),
+#                      entries as ui/src/config.ts LegacyDeployment:
+#                      [{"manager":"0x…","deploymentBlock":N,"relayerUrls":["https://…"],"label":"…"}]
 #   DEPLOYMENT_BLOCK   block the manager was deployed at (where the app's label scans start)
 #   LOG_CHUNK_BLOCKS   blocks per eth_getLogs request of those scans (default 10000)
 #   DEV_MODE           true/false: local chain (31337/1337) with a single RPC
@@ -46,6 +55,24 @@ set('MANAGER_ADDRESS', 'manager', (v) => {
 set('RPC_URLS', 'rpcUrls', (v) => v.split(',').map((u) => u.trim()).filter(Boolean));
 set('RELAYER_URL', 'relayerUrl', nullable);
 set('ARTIFACTS_BASE_URL', 'artifactsBaseUrl', nullable);
+// The multi-URL keys (ui/src/config.ts): a comma-separated list replaces both the list key and
+// its single-URL counterpart, so the rendered config carries exactly the given entries.
+const urlList = (v) => (v === 'null' ? [] : v.split(',').map((u) => u.trim().replace(/\/+$/, '')).filter(Boolean));
+const setList = (name, key, singular) => {
+  if (env[name] === undefined || env[name] === '') return;
+  if (env[singular.env] !== undefined && env[singular.env] !== '') {
+    throw new Error(`set one of ${singular.env} and ${name}, not both`);
+  }
+  cfg[key] = urlList(env[name]);
+  delete cfg[singular.key];
+};
+setList('RELAYER_URLS', 'relayerUrls', { env: 'RELAYER_URL', key: 'relayerUrl' });
+setList('ARTIFACTS_BASE_URLS', 'artifactsBaseUrls', { env: 'ARTIFACTS_BASE_URL', key: 'artifactsBaseUrl' });
+set('LEGACY_DEPLOYMENTS', 'legacyDeployments', (v) => {
+  const parsed = v === 'null' ? [] : JSON.parse(v);
+  if (!Array.isArray(parsed)) throw new Error('LEGACY_DEPLOYMENTS must be a JSON array');
+  return parsed;
+});
 set('DEPLOYMENT_BLOCK', 'deploymentBlock', int('DEPLOYMENT_BLOCK'));
 set('LOG_CHUNK_BLOCKS', 'logChunkBlocks', int('LOG_CHUNK_BLOCKS'));
 set('DEV_MODE', 'devMode', (v) => v === 'true');

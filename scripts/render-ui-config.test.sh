@@ -32,9 +32,32 @@ UI_CONFIG=ui/public/config.sepolia.json ARTIFACTS_BASE_URL=null RPC_URLS='https:
 want artifactsBaseUrl null
 want rpcUrls '["https://a.example","https://b.example"]'
 
-# Refusals: one RPC on a production chain, devMode off the local chain, a malformed address.
+# Multi-URL keys: a list replaces both the list key and its single-URL counterpart; the
+# {release} placeholder survives; legacy deployments are passed through as JSON.
+UI_CONFIG=ui/public/config.sepolia.json RELAYER_URLS='https://r1.example, https://r2.example/' \
+  ARTIFACTS_BASE_URLS='https://m1.example/{release},https://m2.example/council/{release}' \
+  LEGACY_DEPLOYMENTS='[{"manager":"0x00000000000000000000000000000000000000bb","deploymentBlock":7,"relayerUrls":["https://old.example"],"label":"2026 rehearsal"}]' \
+  render
+want relayerUrls '["https://r1.example","https://r2.example"]'
+want relayerUrl undefined
+want artifactsBaseUrls '["https://m1.example/{release}","https://m2.example/council/{release}"]'
+want artifactsBaseUrl undefined
+want legacyDeployments '[{"manager":"0x00000000000000000000000000000000000000bb","deploymentBlock":7,"relayerUrls":["https://old.example"],"label":"2026 rehearsal"}]'
+
+# "null" empties a list ("no relayers"); clearing legacy deployments works the same way.
+UI_CONFIG=ui/public/config.sepolia.json RELAYER_URLS=null LEGACY_DEPLOYMENTS=null render
+want relayerUrls '[]'
+want legacyDeployments '[]'
+
+# Refusals: one RPC on a production chain, devMode off the local chain, a malformed address,
+# a single-URL variable together with its list, legacy deployments that are not a JSON array.
 refuse env UI_CONFIG=ui/public/config.sepolia.json RPC_URLS=https://a.example bash "$here/render-ui-config.sh" "$out"
 refuse env UI_CONFIG=ui/public/config.sepolia.json DEV_MODE=true bash "$here/render-ui-config.sh" "$out"
 refuse env MANAGER_ADDRESS=0x1234 bash "$here/render-ui-config.sh" "$out"
+refuse env UI_CONFIG=ui/public/config.sepolia.json RELAYER_URL=https://a.example RELAYER_URLS=https://b.example \
+  bash "$here/render-ui-config.sh" "$out"
+refuse env UI_CONFIG=ui/public/config.sepolia.json ARTIFACTS_BASE_URL=null ARTIFACTS_BASE_URLS=https://m.example \
+  bash "$here/render-ui-config.sh" "$out"
+refuse env UI_CONFIG=ui/public/config.sepolia.json LEGACY_DEPLOYMENTS='{"manager":"0x"}' bash "$here/render-ui-config.sh" "$out"
 
 echo "[render-ui-config.test] ok"

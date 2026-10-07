@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AppProvider, AppRoutes } from '../../src/App';
 import { putRecord, recordKey, type CeremonyRecord, type Role } from '../../src/lib/records';
 import { saveRoot, type VaultStore } from '../../src/lib/vault';
+import type { Deployments } from '../../src/deployments';
 import type { Fixture } from './fake';
 
 export function memStore(): VaultStore {
@@ -27,14 +28,14 @@ export function fixtureRecord(f: Fixture, role: Role, participantIndex?: number)
 export async function renderApp(
   fixture: Fixture,
   path: string,
-  opts: { mnemonic?: string; record?: CeremonyRecord } = {},
+  opts: { mnemonic?: string; record?: CeremonyRecord; vault?: VaultStore; deployments?: Deployments } = {},
 ) {
-  const vault = memStore();
+  const vault = opts.vault ?? memStore();
   if (opts.mnemonic) await saveRoot(opts.mnemonic, vault);
   if (opts.record) await putRecord(opts.record);
   window.history.replaceState(null, '', path);
   const utils = render(
-    <AppProvider services={fixture.services} vaultStore={vault}>
+    <AppProvider services={fixture.services} deployments={opts.deployments} vaultStore={vault}>
       <BrowserRouter>
         <AppRoutes />
       </BrowserRouter>

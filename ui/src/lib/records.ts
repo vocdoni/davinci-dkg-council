@@ -24,6 +24,12 @@ export interface CeremonyRecord {
   name?: string;
   /** Organizer: the nonce the ceremony id was derived from. */
   nonce?: string;
+  /**
+   * The derivation account index of this role's keys (protocol §5.2), from the recovery kit it
+   * was restored from; absent means 0, the only index this app creates. Every key this record
+   * acts with — and every kit entry exported for it — is derived with it.
+   */
+  accountIndex?: number;
   /** Participant: the invite this member joined with. */
   inviteId?: number;
   /** Participant: 1-based index once joined. */
@@ -44,6 +50,11 @@ export interface CeremonyRecord {
   fromBlock?: number;
   /** Participant: one-time "save your kit once more" prompt after joining. */
   kitJoinNudge?: boolean;
+  /**
+   * Organizer: every configured relayer confirmed `POST /v1/track` for this committee (its
+   * decryption is served from state, without log discovery). Unset: the dashboard retries.
+   */
+  relayerTracked?: boolean;
   /** Set when the record's root was switched away from (restore-switch); hidden from the UI. */
   archived?: boolean;
   /**
@@ -56,6 +67,21 @@ export interface CeremonyRecord {
 
 export const recordKey = (chainId: number, manager: Hex, cid: Hex): string =>
   `${chainId}:${manager.toLowerCase()}:${cid.toLowerCase()}`;
+
+/**
+ * Serialize read-modify-writes of one record: two concurrent patches (a user action adding a
+ * pending entry, the dashboard poll flagging the relayer registration) must not lose each other.
+ */
+const writeLocks = new Map<string, Promise<unknown>>();
+export function withRecordLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const tail = writeLocks.get(key) ?? Promise.resolve();
+  const run = tail.then(fn);
+  writeLocks.set(
+    key,
+    run.catch(() => undefined),
+  );
+  return run;
+}
 
 export async function getRecord(chainId: number, manager: Hex, cid: Hex): Promise<CeremonyRecord | undefined> {
   return idbGet<CeremonyRecord>(STORE_CEREMONIES, recordKey(chainId, manager, cid));
@@ -71,11 +97,13 @@ export async function updateRecord(
   cid: Hex,
   patch: Partial<CeremonyRecord>,
 ): Promise<CeremonyRecord | undefined> {
-  const existing = await getRecord(chainId, manager, cid);
-  if (!existing) return undefined;
-  const next = { ...existing, ...patch };
-  await putRecord(next);
-  return next;
+  return withRecordLock(recordKey(chainId, manager, cid), async () => {
+    const existing = await getRecord(chainId, manager, cid);
+    if (!existing) return undefined;
+    const next = { ...existing, ...patch };
+    await putRecord(next);
+    return next;
+  });
 }
 
 export async function listRecords(includeArchived = false): Promise<CeremonyRecord[]> {
@@ -140,4 +168,40 @@ export async function setVoteLabel(
   else labels[pid] = label.trim();
   await idbPut(STORE_LABELS, voteLabelKey(chainId, manager, cid), labels);
   return labels;
+}
+
+// --- invite mapping (local only, never transmitted; labels only) ---
+
+/** Which invitation member `index` joined with, as cross-checked against authenticated state once. */
+export interface InviteLink {
+  /** 1-based member index. */
+  index: number;
+  /** The member's authorization address at that index. */
+  auth: Hex;
+  inviteId: number;
+}
+
+const inviteMapKey = (chainId: number, manager: Hex, cid: Hex) => `${recordKey(chainId, manager, cid)}:invites`;
+
+/**
+ * The stored member → invitation links. Kept because the join events they come from are history a
+ * provider may stop serving; whoever reads them still cross-checks every link (inviteLinkage).
+ */
+export async function getInviteMapping(chainId: number, manager: Hex, cid: Hex): Promise<InviteLink[]> {
+  return (await idbGet<InviteLink[]>(STORE_LABELS, inviteMapKey(chainId, manager, cid))) ?? [];
+}
+
+export async function putInviteMapping(chainId: number, manager: Hex, cid: Hex, links: InviteLink[]): Promise<void> {
+  const sorted = links.slice().sort((a, b) => a.index - b.index);
+  await idbPut(STORE_LABELS, inviteMapKey(chainId, manager, cid), sorted);
+}
+
+/** Replace every invitation name at once (organizer record import). */
+export async function putLabels(chainId: number, manager: Hex, cid: Hex, labels: LabelMap): Promise<void> {
+  await idbPut(STORE_LABELS, recordKey(chainId, manager, cid), labels);
+}
+
+/** Replace every vote name at once (organizer record import). */
+export async function putVoteLabels(chainId: number, manager: Hex, cid: Hex, labels: VoteLabelMap): Promise<void> {
+  await idbPut(STORE_LABELS, voteLabelKey(chainId, manager, cid), labels);
 }

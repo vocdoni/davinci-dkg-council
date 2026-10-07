@@ -15,12 +15,22 @@
  */
 
 import { Phase, type Action, type CeremonyView, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
-import { isAdapterAllowed, isCreatorAuthorized, participantIndexOf, type ChainReader } from './chain';
-import { getRecord, putRecord, type CeremonyRecord } from './records';
+import { isAdapterAllowed, isCreatorAuthorized, participantIndexOf, republishCheck, type ChainReader } from './chain';
+import { getRecord, putRecord, recordKey, withRecordLock, type CeremonyRecord } from './records';
 import { submitRevertName, TxRejectedError } from './relayerErrors';
 import type { Services } from '../services';
 
-export type PendingKind = 'create' | 'addInvites' | 'join' | 'close' | 'deal' | 'finish' | 'grant' | 'partial';
+export type PendingKind =
+  | 'create'
+  | 'addInvites'
+  | 'join'
+  | 'close'
+  | 'deal'
+  | 'finish'
+  | 'grant'
+  | 'partial'
+  | 'open'
+  | 'republish';
 
 export interface PendingAction {
   kind: PendingKind;
@@ -30,10 +40,14 @@ export interface PendingAction {
   sentAt: number;
   /** addInvites: the invitation count once the new ones are in. */
   inviteCount?: number;
-  /** deal, partial: this member's index. */
+  /** deal, partial, republish: this member's index. */
   memberIndex?: number;
-  /** partial */
+  /** partial, republish */
   requestId?: Hex;
+  /** republish: the request's field count (for the §10.4 hash check). */
+  fieldCount?: number;
+  /** republish: the commitment's publication block before re-sending (decimal). */
+  publishedBlock?: string;
   /** grant */
   grant?: 'adapter' | 'creator';
   /** grant: the adapter or creator; join: this member's authorization address. */
@@ -70,6 +84,7 @@ const ALREADY_AT_HEAD: Partial<Record<PendingKind, string[]>> = {
   finish: ['WrongPhase'],
   grant: ['AlreadyListed'],
   partial: ['AlreadyPartial'],
+  open: ['AlreadyOpen'],
 };
 
 /** One pending entry per step: a newer one for the same step replaces the older. */
@@ -79,6 +94,8 @@ export function pendingKey(p: PendingDraft): string {
       return `grant:${p.grant}:${(p.address ?? '').toLowerCase()}`;
     case 'partial':
       return `partial:${(p.requestId ?? '').toLowerCase()}`;
+    case 'republish':
+      return `republish:${(p.requestId ?? '').toLowerCase()}`;
     default:
       return p.kind;
   }
@@ -91,10 +108,12 @@ async function updatePending(
   record: CeremonyRecord,
   change: (list: PendingAction[]) => PendingAction[],
 ): Promise<void> {
-  const current = await getRecord(record.chainId, record.manager, record.cid);
-  if (!current) return;
-  const next = change(current.pending ?? []);
-  await putRecord({ ...current, pending: next.length > 0 ? next : undefined });
+  await withRecordLock(recordKey(record.chainId, record.manager, record.cid), async () => {
+    const current = await getRecord(record.chainId, record.manager, record.cid);
+    if (!current) return;
+    const next = change(current.pending ?? []);
+    await putRecord({ ...current, pending: next.length > 0 ? next : undefined });
+  });
 }
 
 export const addPending = (record: CeremonyRecord, p: PendingAction): Promise<void> =>
@@ -139,9 +158,23 @@ export async function pendingSettled(
     }
     case 'partial': {
       if (!p.requestId || p.memberIndex === undefined) return false;
-      const req = await client.getRequest(p.requestId);
-      if (bit(req.partialBitmap, p.memberIndex - 1)) return true;
+      const meta = await client.getRequestMeta(p.requestId);
+      if (bit(meta.partialBitmap, p.memberIndex - 1)) return true;
       return (await client.getPlaintexts(p.requestId)).ready;
+    }
+    case 'open': {
+      // Settled once the finalized state shows the gate opened (§8.7).
+      const policy = await client.getPolicy(cid);
+      return policy.manualOpenedAt !== 0n || policy.decryptionOpen;
+    }
+    case 'republish': {
+      if (!p.requestId || p.memberIndex === undefined || p.fieldCount === undefined) return false;
+      if ((await client.getPlaintexts(p.requestId)).ready) return true;
+      // Settled once the vector is retrievable and matching again — or, when this device cannot
+      // read history at all, once the authenticated commitment shows the new publication block.
+      const check = await republishCheck(client, cid, p.requestId, p.fieldCount, p.memberIndex);
+      if (check.state === 'not-needed') return true;
+      return p.publishedBlock !== undefined && check.publishedBlock > BigInt(p.publishedBlock);
     }
   }
 }
@@ -236,6 +269,8 @@ const WHAT: Record<PendingKind, string> = {
   finish: 'finishing the key',
   grant: 'the approval',
   partial: 'turning your key',
+  open: 'opening the results',
+  republish: 'republishing your unlock data',
 };
 
 /** Plain-language report of a rejected action (screens prefix nothing). */

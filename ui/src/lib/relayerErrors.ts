@@ -33,6 +33,7 @@ const PLAIN: Record<string, string> = {
   BUSY: 'our service is busy right now — try again in a moment',
   FORBIDDEN_ORIGIN: 'our service does not accept requests from this page’s address — please tell whoever runs this app',
   UNSUPPORTED_MEDIA_TYPE: 'our service refused the request format — reload the page to get the current app',
+  TIMEOUT: 'our service did not answer in time — the step may still go through; reload the page in a minute to see where things stand',
 };
 
 interface CodedError {
@@ -40,20 +41,31 @@ interface CodedError {
   detail?: string;
 }
 
-const isRelayerError = (err: unknown): err is Error & CodedError =>
+const isRelayerError = (err: unknown): err is Error & CodedError & { httpStatus?: number } =>
   err instanceof Error && err.name === 'RelayerError' && typeof (err as Partial<CodedError>).code === 'string';
+
+/** The SDK's RelayersUnavailableError: no relayer of the configured list took the request. */
+const isPoolError = (err: unknown): err is Error & { failures: { url: string; error: unknown }[] } =>
+  err instanceof Error &&
+  err.name === 'RelayersUnavailableError' &&
+  Array.isArray((err as { failures?: unknown }).failures);
 
 /** What fetch rejects with when the request got no answer (Chromium, Firefox, Safari, Node). */
 const NETWORK_FAILURE = /^(Failed to fetch|NetworkError when attempting to fetch resource|Load failed|fetch failed)/;
 
-/** The contract's refusal name from a SIMULATION_REVERTED detail such as `AlreadyJoined()`. */
+/** The relayer could not be reached or is not working right now (as opposed to answering "no"). */
+const unreachable = (err: unknown): boolean =>
+  (err instanceof TypeError && NETWORK_FAILURE.test(err.message)) ||
+  (isRelayerError(err) &&
+    (err.code === 'INTERNAL' || err.code === 'BUSY' || err.code === 'TIMEOUT' || (err.httpStatus ?? 0) >= 500));
+
+/** The contract's refusal name from a SIMULATION_REVERTED detail such as `DuplicateParticipant()`. */
 const revertName = (detail: string | undefined): string | undefined => /^([A-Za-z_]\w*)\(/.exec(detail ?? '')?.[1];
 
 const RACE = 'someone else already completed this step — nothing to do';
 
 /** Common contract refusals as plain sentences (CouncilTypes.sol names). */
 const REVERTS: Record<string, string> = {
-  AlreadyJoined: 'you have already joined — maybe on another device or an earlier try; restore from your kit instead',
   DuplicateParticipant:
     'you have already joined — maybe on another device or an earlier try; restore from your kit instead',
   InviteConsumed: 'this invitation was already used — if that was you on another device, restore from your kit',
@@ -90,6 +102,23 @@ export function submitRevertName(err: unknown): string | undefined {
  * says the service could not be reached; anything else passes through.
  */
 export function plainSubmitError(err: unknown): Error {
+  if (isPoolError(err)) {
+    const { failures } = err;
+    const only = failures.length === 1 ? failures[0] : undefined;
+    // One configured relayer: exactly the message that relayer's answer gets.
+    if (only) return new Error(plainSubmitError(only.error).message, { cause: err });
+    if (failures.every((f) => unreachable(f.error))) {
+      // No answer is not "not sent": a service may have carried the step and lost its reply.
+      return new Error(
+        `none of our ${failures.length} services answered right now — reload the page in a minute to see whether the step went through, and if not, try again; if it keeps failing, tell whoever runs this app`,
+        { cause: err },
+      );
+    }
+    const answered = failures.find((f) => !unreachable(f.error));
+    return new Error(`${plainSubmitError(answered?.error).message} (our other services could not take it either)`, {
+      cause: err,
+    });
+  }
   if (isRelayerError(err)) {
     const plain = PLAIN[err.code] ?? PLAIN.INTERNAL;
     const name = err.code === 'SIMULATION_REVERTED' ? revertName(err.detail) : undefined;

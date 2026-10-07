@@ -55,6 +55,23 @@ export function formatDate(unixSeconds: number): string {
   });
 }
 
+/** The same instant in UTC, for showing next to the local time. */
+export function formatDateUTC(unixSeconds: number): string {
+  const utc = new Date(unixSeconds * 1000).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  });
+  return `${utc} UTC`;
+}
+
+/** Local time with the UTC equivalent in parentheses (skipped when identical). */
+export function dateWithUtc(unixSeconds: number): string {
+  const local = formatDate(unixSeconds);
+  const utc = formatDateUTC(unixSeconds);
+  return utc.startsWith(local) ? local : `${local} (${utc})`;
+}
+
 /** Count set bits of a small bitmap. */
 export function bitCount(bitmap: number | bigint): number {
   let v = BigInt(bitmap);

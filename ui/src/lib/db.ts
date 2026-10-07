@@ -24,14 +24,43 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
+/**
+ * Run one request in its own transaction and settle with the transaction, not the request: a
+ * request can succeed and its transaction still abort before commit (quota exceeded, disk I/O,
+ * the browser shutting down), so nothing written is reported as stored until `complete` fires.
+ * `abort` and `error` reject. Writes ask for strict durability (flushed to disk before
+ * `complete`) where the browser supports the option.
+ */
 function tx<T>(store: string, mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return openDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const t = db.transaction(store, mode);
-        const req = run(t.objectStore(store));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error ?? new Error('indexedDB request failed'));
+        let t: IDBTransaction;
+        let req: IDBRequest<T>;
+        try {
+          t = mode === 'readwrite' ? db.transaction(store, mode, { durability: 'strict' }) : db.transaction(store, mode);
+          req = run(t.objectStore(store));
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+          return;
+        }
+        let result: T;
+        let settled = false;
+        const fail = (fallback: string) => {
+          if (settled) return;
+          settled = true;
+          reject(t.error ?? req.error ?? new Error(fallback));
+        };
+        req.onsuccess = () => {
+          result = req.result;
+        };
+        t.oncomplete = () => {
+          if (settled) return;
+          settled = true;
+          resolve(result);
+        };
+        t.onabort = () => fail('indexedDB transaction aborted');
+        t.onerror = () => fail('indexedDB transaction failed');
       }),
   );
 }

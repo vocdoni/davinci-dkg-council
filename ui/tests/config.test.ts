@@ -33,6 +33,40 @@ describe('config validation', () => {
     ).toThrow(/same endpoint twice/);
   });
 
+  it('accepts several relayers and artifact mirrors, singular key first, in order', () => {
+    const cfg = validateConfig({
+      ...base,
+      relayerUrl: 'https://relay.example',
+      relayerUrls: ['https://relay2.example'],
+      artifactsBaseUrl: undefined,
+      artifactsBaseUrls: ['https://m1.example/{release}', 'https://m2.example/circuits-v1'],
+    });
+    expect(cfg.relayerUrls).toEqual(['https://relay.example', 'https://relay2.example']);
+    expect(cfg.artifactsBaseUrls).toEqual(['https://m1.example/{release}', 'https://m2.example/circuits-v1']);
+    expect(validateConfig({ ...base, relayerUrl: null }).relayerUrls).toEqual([]);
+  });
+
+  it('rejects a repeated or non-http relayer or mirror', () => {
+    expect(() => validateConfig({ ...base, relayerUrls: ['https://relay.example/'] })).toThrow(/same URL twice/);
+    expect(() => validateConfig({ ...base, artifactsBaseUrls: ['ftp://m.example'] })).toThrow(/http\(s\)/);
+    expect(() => validateConfig({ ...base, relayerUrls: 'https://x.example' })).toThrow(/array/);
+  });
+
+  it('lists legacy deployments on the same chain with their own relayers', () => {
+    const legacy = '0x00000000000000000000000000000000000000BB';
+    const cfg = validateConfig({
+      ...base,
+      legacyDeployments: [{ manager: legacy, deploymentBlock: 7, relayerUrls: ['https://old-relay.example'], label: '2026 rehearsal' }],
+    });
+    expect(cfg.legacyDeployments).toEqual([
+      { manager: legacy.toLowerCase(), deploymentBlock: 7, relayerUrls: ['https://old-relay.example'], label: '2026 rehearsal' },
+    ]);
+    expect(validateConfig(base).legacyDeployments).toEqual([]);
+    expect(() => validateConfig({ ...base, legacyDeployments: [{ manager: base.manager }] })).toThrow(/listed twice/);
+    expect(() => validateConfig({ ...base, legacyDeployments: [{ manager: legacy, chainId: 1 }] })).toThrow(/app's chain/);
+    expect(() => validateConfig({ ...base, legacyDeployments: [{ manager: 'nope' }] })).toThrow(/0x address/);
+  });
+
   it('rejects a devPrivateKey outside devMode', () => {
     expect(() => validateConfig({ ...base, devPrivateKey: `0x${'11'.repeat(32)}` })).toThrow(/devMode/);
   });
@@ -50,15 +84,23 @@ describe('config overrides (make ui-sepolia)', () => {
     const fetchFn = fetchReturning({ ...base });
     const cfg = await loadConfig(fetchFn);
     expect(fetchFn).toHaveBeenCalledWith('/config.sepolia.json', { cache: 'no-cache' });
-    expect(cfg.relayerUrl).toBe('https://relayer.example/sepolia');
-    expect(cfg.artifactsBaseUrl).toBe('https://artifacts.example/circuits');
+    expect(cfg.relayerUrls).toEqual(['https://relayer.example/sepolia']);
+    expect(cfg.artifactsBaseUrls).toEqual(['https://artifacts.example/circuits']);
+  });
+
+  it('takes comma-separated lists from the env, in order', async () => {
+    vi.stubEnv('VITE_RELAYER_URL', 'https://r1.example, https://r2.example');
+    vi.stubEnv('VITE_ARTIFACTS_URL', 'https://m1.example/{release},https://m2.example/x');
+    const cfg = await loadConfig(fetchReturning({ ...base }));
+    expect(cfg.relayerUrls).toEqual(['https://r1.example', 'https://r2.example']);
+    expect(cfg.artifactsBaseUrls).toEqual(['https://m1.example/{release}', 'https://m2.example/x']);
   });
 
   it('reads /config.json untouched without the env', async () => {
     const fetchFn = fetchReturning({ ...base });
     const cfg = await loadConfig(fetchFn);
     expect(fetchFn).toHaveBeenCalledWith('/config.json', { cache: 'no-cache' });
-    expect(cfg.relayerUrl).toBe('https://relay.example');
-    expect(cfg.artifactsBaseUrl).toBeNull();
+    expect(cfg.relayerUrls).toEqual(['https://relay.example']);
+    expect(cfg.artifactsBaseUrls).toEqual([]);
   });
 });

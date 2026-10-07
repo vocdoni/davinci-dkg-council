@@ -13,16 +13,19 @@ import {
   DEFAULT_LOG_CHUNK,
   decodeManagerLogs,
   LogScanner,
-  RelayerClient,
+  RelayerPool,
   type Action,
   type Hex,
+  type TrackCeremonyRequest,
 } from '@vocdoni/davinci-dkg-council-sdk';
 import { createContext, useContext, type ReactNode } from 'react';
 import { createPublicClient, createWalletClient, defineChain, http, type AbiEvent } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { AppConfig } from './config';
+import type { Deployments } from './deployments';
 import type { ChainReader, ManagerEvent } from './lib/chain';
 import { proveInWorker, type OnProveProgress, type ProveProgress } from './lib/proving';
+import { releaseArtifacts } from './lib/release';
 import { plainSubmitError, TxRejectedError } from './lib/relayerErrors';
 import type {
   CircuitName,
@@ -52,6 +55,14 @@ export interface Services {
   waitTx(txHash: Hex): Promise<void>;
   /** One status check of a submitted action; never throws (`unknown` instead). */
   txStatus(txHash: Hex): Promise<TxStatus>;
+  /**
+   * Register a committee with every configured relayer (`POST /v1/track`, architecture §5.1) so
+   * their combine workers serve its decryption from state, without log discovery. Resolves true
+   * once every relayer has it (trivially, when none is configured — the dev direct path needs no
+   * tracking); false when at least one could not be reached, so the caller retries later.
+   * Never throws; tracking is idempotent.
+   */
+  trackCeremony(request: TrackCeremonyRequest): Promise<boolean>;
   /** Download verified proving files and prove in a Web Worker. */
   prove(
     circuit: CircuitName,
@@ -94,13 +105,22 @@ export function buildServices(config: AppConfig): Services {
   let submit: (action: Action) => Promise<Hex>;
   let waitTx: (txHash: Hex) => Promise<void>;
   let txStatus: (txHash: Hex) => Promise<TxStatus>;
+  // Without a relayer there is nothing to register with: the dev direct path decrypts by hand.
+  let trackCeremony: (request: TrackCeremonyRequest) => Promise<boolean> = async () => true;
 
-  if (config.relayerUrl) {
-    const relayer = new RelayerClient(config.relayerUrl);
+  if (config.relayerUrls.length > 0) {
+    // Several relayers, tried in order: the next one when one is down, busy, out of budget or
+    // not sponsoring; a refusal of the action itself is final (RelayerPool).
+    const relayer = new RelayerPool(config.relayerUrls);
     submit = (action) =>
       relayer.relay(chainId, config.manager, action).catch((err: unknown) => {
         throw plainSubmitError(err);
       });
+    // Unlike relay, tracking goes to every relayer: each combine worker keeps its own list.
+    trackCeremony = async (request) => {
+      const outcomes = await relayer.track(chainId, config.manager, request);
+      return outcomes.every((o) => o.tracked);
+    };
     txStatus = async (txHash) => {
       const s = await relayer.status(txHash).catch(() => undefined);
       if (!s) return { status: 'unknown' };
@@ -153,8 +173,10 @@ export function buildServices(config: AppConfig): Services {
     submit,
     waitTx,
     txStatus,
-    prove: (circuit, witnessInput, onProgress) =>
-      proveInWorker(circuit, witnessInput, config.artifactsBaseUrl, onProgress),
+    trackCeremony,
+    // The files of this deployment's own release (its on-chain id), from the configured mirrors.
+    prove: async (circuit, witnessInput, onProgress) =>
+      proveInWorker(circuit, witnessInput, config.artifactsBaseUrls, onProgress, await releaseArtifacts(client)),
     joinedEvents: async (cid, fromBlock) => {
       const key = cid.toLowerCase();
       let scanner = joinScans.get(key);
@@ -178,13 +200,34 @@ export function buildServices(config: AppConfig): Services {
 }
 
 const ServicesContext = createContext<Services | null>(null);
+const DeploymentsContext = createContext<Deployments | null>(null);
 
 export function ServicesProvider({ services, children }: { services: Services; children: ReactNode }) {
   return <ServicesContext.Provider value={services}>{children}</ServicesContext.Provider>;
 }
 
+export function DeploymentsProvider({ deployments, children }: { deployments: Deployments; children: ReactNode }) {
+  return (
+    <DeploymentsContext.Provider value={deployments}>
+      <ServicesProvider services={deployments.current}>{children}</ServicesProvider>
+    </DeploymentsContext.Provider>
+  );
+}
+
+/** The services of the deployment in view: the current one, or a committee's own (Ceremony route). */
 export function useServices(): Services {
   const services = useContext(ServicesContext);
   if (!services) throw new Error('useServices outside ServicesProvider');
   return services;
+}
+
+/** Like useServices, but null outside any provider (start-up and error screens). */
+export function useOptionalServices(): Services | null {
+  return useContext(ServicesContext);
+}
+
+export function useDeployments(): Deployments {
+  const deployments = useContext(DeploymentsContext);
+  if (!deployments) throw new Error('useDeployments outside DeploymentsProvider');
+  return deployments;
 }

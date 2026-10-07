@@ -4,8 +4,16 @@
  * progress, access control and results.
  */
 
-import { MAX_N, Phase, type Action, type CeremonyView, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
-import { useState } from 'react';
+import {
+  MAX_N,
+  Phase,
+  PhaseMode,
+  type Action,
+  type CeremonyView,
+  type Hex,
+  type PhasePolicyView,
+} from '@vocdoni/davinci-dkg-council-sdk';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../App';
 import { KitCard } from '../components/KitCard';
 import { QrCode } from '../components/QrCode';
@@ -16,10 +24,35 @@ import {
   prepareAllowAdapter,
   prepareAuthorizeCreator,
   prepareCloseRegistration,
+  prepareOpenDecryption,
+  prepareTrackCeremony,
 } from '../flows/organizer';
 import { listRequests, type RequestSummary } from '../flows/participant';
-import { getJoinedParticipants, inviteLinkage, readCeremony, type JoinedParticipant } from '../lib/chain';
-import { bitCount, formatDate, identityCode, shortId, thresholdSentence, timeLeft, voteName } from '../lib/format';
+import {
+  getJoinedParticipants,
+  inviteLinkage,
+  readCeremony,
+  type JoinedParticipant,
+  type ManagerEvent,
+} from '../lib/chain';
+import {
+  exportOrganizerRecord,
+  importOrganizerRecord,
+  organizerRecordFileName,
+  parseOrganizerRecord,
+} from '../lib/organizerRecord';
+import { downloadTextFile } from '../lib/download';
+import { readReleaseStatus } from '../lib/release';
+import {
+  bitCount,
+  dateWithUtc,
+  formatDate,
+  identityCode,
+  shortId,
+  thresholdSentence,
+  timeLeft,
+  voteName,
+} from '../lib/format';
 import { usePoll } from '../lib/hooks';
 import {
   failedText,
@@ -31,10 +64,13 @@ import {
   type PendingDraft,
 } from '../lib/pending';
 import {
+  getInviteMapping,
   getLabels,
   getVoteLabels,
+  putInviteMapping,
   setLabel,
   setVoteLabel,
+  updateRecord,
   type CeremonyRecord,
   type LabelMap,
   type VoteLabelMap,
@@ -60,26 +96,37 @@ interface Joined {
  * deployment block) and cross-checked against authenticated state. A scan that fails or has not
  * reached the head yet leaves some members without a name; it never blocks anything.
  */
-function joinLinkage(
+async function joinLinkage(
   services: Services,
   record: CeremonyRecord,
   people: JoinedParticipant[],
   view: CeremonyView,
 ): Promise<Map<number, number>> {
   const settled = settledLinkage.get(record.key);
-  if (settled) return Promise.resolve(settled);
+  if (settled) return settled;
+  // Links found earlier (or loaded from an organizer record) come first: the join events are
+  // history a provider may stop serving. Both go through the same cross-check.
+  const stored = await getInviteMapping(record.chainId, record.manager, record.cid).catch(() => []);
+  const storedEvents: ManagerEvent[] = stored.map((m) => ({
+    eventName: 'ParticipantJoined',
+    args: { cid: record.cid, index: m.index, auth: m.auth, inviteId: m.inviteId },
+  }));
   const fromBlock = record.fromBlock !== undefined ? BigInt(record.fromBlock) : undefined;
-  return services
+  const events = await services
     .joinedEvents(record.cid, fromBlock)
-    .then(({ events }) => {
-      const linkage = inviteLinkage(events, record.cid, people, view);
-      // The list is locked and every member is linked: nothing left to scan for.
-      if (view.phase !== (Phase.Registration as number) && linkage.size === people.length) {
-        settledLinkage.set(record.key, linkage);
-      }
-      return linkage;
-    })
-    .catch(() => new Map<number, number>());
+    .then((r) => r.events)
+    .catch(() => [] as ManagerEvent[]);
+  const linkage = inviteLinkage([...storedEvents, ...events], record.cid, people, view);
+  const links = [...linkage].map(([index, inviteId]) => ({ index, auth: people[index - 1]?.auth as Hex, inviteId }));
+  const known = new Set(stored.map((m) => `${m.index}:${m.auth.toLowerCase()}:${m.inviteId}`));
+  if (links.some((l) => !known.has(`${l.index}:${l.auth.toLowerCase()}:${l.inviteId}`))) {
+    await putInviteMapping(record.chainId, record.manager, record.cid, links).catch(() => undefined);
+  }
+  // The list is locked and every member is linked: nothing left to scan for.
+  if (view.phase !== (Phase.Registration as number) && linkage.size === people.length) {
+    settledLinkage.set(record.key, linkage);
+  }
+  return linkage;
 }
 
 /** Committees whose every member is linked to an invitation after the list was locked. */
@@ -174,9 +221,21 @@ interface Review {
   members: Joined[];
 }
 
-function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: CeremonyView; joined: Joined[] }) {
+function PeopleCard({
+  record,
+  view,
+  joined,
+  policy,
+}: {
+  record: CeremonyRecord;
+  view: CeremonyView;
+  joined: Joined[];
+  policy: PhasePolicyView;
+}) {
   const services = useServices();
   const { mnemonic, refreshRecords } = useApp();
+  /** Only a Manual-joining committee is locked by the organizer (§8.1). */
+  const manualReg = policy.registrationMode === (PhaseMode.Manual as number);
   const [labels, setLabels] = useState<LabelMap>({});
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
@@ -294,7 +353,15 @@ function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: Ce
               }
               onClick={() =>
                 void run(
-                  () => prepareAddInvites(mnemonic, services.config, record.cid, view.inviteCount, addCount),
+                  () =>
+                    prepareAddInvites(
+                      mnemonic,
+                      services.config,
+                      record.cid,
+                      view.inviteCount,
+                      addCount,
+                      record.accountIndex,
+                    ),
                   { kind: 'addInvites', inviteCount: view.inviteCount + addCount },
                 )
               }
@@ -303,7 +370,12 @@ function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: Ce
             </Button>
           </div>
 
-          {!review ? (
+          {!manualReg ? (
+            <p className="text-sm text-ink/70">
+              Joining closes by itself on {dateWithUtc(Number(view.registrationDeadline))} — no step for you
+              here, as long as at least {view.threshold} people joined by then.
+            </p>
+          ) : !review ? (
             <div>
               <Button disabled={!canClose || busy} onClick={() => void startReview()}>
                 Everyone is in — lock the member list
@@ -349,7 +421,14 @@ function PeopleCard({ record, view, joined }: { record: CeremonyRecord; view: Ce
                     disabled={busy}
                     onClick={() =>
                       void run(
-                        () => prepareCloseRegistration(mnemonic, services.config, record.cid, review.count),
+                        () =>
+                          prepareCloseRegistration(
+                            mnemonic,
+                            services.config,
+                            record.cid,
+                            review.count,
+                            record.accountIndex,
+                          ),
                         { kind: 'close' },
                       )
                     }
@@ -409,12 +488,112 @@ function KeyCard({ record, view, joined }: { record: CeremonyRecord; view: Cerem
           <p className="text-sm text-ink/80">
             The key is ready: {thresholdSentence(view.threshold, view.n)}.
           </p>
+          <div className="mt-2">
+            <Note tone="info">
+              {view.n - view.threshold === 0
+                ? `Every one of the ${view.n} members is needed: if a single one loses their twelve words, the results can never be opened.`
+                : `The committee can afford to lose at most ${view.n - view.threshold} of its ${view.n} members: if more lose their twelve words, the results can never be opened.`}{' '}
+              A few weeks before the opening date, ask each member to open this committee and use “Check my
+              words”, and to tell you it worked.
+            </Note>
+          </div>
           <Disclosure>
             public key x {view.pkX.toString(10)}
             <br />
             public key y {view.pkY.toString(10)}
           </Disclosure>
         </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Export / import of the organizer record (lib/organizerRecord.ts): the names, invitation links
+ * and vote names that exist only on this device, plus the public facts to find the committee again.
+ */
+function OrganizerRecordCard({
+  record,
+  view,
+  policy,
+}: {
+  record: CeremonyRecord;
+  view: CeremonyView;
+  policy: PhasePolicyView | null;
+}) {
+  const services = useServices();
+  const { refreshRecords } = useApp();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [note, setNote] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setNote(null);
+    try {
+      const release = await readReleaseStatus(services.client).catch(() => undefined);
+      const file = await exportOrganizerRecord(record, services.config, {
+        view,
+        policy: policy ?? undefined,
+        release,
+        appUrl: window.location.origin,
+      });
+      downloadTextFile(organizerRecordFileName(record.cid), `${JSON.stringify(file, null, 2)}\n`);
+    } catch (err) {
+      setNote({ tone: 'bad', text: `That did not work: ${err instanceof Error ? err.message : String(err)}.` });
+    }
+  };
+
+  const load = async (f: File) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const counts = await importOrganizerRecord(parseOrganizerRecord(await f.text()), record);
+      settledLinkage.delete(record.key);
+      await refreshRecords();
+      setNote({
+        tone: 'ok',
+        text: `Loaded ${counts.names} ${counts.names === 1 ? 'name' : 'names'}, ${counts.links} invitation ${
+          counts.links === 1 ? 'link' : 'links'
+        } and ${counts.votes} vote ${counts.votes === 1 ? 'name' : 'names'}. They show up here within a minute.`,
+      });
+    } catch (err) {
+      setNote({ tone: 'bad', text: `That did not work: ${err instanceof Error ? err.message : String(err)}.` });
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  return (
+    <Card title="Organizer record">
+      <p className="mb-3 text-sm leading-relaxed">
+        The names you typed, which invitation each person used and the vote names exist only on this device.
+        Save them to a file and keep it with your recovery kit — months from now, or on another device, load it
+        here. The file holds no keys and no invitation links, but it does hold the names: keep it private.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => void save()}>
+          Save the organizer record
+        </Button>
+        <Button variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+          {busy ? 'Loading…' : 'Load a saved record'}
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          aria-label="Organizer record file"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void load(f);
+          }}
+        />
+      </div>
+      {note && (
+        <div className="mt-3">
+          <Note tone={note.tone}>{note.text}</Note>
+        </div>
       )}
     </Card>
   );
@@ -463,8 +642,8 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
     try {
       const make =
         pending.which === 'adapter'
-          ? () => prepareAllowAdapter(mnemonic, services.config, record.cid, pending.address)
-          : () => prepareAuthorizeCreator(mnemonic, services.config, record.cid, pending.address);
+          ? () => prepareAllowAdapter(mnemonic, services.config, record.cid, pending.address, record.accountIndex)
+          : () => prepareAuthorizeCreator(mnemonic, services.config, record.cid, pending.address, record.accountIndex);
       const draft = grantDraft(pending.which, pending.address);
       await sendTracked(services, record, await make(), draft, refreshRecords);
       setLastSent(draft);
@@ -581,7 +760,104 @@ function AccessCard({ record, failed }: { record: CeremonyRecord; failed: Failed
   );
 }
 
-function ResultsCard({ record, view }: { record: CeremonyRecord; view: CeremonyView }) {
+/** Manual decryption (§8.7): the organizer's one-way switch that lets members open results. */
+function OpenResultsCard({ record, policy }: { record: CeremonyRecord; policy: PhasePolicyView }) {
+  const services = useServices();
+  const { mnemonic, refreshRecords } = useApp();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /** Sent from this device, not in the finalized state yet. */
+  const opening = findPending(record, { kind: 'open' });
+
+  if (policy.decryptionMode !== (PhaseMode.Manual as number)) return null;
+  const opened = policy.manualOpenedAt !== 0n || policy.decryptionOpen;
+
+  const open = async () => {
+    if (!mnemonic) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // The signed instruction is short-lived and built only now, at the moment of opening.
+      const action = await prepareOpenDecryption(mnemonic, services.config, record.cid, record.accountIndex);
+      await sendTracked(services, record, action, { kind: 'open' }, refreshRecords);
+      setConfirming(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (opened) {
+    return (
+      <Card title="The results are open">
+        <p className="text-sm text-ink/80">
+          {policy.manualOpenedAt !== 0n
+            ? `You opened the results on ${formatDate(Number(policy.manualOpenedAt))}. The members can now unlock every vote using this key.`
+            : 'The safety date passed, so the results opened by themselves. The members can now unlock every vote using this key.'}
+        </p>
+      </Card>
+    );
+  }
+  return (
+    <Card title="Open the results">
+      <p className="text-sm text-ink/80">
+        Votes using this key stay locked until you open the results
+        {policy.manualDecryptionFallbackAt !== 0n
+          ? ` — or until ${dateWithUtc(Number(policy.manualDecryptionFallbackAt))}, when they open by themselves as a safety measure`
+          : ''}
+        .
+      </p>
+      {opening ? (
+        <div className="mt-3">
+          <ConfirmingNote lead="You opened the results." />
+        </div>
+      ) : !mnemonic ? (
+        <p className="mt-2 text-sm text-ink/60">
+          Your organizer key is not on this device — restore it from your recovery kit to open the results.
+        </p>
+      ) : !confirming ? (
+        <div className="mt-3">
+          <Button onClick={() => setConfirming(true)}>Open the results now</Button>
+        </div>
+      ) : (
+        <div className="mt-3">
+          <Note tone="warn">
+            <p className="font-semibold">Opening the results cannot be undone.</p>
+            <p className="mt-1">
+              From this moment on, the committee members can reveal the results of every vote using this key —
+              current and future ones. If voting is still going on, wait.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Button disabled={busy} onClick={() => void open()}>
+                {busy ? 'Working…' : 'I understand — open the results'}
+              </Button>
+              <Button variant="secondary" disabled={busy} onClick={() => setConfirming(false)}>
+                Not yet
+              </Button>
+            </div>
+          </Note>
+        </div>
+      )}
+      {error && (
+        <div className="mt-3">
+          <Note tone="bad">That did not work: {error}. Nothing was opened — you can try again.</Note>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ResultsCard({
+  record,
+  view,
+  policy,
+}: {
+  record: CeremonyRecord;
+  view: CeremonyView;
+  policy: PhasePolicyView;
+}) {
   const services = useServices();
   const [requests, setRequests] = useState<RequestSummary[] | null>(null);
   const [labels, setLabels] = useState<VoteLabelMap>({});
@@ -625,7 +901,13 @@ function ResultsCard({ record, view }: { record: CeremonyRecord; view: CeremonyV
                 <p className="mt-1 text-ink/70">
                   {r.ready
                     ? `Open — results: ${(r.values ?? []).map((v) => v.toString(10)).join(', ')}. The numbers are in the ballot’s answer order; the voting system shows what each one means.`
-                    : `${r.partialCount} of the ${view.threshold} needed members have turned their key.`}
+                    : r.notSubmitted
+                      ? 'Waiting for the voting system to send in the locked results.'
+                      : !policy.decryptionOpen
+                        ? policy.decryptionMode === (PhaseMode.Scheduled as number)
+                          ? `Locked until ${dateWithUtc(Number(policy.decryptionOpenAt))}.`
+                          : 'Locked — open the results above to let the members act.'
+                        : `${r.partialCount} of the ${view.threshold} needed members have turned their key.`}
                 </p>
                 <Disclosure>
                   request {r.requestId}
@@ -650,12 +932,15 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
   const { mnemonic, refreshRecords } = useApp();
   /** Undefined before the first read; null while the finalized block does not hold the committee. */
   const [view, setView] = useState<CeremonyView | null | undefined>(undefined);
+  const [policy, setPolicy] = useState<PhasePolicyView | null>(null);
   const [joined, setJoined] = useState<Joined[]>([]);
   const [failed, setFailed] = useState<FailedAction[]>([]);
+  const trackTried = useRef(false);
   const poll = usePoll(
     async () => {
       const v = await readCeremony(services.client, record.cid);
       setView(v);
+      if (v !== null) setPolicy(await services.client.getPolicy(record.cid));
       const settled = await settlePending(services, record, v);
       if (settled.failed.length > 0) setFailed((f) => [...f, ...settled.failed]);
       if (settled.changed) await refreshRecords();
@@ -668,6 +953,24 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
     8000,
     [record.cid],
   );
+
+  // Retry the relayer registration (/v1/track) a creation left unconfirmed: once per open of
+  // this dashboard, best effort, flagged on the record only when every relayer confirmed
+  // (withRecordLock keeps this write from losing a concurrent pending-entry write).
+  useEffect(() => {
+    if (trackTried.current || record.relayerTracked || !mnemonic || !view) return;
+    if (view.phase === (Phase.Aborted as number)) return;
+    trackTried.current = true;
+    void prepareTrackCeremony(mnemonic, services.config, record.cid, record.accountIndex)
+      .then((request) => services.trackCeremony(request))
+      .then(async (tracked) => {
+        if (!tracked) return;
+        await updateRecord(record.chainId, record.manager, record.cid, { relayerTracked: true });
+        await refreshRecords();
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view == null]);
 
   const failures = failed.map((f) => (
     <Note key={`${pendingKey(f.action)}:${f.action.sentAt}`} tone="bad">
@@ -705,7 +1008,18 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
         <p className="text-sm leading-relaxed">{phaseSentence(view)}</p>
         {view.phase === (Phase.Registration as number) && (
           <p className="mt-1 text-sm text-ink/70">
-            Joining closes {formatDate(Number(view.registrationDeadline))} ({timeLeft(Number(view.registrationDeadline))}).
+            {view.registrationDeadline === 0n
+              ? 'You close joining yourself once everyone is in.'
+              : `Joining closes ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
+          </p>
+        )}
+        {policy && view.phase === (Phase.Live as number) && !policy.decryptionOpen && (
+          <p className="mt-1 text-sm text-ink/70">
+            {policy.decryptionMode === (PhaseMode.Scheduled as number)
+              ? `Results can be opened from ${dateWithUtc(Number(policy.decryptionOpenAt))}.`
+              : policy.manualDecryptionFallbackAt !== 0n
+                ? `Results open when you say so — or on ${dateWithUtc(Number(policy.manualDecryptionFallbackAt))} at the latest.`
+                : 'Results open only when you say so.'}
           </p>
         )}
       </Card>
@@ -715,14 +1029,18 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
           committee. You can still watch its progress.
         </Note>
       )}
-      <PeopleCard record={record} view={view} joined={joined} />
+      {policy && <PeopleCard record={record} view={view} joined={joined} policy={policy} />}
       <KeyCard record={record} view={view} joined={joined} />
-      <FinishCard record={record} view={view} />
+      {policy && <FinishCard record={record} view={view} policy={policy} />}
+      {policy && view.phase === (Phase.Live as number) && <OpenResultsCard record={record} policy={policy} />}
       {view.phase === (Phase.Live as number) && <AccessCard record={record} failed={failed} />}
-      {view.phase === (Phase.Live as number) && <ResultsCard record={record} view={view} />}
+      {policy && view.phase === (Phase.Live as number) && (
+        <ResultsCard record={record} view={view} policy={policy} />
+      )}
       {view.phase === (Phase.Aborted as number) && (
         <Note tone="warn">This committee was called off. Start a new one when your group is ready.</Note>
       )}
+      <OrganizerRecordCard record={record} view={view} policy={policy} />
       <KitCard record={record} />
     </div>
   );

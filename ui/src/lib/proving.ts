@@ -5,9 +5,11 @@
  */
 
 import {
+  ArtifactUnavailableError,
   COUNCIL_ARTIFACTS,
   fetchArtifact,
   WorkerProver,
+  type ArtifactsRelease,
   type CircuitName,
   type CircuitProvingArtifacts,
   type DealWitnessInput,
@@ -33,10 +35,11 @@ const memoryCache = new Map<string, Uint8Array>();
 async function loadFile(
   circuit: CircuitName,
   kind: 'wasm' | 'zkey',
-  baseUrl: string | null,
+  baseUrls: readonly string[],
+  release: ArtifactsRelease,
   onProgress?: OnProveProgress,
 ): Promise<Uint8Array> {
-  const file = COUNCIL_ARTIFACTS[circuit][kind];
+  const file = release[circuit][kind];
   const cacheKey = `${file.url}:${file.sha256}`;
   const hit = memoryCache.get(cacheKey);
   if (hit) return hit;
@@ -48,20 +51,30 @@ async function loadFile(
       totalBytes: p.totalBytes,
     }),
   );
-  const bytes = await fetchArtifact(file, { baseUrl: baseUrl ?? undefined, fetchFn });
+  // Mirrors in order; each copy is checked against the pin inside the SDK.
+  const bytes = await fetchArtifact(file, { baseUrls, release: release.release, fetchFn }).catch((err: unknown) => {
+    if (err instanceof ArtifactUnavailableError) {
+      throw new Error(
+        'the checking files could not be downloaded from any of our copies — check your connection and try again; if it keeps failing, tell whoever runs this app',
+        { cause: err },
+      );
+    }
+    throw err;
+  });
   memoryCache.set(cacheKey, bytes);
   return bytes;
 }
 
-/** Download (or reuse) the verified proving files of one circuit. */
+/** Download (or reuse) the verified proving files of one circuit of `release` (default: the current pins). */
 export async function loadCircuitArtifacts(
   circuit: CircuitName,
-  baseUrl: string | null,
+  baseUrls: readonly string[],
   onProgress?: OnProveProgress,
+  release: ArtifactsRelease = COUNCIL_ARTIFACTS,
 ): Promise<CircuitProvingArtifacts> {
   const [wasm, zkey] = await Promise.all([
-    loadFile(circuit, 'wasm', baseUrl, onProgress),
-    loadFile(circuit, 'zkey', baseUrl, onProgress),
+    loadFile(circuit, 'wasm', baseUrls, release, onProgress),
+    loadFile(circuit, 'zkey', baseUrls, release, onProgress),
   ]);
   return { wasm, zkey };
 }
@@ -70,10 +83,11 @@ export async function loadCircuitArtifacts(
 export async function proveInWorker(
   circuit: CircuitName,
   witnessInput: DealWitnessInput | PartialWitnessInput,
-  baseUrl: string | null,
+  baseUrls: readonly string[],
   onProgress?: OnProveProgress,
+  release: ArtifactsRelease = COUNCIL_ARTIFACTS,
 ): Promise<ProveResult> {
-  const loaded = await loadCircuitArtifacts(circuit, baseUrl, onProgress);
+  const loaded = await loadCircuitArtifacts(circuit, baseUrls, onProgress, release);
   onProgress?.({ stage: 'prove' });
   const worker = new Worker(new URL('./prover.worker.ts', import.meta.url), { type: 'module' });
   const artifacts: ProvingArtifacts = { deal: loaded, partial: loaded };

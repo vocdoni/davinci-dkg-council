@@ -11,6 +11,7 @@
  */
 
 import {
+  abortDue,
   accountFromSecret,
   buildDealing,
   buildPartialDecryption,
@@ -18,14 +19,19 @@ import {
   dealerCoefficients,
   dealerEphemeral,
   dealPayloadHash,
+  finalizeDue,
+  partialDataHash,
   partialPayloadHash,
   participantAuthKey,
   Phase,
   provePossession,
-  recoverShare,
-  rootFromMnemonic,
   readRequestBinding,
+  readRequestOrigin,
+  recoverShare,
+  recoveryDealingsFromSlice,
+  rootFromMnemonic,
   rosterHash,
+  scheduledCloseDue,
   shareEncryptionKey,
   signAction,
   signInvite,
@@ -33,14 +39,16 @@ import {
   type CeremonyView,
   type FinalizedAnchor,
   type Hex,
+  type PhasePolicyView,
   type RequestBindingRefusal,
   type Roster,
+  type ScheduleState,
   type SecpKey,
   type ShareKey,
 } from '@vocdoni/davinci-dkg-council-sdk';
 import type { AppConfig } from '../config';
 import { getRequestIds, type ChainReader } from '../lib/chain';
-import { bitCount, bitIndexes } from '../lib/format';
+import { bitCount } from '../lib/format';
 import { actionValidUntil } from './organizer';
 import type { Services } from '../services';
 import type { OnProveProgress } from '../lib/proving';
@@ -61,9 +69,10 @@ export interface ParticipantKeys {
   share: ShareKey;
 }
 
-export function participantKeys(mnemonic: string, config: AppConfig, cid: Hex): ParticipantKeys {
+/** This member's keys for one committee; `accountIndex` comes from the record (kit), default 0. */
+export function participantKeys(mnemonic: string, config: AppConfig, cid: Hex, accountIndex = 0): ParticipantKeys {
   const root = rootFromMnemonic(mnemonic);
-  const ctx = { chainId: BigInt(config.chainId), manager: config.manager, ceremonyId: cid };
+  const ctx = { chainId: BigInt(config.chainId), manager: config.manager, ceremonyId: cid, accountIndex };
   return { auth: participantAuthKey(root, ctx), share: shareEncryptionKey(root, ctx) };
 }
 
@@ -169,6 +178,7 @@ export async function prepareDealing(
   cid: Hex,
   approvedRosterHash: Hex,
   onProgress?: OnProveProgress,
+  accountIndex = 0,
 ): Promise<PreparedDeal> {
   const snapshot = await fetchSnapshot(services.client, cid);
   if (snapshot.view.phase !== (Phase.Dealing as number)) {
@@ -177,7 +187,7 @@ export async function prepareDealing(
   if (snapshot.rosterHash.toLowerCase() !== approvedRosterHash.toLowerCase()) {
     throw new FlowRefusal(['the member list changed since you approved it — please review it again']);
   }
-  const keys = participantKeys(mnemonic, services.config, cid);
+  const keys = participantKeys(mnemonic, services.config, cid, accountIndex);
   const dealerIndex = myMemberIndex(keys, snapshot);
   if (((snapshot.view.qualBitmap >> (dealerIndex - 1)) & 1) === 1) {
     throw new FlowRefusal(['your contribution is already in — nothing more to do']);
@@ -187,6 +197,7 @@ export async function prepareDealing(
     chainId: services.client.chainId,
     manager: services.client.manager,
     ceremonyId: cid,
+    accountIndex,
     rosterHash: snapshot.rosterHash,
     dealerIndex,
     t: snapshot.roster.t,
@@ -226,24 +237,36 @@ function assertSignalsMatch(got: bigint[], expected: bigint[]): void {
   }
 }
 
-// --- finalize / abort eligibility (permissionless) ---
+// --- schedule predicates (§8.1/§8.3/§8.4, permissionless steps) ---
 
-export function finalizeEligible(view: CeremonyView, nowSeconds: number): boolean {
-  if (view.phase !== (Phase.Dealing as number)) return false;
-  const qual = bitCount(view.qualBitmap);
-  if (qual >= view.n) return true;
-  return BigInt(nowSeconds) > view.dealingDeadline && qual >= view.threshold;
+/** Assemble the SDK's ScheduleState from the ceremony view + phase policy. */
+export function toScheduleState(view: CeremonyView, policy: PhasePolicyView): ScheduleState {
+  return {
+    registrationMode: policy.registrationMode,
+    decryptionMode: policy.decryptionMode,
+    registrationDeadline: view.registrationDeadline,
+    dealingDuration: policy.dealingDuration,
+    decryptionOpenAt: policy.decryptionOpenAt,
+    manualDecryptionFallbackAt: policy.manualDecryptionFallbackAt,
+    phase: view.phase,
+    manualOpenedAt: policy.manualOpenedAt,
+    dealingDeadline: view.dealingDeadline,
+    joinedCount: view.joinedCount,
+    threshold: view.threshold,
+    n: view.n,
+    qualCount: bitCount(view.qualBitmap),
+  };
 }
 
-export function abortEligible(view: CeremonyView, nowSeconds: number): boolean {
-  if (view.phase === (Phase.Registration as number)) {
-    return BigInt(nowSeconds) > view.registrationDeadline && view.joinedCount < view.threshold;
-  }
-  if (view.phase === (Phase.Dealing as number)) {
-    return BigInt(nowSeconds) > view.dealingDeadline && bitCount(view.qualBitmap) < view.threshold;
-  }
-  return false;
-}
+export const finalizeEligible = (state: ScheduleState, nowSeconds: number): boolean =>
+  finalizeDue(state, BigInt(nowSeconds));
+
+export const abortEligible = (state: ScheduleState, nowSeconds: number): boolean =>
+  abortDue(state, BigInt(nowSeconds));
+
+/** §8.3: the permissionless scheduled close would succeed now (anyone may send it). */
+export const scheduledCloseEligible = (state: ScheduleState, nowSeconds: number): boolean =>
+  scheduledCloseDue(state, BigInt(nowSeconds));
 
 // --- unlock / partial decryption (§9.3) ---
 
@@ -263,6 +286,11 @@ export interface RequestSummary {
   myPartialDone: boolean;
   ready: boolean;
   values?: bigint[];
+  /**
+   * The vote is bound to this committee but its results were never submitted
+   * for opening: there is nothing to unlock yet (§9.3 'not-submitted').
+   */
+  notSubmitted: boolean;
 }
 
 interface Binding {
@@ -292,18 +320,37 @@ async function verifiedBinding(
   cid: Hex,
   requestId: Hex,
   anchor: FinalizedAnchor,
-): Promise<{ binding: Binding | null; refusal: string }> {
+): Promise<{ binding: Binding | null; refusal: string; notSubmitted: boolean }> {
   let checked;
   try {
     checked = await readRequestBinding(client, cid, requestId, anchor);
   } catch {
-    return { binding: null, refusal: 'we could not confirm which vote this unlock request belongs to' };
+    return {
+      binding: null,
+      refusal: 'we could not confirm which vote this unlock request belongs to',
+      notSubmitted: false,
+    };
   }
   if (!checked.ok) {
     const refusal = BINDING_REFUSALS[checked.reason] ?? 'the vote record does not match this unlock request';
-    return { binding: null, refusal };
+    if (checked.reason === 'not-submitted') {
+      // Every other check already passed in order (origin recomputes to this
+      // request id, adapter allowed, creator authorized): the origin is safe
+      // to show as a label even though there is nothing to unlock yet.
+      try {
+        const origin = await readRequestOrigin(client, requestId, anchor);
+        return {
+          binding: { adapter: origin.adapter, processId: origin.processId },
+          refusal,
+          notSubmitted: true,
+        };
+      } catch {
+        return { binding: null, refusal, notSubmitted: true };
+      }
+    }
+    return { binding: null, refusal, notSubmitted: false };
   }
-  return { binding: { adapter: checked.adapter, processId: checked.processId }, refusal: '' };
+  return { binding: { adapter: checked.adapter, processId: checked.processId }, refusal: '', notSubmitted: false };
 }
 
 /** List this ceremony's decryption requests with progress, for the screens. */
@@ -313,19 +360,20 @@ export async function listRequests(services: Services, cid: Hex, myIndex?: numbe
   const ids = await getRequestIds(client, cid, anchor);
   const out: RequestSummary[] = [];
   for (const id of ids) {
-    const req = await client.getRequest(id, anchor);
+    const meta = await client.getRequestMeta(id, anchor);
     const plain = await client.getPlaintexts(id, anchor);
     const verified = await verifiedBinding(client, cid, id, anchor);
     out.push({
       requestId: id,
       processId: verified.binding?.processId,
       adapter: verified.binding?.adapter,
-      fieldCount: req.fieldCount,
-      partialCount: bitCount(req.partialBitmap),
+      fieldCount: meta.fieldCount,
+      partialCount: bitCount(meta.partialBitmap),
       threshold: view.threshold,
-      myPartialDone: myIndex !== undefined && ((req.partialBitmap >> (myIndex - 1)) & 1) === 1,
+      myPartialDone: myIndex !== undefined && ((meta.partialBitmap >> (myIndex - 1)) & 1) === 1,
       ready: plain.ready,
       values: plain.ready ? plain.values : undefined,
+      notSubmitted: verified.notSubmitted,
     });
   }
   return out;
@@ -336,6 +384,41 @@ export interface PreparedPartial {
   participantIndex: number;
   /** Shown to the user before submitting. */
   processId?: Hex;
+}
+
+/**
+ * §8.6: recover this member's final share from the stored recovery slice and
+ * aggregates at the snapshot's anchor — state views only, no event logs, so it
+ * works the same months after the ceremony. Every hard check (E_j subgroup,
+ * aggregate validity, Horner(A, m) == PK_m, s·G == PK_m) runs inside the SDK.
+ */
+async function recoverMyShare(
+  client: ChainReader,
+  cid: Hex,
+  snapshot: CeremonySnapshot,
+  keys: ParticipantKeys,
+  memberIndex: number,
+  expectedMemberKey: { x: bigint; y: bigint },
+): Promise<bigint> {
+  try {
+    const slice = await client.getRecoverySlice(cid, memberIndex, snapshot.anchor);
+    const aggregates = await client.getAggregates(cid, snapshot.anchor);
+    const { qual, dealings } = recoveryDealingsFromSlice(slice);
+    return recoverShare({
+      ctx: snapshot.view.ctx,
+      memberIndex,
+      shareSecret: keys.share.secret,
+      qual,
+      dealings,
+      aggregates,
+      expectedMemberKey,
+    }).share;
+  } catch (err) {
+    throw new FlowRefusal([
+      'your share of the committee key could not be checked against the public record — refusing to continue',
+      err instanceof Error ? err.message : String(err),
+    ]);
+  }
 }
 
 /**
@@ -353,6 +436,7 @@ export async function preparePartial(
   requestId: Hex,
   onProgress?: OnProveProgress,
   approved?: { processId?: Hex },
+  accountIndex = 0,
 ): Promise<PreparedPartial> {
   const client = services.client;
   // Items 1–2: authenticated snapshot, recomputed rosterHash and ctx.
@@ -361,7 +445,7 @@ export async function preparePartial(
     throw new FlowRefusal(['this committee key is not ready yet']);
   }
   // Item 3: own index, authorization address and lock key as frozen.
-  const keys = participantKeys(mnemonic, services.config, cid);
+  const keys = participantKeys(mnemonic, services.config, cid, accountIndex);
   const memberIndex = myMemberIndex(keys, snapshot);
 
   // The authenticated request snapshot (§9.3 items 1, 4): request existence,
@@ -397,26 +481,9 @@ export async function preparePartial(
     }
   }
 
-  // Item 6: recover the share from the accepted dealings and check it against
-  // the member key the authenticated snapshot carries.
-  const qual = bitIndexes(snapshot.view.qualBitmap);
-  const dealings = await client.getQualDealings(cid, qual, snapshot.anchor);
-  let share: bigint;
-  try {
-    share = recoverShare({
-      ctx: snapshot.view.ctx,
-      memberIndex,
-      shareSecret: keys.share.secret,
-      qual,
-      dealings,
-      expectedMemberKey: partialSnap.memberKey,
-    }).share;
-  } catch (err) {
-    throw new FlowRefusal([
-      'your share of the committee key could not be checked against the public record — refusing to continue',
-      err instanceof Error ? err.message : String(err),
-    ]);
-  }
+  // Item 6: recover the share from the stored recovery slice (§8.6) and check
+  // it against the member key the authenticated snapshot carries.
+  const share = await recoverMyShare(client, cid, snapshot, keys, memberIndex, partialSnap.memberKey);
 
   // All remaining §9.3 checks run inside the SDK before any multiplication.
   let built;
@@ -449,5 +516,82 @@ export async function preparePartial(
     action: { kind: 'submitPartial', message, signature, payload },
     participantIndex: memberIndex,
     processId: binding.processId,
+  };
+}
+
+// --- republish partial data (§10.4) ---
+
+export interface PreparedRepublish {
+  action: Action;
+  participantIndex: number;
+  /** The commitment's stored publication block before this republication (authenticated). */
+  publishedBlock: bigint;
+}
+
+/**
+ * Rebuild this member's already-admitted D vector and offer it for
+ * republication (§10.4, permissionless). D is deterministic (s_i·C1), and the
+ * rebuilt data must hash to exactly the commitment stored on chain — anything
+ * else is a hard refusal, so this can never publish something different from
+ * what was originally admitted. The authenticated snapshot enforces the §8.7
+ * gate, so nothing is ever recomputed while the results are still locked.
+ * Authenticated current state only: no event log is read, so this works with
+ * providers that no longer serve the original publication block.
+ */
+export async function prepareRepublish(
+  mnemonic: string,
+  services: Services,
+  cid: Hex,
+  requestId: Hex,
+  accountIndex = 0,
+): Promise<PreparedRepublish> {
+  const client = services.client;
+  const snapshot = await fetchSnapshot(client, cid);
+  if (snapshot.view.phase !== (Phase.Live as number)) {
+    throw new FlowRefusal(['this committee key is not ready yet']);
+  }
+  const keys = participantKeys(mnemonic, services.config, cid, accountIndex);
+  const memberIndex = myMemberIndex(keys, snapshot);
+  const commitment = await client.getPartialCommitment(requestId, memberIndex, snapshot.anchor);
+  if (!commitment.accepted) {
+    throw new FlowRefusal(['you have not turned your key for this vote yet — nothing to republish']);
+  }
+  let partialSnap;
+  try {
+    partialSnap = await client.getPartialRequestSnapshot(requestId, memberIndex, { expectedCeremonyId: cid });
+  } catch (err) {
+    throw new FlowRefusal([
+      'this request could not be verified, nothing was revealed',
+      err instanceof Error ? err.message : String(err),
+    ]);
+  }
+  const share = await recoverMyShare(client, cid, snapshot, keys, memberIndex, partialSnap.memberKey);
+  let built;
+  try {
+    built = buildPartialDecryption(partialSnap, share, { chainId: client.chainId, manager: client.manager });
+  } catch (err) {
+    throw new FlowRefusal([
+      'this request could not be verified, nothing was revealed',
+      err instanceof Error ? err.message : String(err),
+    ]);
+  }
+  const rebuilt = partialDataHash({
+    chainId: client.chainId,
+    manager: client.manager,
+    ceremonyId: cid,
+    requestId,
+    participantIndex: memberIndex,
+    fieldCount: partialSnap.fieldCount,
+    D: built.D,
+  });
+  if (rebuilt.toLowerCase() !== commitment.dataHash.toLowerCase()) {
+    throw new FlowRefusal([
+      'the data this device rebuilt does not match what you originally published — refusing to continue',
+    ]);
+  }
+  return {
+    action: { kind: 'publishPartialData', requestId, participantIndex: memberIndex, D: built.D },
+    participantIndex: memberIndex,
+    publishedBlock: commitment.publishedBlock,
   };
 }

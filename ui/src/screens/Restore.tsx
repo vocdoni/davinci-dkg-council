@@ -25,7 +25,7 @@ import { Button, Card, Field, Note } from '../components/ui';
 import { manifestEntryFor, manifestFingerprint } from '../flows/kit';
 import { shortId } from '../lib/format';
 import { putRecord, recordKey, type CeremonyRecord } from '../lib/records';
-import { useServices } from '../services';
+import { useDeployments } from '../services';
 
 const normalizeWords = (m: string) => m.trim().toLowerCase().split(/\s+/).join(' ');
 const ZERO_ADDRESS = ('0x' + '0'.repeat(40)) as Hex;
@@ -38,7 +38,9 @@ interface PendingSwitch {
 
 export function Restore() {
   const { mnemonic: currentMnemonic, saveMnemonic, switchRoot, refreshRecords } = useApp();
-  const { config, client } = useServices();
+  // Kits and committee links of every deployment this copy serves (current + legacy managers).
+  const deployments = useDeployments();
+  const { config } = deployments.current;
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,8 +51,9 @@ export function Restore() {
   const [words, setWords] = useState('');
   const [link, setLink] = useState('');
 
-  const entryMatches = (e: KitManifestEntry) =>
-    Number(e.chainId) === config.chainId && e.manager.toLowerCase() === config.manager.toLowerCase();
+  /** The services of the entry's deployment, when this copy serves it. */
+  const servicesFor = (e: KitManifestEntry) =>
+    Number(e.chainId) === config.chainId ? deployments.forManager(e.manager) : undefined;
 
   const commitRecords = async (restored: CeremonyRecord[], notes: string[]) => {
     for (const record of restored) await putRecord(record);
@@ -98,7 +101,8 @@ export function Restore() {
       const notes: string[] = [];
       const restored: CeremonyRecord[] = [];
       for (const entry of manifest) {
-        if (!entryMatches(entry)) {
+        const services = servicesFor(entry);
+        if (!services) {
           notes.push(
             `${shortId(entry.ceremonyId)}: was made with a different copy of this app — open the link you were given for that committee.`,
           );
@@ -110,7 +114,7 @@ export function Restore() {
         }
         // Authentication against chain registration state (§5.3).
         const identity = kitEntryIdentity(root, entry);
-        const verdict = await client.verifyRestoredIdentity(identity);
+        const verdict = await services.client.verifyRestoredIdentity(identity);
         if (!verdict.ok) {
           notes.push(
             `${shortId(entry.ceremonyId)}: the public record does not recognize this role (${verdict.mismatches.join('; ')}) — left out.`,
@@ -123,6 +127,9 @@ export function Restore() {
           manager: entry.manager,
           cid: entry.ceremonyId as Hex,
           role: entry.role,
+          // The index the identity was just authenticated with: every later key derivation and
+          // kit export for this record must use it too.
+          ...(entry.accountIndex !== 0 ? { accountIndex: entry.accountIndex } : {}),
           participantIndex: verdict.participantIndex,
           createdAt: Date.now(),
         });
@@ -163,29 +170,35 @@ export function Restore() {
       if (!match) throw new Error('that link does not contain a committee code');
       const cid = normalizeCeremonyId(match[0]);
       const restored: CeremonyRecord[] = [];
-      for (const role of ['participant', 'organizer'] as const) {
-        // kitEntryIdentity derives everything from the root and this context;
-        // the placeholder address is never used.
-        const identity = kitEntryIdentity(root, {
-          role,
-          chainId: String(config.chainId),
-          manager: config.manager.toLowerCase() as Hex,
-          ceremonyId: cid,
-          accountIndex: 0,
-          authAddress: ZERO_ADDRESS,
-        });
-        const verdict = await client.verifyRestoredIdentity(identity).catch(() => null);
-        if (verdict?.ok) {
-          restored.push({
-            key: recordKey(config.chainId, config.manager, cid),
-            chainId: config.chainId,
-            manager: config.manager,
-            cid,
+      // The link names no deployment: ask each one this copy serves, current first.
+      search: for (const d of deployments.list) {
+        const services = deployments.forManager(d.manager);
+        if (!services) continue;
+        const manager = d.manager.toLowerCase() as Hex;
+        for (const role of ['participant', 'organizer'] as const) {
+          // kitEntryIdentity derives everything from the root and this context;
+          // the placeholder address is never used.
+          const identity = kitEntryIdentity(root, {
             role,
-            participantIndex: verdict.participantIndex,
-            createdAt: Date.now(),
+            chainId: String(config.chainId),
+            manager,
+            ceremonyId: cid,
+            accountIndex: 0,
+            authAddress: ZERO_ADDRESS,
           });
-          break;
+          const verdict = await services.client.verifyRestoredIdentity(identity).catch(() => null);
+          if (verdict?.ok) {
+            restored.push({
+              key: recordKey(config.chainId, manager, cid),
+              chainId: config.chainId,
+              manager,
+              cid,
+              role,
+              participantIndex: verdict.participantIndex,
+              createdAt: Date.now(),
+            });
+            break search;
+          }
         }
       }
       if (restored.length === 0) {

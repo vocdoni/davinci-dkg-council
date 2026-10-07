@@ -27,17 +27,36 @@ export function WordGrid({ words, hidden }: { words: string[]; hidden?: Set<numb
   );
 }
 
-export function RecoveryKitStep({ kit, onDone }: { kit: KitFile; onDone: () => void }) {
+/**
+ * `onDone` stores the key on this device (and may continue the flow); its rejection — a storage
+ * write that never committed — keeps the person on the check step with the error, so a key is
+ * never treated as saved before the browser confirmed it.
+ */
+export function RecoveryKitStep({ kit, onDone }: { kit: KitFile; onDone: () => void | Promise<void> }) {
   const words = useMemo(() => kit.private.mnemonic.split(' '), [kit]);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [entered, setEntered] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [storing, setStoring] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const done = () => {
+    setStoring(true);
+    setError(null);
+    void Promise.resolve()
+      .then(onDone)
+      .catch((err: unknown) => {
+        setError(
+          `This device could not store your key (${err instanceof Error ? err.message : String(err)}). Nothing was sent. Free some space or allow this site to store data, then check again.`,
+        );
+      })
+      .finally(() => setStoring(false));
+  };
+
   const checkWords = () => {
-    if (mnemonicMatchesKit(entered, kit)) onDone();
+    if (mnemonicMatchesKit(entered, kit)) done();
     else setError('Those words do not rebuild the same key. Check your sheet word by word and try again.');
   };
 
@@ -49,7 +68,7 @@ export function RecoveryKitStep({ kit, onDone }: { kit: KitFile; onDone: () => v
           setError('That file holds a different recovery kit. Pick the one you just saved.');
           return;
         }
-        onDone();
+        done();
       } catch {
         setError('That file is not a readable recovery kit. Pick the one you just saved.');
       }
@@ -129,7 +148,9 @@ export function RecoveryKitStep({ kit, onDone }: { kit: KitFile; onDone: () => v
         }}
       />
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Button onClick={checkWords}>Check the words</Button>
+        <Button disabled={storing} onClick={checkWords}>
+          {storing ? 'Saving…' : 'Check the words'}
+        </Button>
         <Button variant="secondary" onClick={() => fileRef.current?.click()}>
           Re-open the saved file instead
         </Button>

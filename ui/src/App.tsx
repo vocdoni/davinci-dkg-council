@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Note, Spinner } from './components/ui';
@@ -11,7 +11,8 @@ import { Ceremony } from './screens/Ceremony';
 import { CreateCeremony } from './screens/CreateCeremony';
 import { Landing } from './screens/Landing';
 import { Restore } from './screens/Restore';
-import { buildServices, ServicesProvider, type Services } from './services';
+import { buildDeployments, singleDeployment, type Deployments } from './deployments';
+import { DeploymentsProvider, type Services } from './services';
 
 export interface AppState {
   /** The unlocked 12-word root, or null before any key exists on this device. */
@@ -36,19 +37,26 @@ export function useApp(): AppState {
   return state;
 }
 
-/** Providers + local-state loading; tests pass fake services and a memory vault. */
+/**
+ * Providers + local-state loading; tests pass fake services and a memory vault. `deployments`
+ * (current + legacy managers) defaults to `services` alone.
+ */
 export function AppProvider({
   services,
+  deployments,
   vaultStore,
   children,
 }: {
   services: Services;
+  deployments?: Deployments;
   vaultStore?: VaultStore;
   children: ReactNode;
 }) {
   const [mnemonic, setMnemonic] = useState<string | null>(null);
   const [records, setRecords] = useState<CeremonyRecord[]>([]);
   const [ready, setReady] = useState(false);
+  // One stable registry per render tree (the Ceremony route's probe depends on its identity).
+  const resolvedDeployments = useMemo(() => deployments ?? singleDeployment(services), [deployments, services]);
 
   useEffect(() => {
     void (async () => {
@@ -87,9 +95,9 @@ export function AppProvider({
     refreshRecords: async () => setRecords(await listRecords()),
   };
   return (
-    <ServicesProvider services={services}>
+    <DeploymentsProvider deployments={resolvedDeployments}>
       <AppContext.Provider value={state}>{children}</AppContext.Provider>
-    </ServicesProvider>
+    </DeploymentsProvider>
   );
 }
 
@@ -111,12 +119,12 @@ export default function App() {
   // Defensive backstop: main.tsx already stripped any invite fragment before
   // anything else ran; this keeps the guarantee even if App is mounted alone.
   captureInviteFragment();
-  const [services, setServices] = useState<Services | null>(null);
+  const [deployments, setDeployments] = useState<Deployments | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadConfig()
-      .then((config) => setServices(buildServices(config)))
+      .then((config) => setDeployments(buildDeployments(config)))
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
@@ -127,7 +135,7 @@ export default function App() {
       </Layout>
     );
   }
-  if (!services) {
+  if (!deployments) {
     return (
       <Layout>
         <Spinner label="Opening…" />
@@ -135,7 +143,7 @@ export default function App() {
     );
   }
   return (
-    <AppProvider services={services}>
+    <AppProvider services={deployments.current} deployments={deployments}>
       <AppRoutes />
     </AppProvider>
   );

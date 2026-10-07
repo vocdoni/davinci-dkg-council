@@ -10,15 +10,20 @@
  */
 
 import {
+  assertValidSubgroupPoint,
+  decompressPoint,
   Phase,
   readRequestIds,
+  sourcePartialVectors,
   type CeremonyView,
-  type Dealing,
   type FinalizedAnchor,
   type Hex,
+  type PartialCommitment,
   type PartialRequestSnapshot,
+  type PhasePolicyView,
   type Point,
-  type RequestView,
+  type RecoverySlice,
+  type RequestMeta,
   type Roster,
 } from '@vocdoni/davinci-dkg-council-sdk';
 
@@ -42,10 +47,19 @@ export interface ChainReader {
     cid: Hex,
     anchor?: FinalizedAnchor,
   ): Promise<{ roster: Roster; view: CeremonyView; anchor: FinalizedAnchor }>;
-  getQualDealings(cid: Hex, qual: number[], anchor?: FinalizedAnchor): Promise<Map<number, Dealing>>;
   getPublicKey(cid: Hex, anchor?: FinalizedAnchor): Promise<Point>;
   getMemberKey(cid: Hex, index: number, anchor?: FinalizedAnchor): Promise<Point>;
-  getRequest(requestId: Hex, anchor?: FinalizedAnchor): Promise<RequestView>;
+  /** The §8.1 phase policy + the contract's §8.7 gate verdict at the anchor. */
+  getPolicy(cid: Hex, anchor?: FinalizedAnchor): Promise<PhasePolicyView>;
+  /** Stored aggregates A_0..A_15 (identity padded above t−1), for share recovery (§8.6). */
+  getAggregates(cid: Hex, anchor?: FinalizedAnchor): Promise<Point[]>;
+  /** One member's recovery slice (§8.6): QUAL bitmap + per-dealer compressed(E_j), masked share. */
+  getRecoverySlice(cid: Hex, memberIndex: number, anchor?: FinalizedAnchor): Promise<RecoverySlice>;
+  getRequestMeta(requestId: Hex, anchor?: FinalizedAnchor): Promise<RequestMeta>;
+  /** A member's partial commitment (§10.2): admitted bit, stored dataHash, publishedBlock. */
+  getPartialCommitment(requestId: Hex, index: number, anchor?: FinalizedAnchor): Promise<PartialCommitment>;
+  /** §10.4: the published D vector from the single stored block, or undefined if gone; may reject. */
+  fetchPublishedVector(requestId: Hex, index: number, publishedBlock: bigint): Promise<Point[] | undefined>;
   getPlaintexts(requestId: Hex, anchor?: FinalizedAnchor): Promise<{ ready: boolean; values: bigint[] }>;
   getCircuitReleaseId(anchor?: FinalizedAnchor): Promise<Hex>;
   /** Authenticated §9.3 snapshot for one partial decryption (SDK client). */
@@ -111,7 +125,12 @@ export interface JoinedParticipant {
   dealt: boolean;
 }
 
-/** Joined participants (authenticated). ABI: getParticipant → (auth, pkX, pkY, bool dealt). */
+/**
+ * Joined participants (authenticated). ABI: getParticipantCompressed → (auth, compressedKey, bool dealt).
+ * Each X_i is decoded strictly (§2.5) and must be a prime-subgroup, non-identity point — the
+ * organizer compares identity codes built from these keys before locking the list, so a key the
+ * contract would never have admitted is a refusal, not something to display.
+ */
 export async function getJoinedParticipants(
   client: ChainReader,
   cid: Hex,
@@ -120,12 +139,61 @@ export async function getJoinedParticipants(
 ): Promise<JoinedParticipant[]> {
   if (count === 0) return [];
   const calls: ViewCall[] = [];
-  for (let i = 1; i <= count; i++) calls.push({ functionName: 'getParticipant', args: [cid, i] });
+  for (let i = 1; i <= count; i++) calls.push({ functionName: 'getParticipantCompressed', args: [cid, i] });
   const { results } = await client.authenticatedRead(calls, anchor);
-  return results.map((r) => {
-    const [auth, pkX, pkY, dealt] = r as [Hex, bigint, bigint, boolean];
-    return { auth, key: { x: pkX, y: pkY }, dealt: dealt === true };
+  return results.map((r, i) => {
+    const [auth, compressedKey, dealt] = r as [Hex, bigint, boolean];
+    const key = decompressPoint(compressedKey);
+    assertValidSubgroupPoint(key, `X_${i + 1}`);
+    return { auth, key, dealt: dealt === true };
   });
+}
+
+/**
+ * §10.4: does this member's admitted partial need republication?
+ *
+ * - `not-needed`: no admitted partial, or its D vector is still retrievable and its recomputed
+ *   hash matches the stored one (checked inside the SDK);
+ * - `missing`: admitted, but the stored `publishedBlock` no longer yields a matching vector
+ *   (pruned node, reorged provider);
+ * - `unverifiable`: admitted, and every provider refused the historical read, so this device
+ *   cannot tell. History is never required: republication rebuilds the vector from
+ *   authenticated current state only and is offered here too.
+ *
+ * Only the authenticated commitment read can throw; a refused log read never does.
+ */
+export type RepublishState = 'not-needed' | 'missing' | 'unverifiable';
+
+export interface RepublishCheck {
+  state: RepublishState;
+  /** The stored publication block of the commitment (authenticated), 0 when none. */
+  publishedBlock: bigint;
+}
+
+export async function republishCheck(
+  client: ChainReader,
+  cid: Hex,
+  requestId: Hex,
+  fieldCount: number,
+  memberIndex: number,
+): Promise<RepublishCheck> {
+  const commitment = await client.getPartialCommitment(requestId, memberIndex);
+  if (!commitment.accepted) return { state: 'not-needed', publishedBlock: commitment.publishedBlock };
+  const { missing, unavailable } = await sourcePartialVectors({
+    chainId: client.chainId,
+    manager: client.manager,
+    ceremonyId: cid,
+    requestId,
+    fieldCount,
+    memberSet: [memberIndex],
+    source: client,
+  });
+  const state: RepublishState = !missing.includes(memberIndex)
+    ? 'not-needed'
+    : unavailable.includes(memberIndex)
+      ? 'unverifiable'
+      : 'missing';
+  return { state, publishedBlock: commitment.publishedBlock };
 }
 
 /**

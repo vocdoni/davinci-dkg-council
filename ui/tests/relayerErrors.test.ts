@@ -1,4 +1,4 @@
-import { RelayerError } from '@vocdoni/davinci-dkg-council-sdk';
+import { RelayerError, RelayersUnavailableError } from '@vocdoni/davinci-dkg-council-sdk';
 import { describe, expect, it } from 'vitest';
 import { plainSubmitError } from '../src/lib/relayerErrors';
 
@@ -20,6 +20,7 @@ const CODES = [
   'BUSY',
   'FORBIDDEN_ORIGIN',
   'UNSUPPORTED_MEDIA_TYPE',
+  'TIMEOUT',
 ];
 
 // architecture §6.5: words the app never uses.
@@ -46,7 +47,6 @@ describe('plain relayer errors', () => {
 
   // Review P1-10: common refusals become plain sentences, no raw names.
   it.each([
-    ['AlreadyJoined()', /already joined .* restore from your kit/],
     ['DuplicateParticipant()', /already joined .* restore from your kit/],
     ['InviteConsumed()', /invitation was already used/],
     ['AlreadyDealt()', /contribution is already in — nothing more to do/],
@@ -58,6 +58,38 @@ describe('plain relayer errors', () => {
     expect(err.message).toMatch(want);
     expect(err.message).not.toMatch(BANNED);
     expect(err.message).not.toContain('(');
+  });
+
+  describe('several relayers (failover pool)', () => {
+    const down = new TypeError('Failed to fetch');
+    const pool = (...errors: unknown[]) =>
+      new RelayersUnavailableError(errors.map((error, i) => ({ url: `https://r${i}.example`, error })));
+
+    it('all unreachable: says none answered, never that nothing was sent (a reply may have been lost)', () => {
+      const err = plainSubmitError(
+        pool(
+          down,
+          new RelayerError('BUSY', 'busy', undefined, 503),
+          new RelayerError('INTERNAL', 'x', undefined, 500),
+          new RelayerError('TIMEOUT', 'no answer'),
+        ),
+      );
+      expect(err.message).toMatch(/^none of our 4 services answered right now — reload the page in a minute to see whether the step went through/);
+      expect(err.message).not.toMatch(/nothing was sent/i);
+      expect(err.message).not.toMatch(BANNED);
+    });
+
+    it('one answered with a refusal: that answer, plus that the others could not take it', () => {
+      const err = plainSubmitError(pool(down, new RelayerError('BUDGET_EXHAUSTED', 'budget', undefined, 429)));
+      expect(err.message).toBe(
+        'our service has used up what it covers for today — please try again later (our other services could not take it either)',
+      );
+      expect(err.message).not.toMatch(BANNED);
+    });
+
+    it('a single configured relayer reads exactly as before', () => {
+      expect(plainSubmitError(pool(down)).message).toBe(plainSubmitError(down).message);
+    });
   });
 
   it('falls back to the generic message for an unknown code', () => {

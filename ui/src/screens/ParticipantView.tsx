@@ -3,15 +3,24 @@
  * unlock (partial decryption), per architecture §6.3 and protocol §8–§9.
  */
 
-import { accountFromSecret, generateMnemonic, Phase, type CeremonyView, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
+import {
+  accountFromSecret,
+  generateMnemonic,
+  Phase,
+  PhaseMode,
+  type CeremonyView,
+  type Hex,
+  type PhasePolicyView,
+} from '@vocdoni/davinci-dkg-council-sdk';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../App';
 import { KitCard } from '../components/KitCard';
+import { OpeningReminder } from '../components/OpeningReminder';
 import { RecoveryKitStep } from '../components/RecoveryKitStep';
 import { StorageNote } from '../components/StorageNote';
 import { Button, Card, ConfirmingNote, Disclosure, Note, ProgressBar, Spinner } from '../components/ui';
 import { buildKitForRecords, manifestFingerprint } from '../flows/kit';
-import { abortAction, finalizeAction } from '../flows/organizer';
+import { abortAction, finalizeAction, scheduledCloseAction } from '../flows/organizer';
 import {
   abortEligible,
   fetchSnapshot,
@@ -23,11 +32,23 @@ import {
   prepareDealing,
   prepareJoin,
   preparePartial,
+  prepareRepublish,
+  scheduledCloseEligible,
+  toScheduleState,
   type CeremonySnapshot,
   type RequestSummary,
 } from '../flows/participant';
-import { participantIndexOf, readCeremony } from '../lib/chain';
-import { bitCount, formatDate, identityCode, shortId, thresholdSentence, timeLeft, voteName } from '../lib/format';
+import { participantIndexOf, readCeremony, republishCheck, type RepublishState } from '../lib/chain';
+import {
+  bitCount,
+  dateWithUtc,
+  formatDate,
+  identityCode,
+  shortId,
+  thresholdSentence,
+  timeLeft,
+  voteName,
+} from '../lib/format';
 import { usePoll } from '../lib/hooks';
 import {
   alreadyAtHead,
@@ -192,8 +213,10 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
             <li>Later, when the list is locked, come back once to add your part of the key.</li>
           </ol>
           <p className="mt-3 text-sm text-ink/70">
-            Nothing to install, nothing to pay. Join before {formatDate(Number(view.registrationDeadline))} (
-            {timeLeft(Number(view.registrationDeadline))}).
+            Nothing to install, nothing to pay.{' '}
+            {view.registrationDeadline === 0n
+              ? 'The organizer closes joining once everyone is in — join soon.'
+              : `Join before ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
           </p>
           <div className="mt-4">
             <Button onClick={() => setStep('kit')} disabled={inviteState === 'checking'}>
@@ -209,8 +232,10 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
     return (
       <RecoveryKitStep
         kit={kit}
-        onDone={() => {
-          void saveMnemonic(draftMnemonic).then(() => void join());
+        onDone={async () => {
+          // Rejects (and stays on this step) unless the key is committed to this device's storage.
+          await saveMnemonic(draftMnemonic);
+          void join();
         }}
       />
     );
@@ -257,8 +282,8 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
   }, [record.cid, view.rosterHash]);
 
   const keys = useMemo(
-    () => (mnemonic ? participantKeys(mnemonic, services.config, record.cid) : null),
-    [mnemonic, services.config, record.cid],
+    () => (mnemonic ? participantKeys(mnemonic, services.config, record.cid, record.accountIndex) : null),
+    [mnemonic, services.config, record.cid, record.accountIndex],
   );
   const memberIndex = useMemo(() => {
     if (!snapshot || !keys) return null;
@@ -286,7 +311,14 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
     setRefusal(null);
     setError(null);
     try {
-      const prepared = await prepareDealing(mnemonic, services, record.cid, record.approvedRosterHash, setProgress);
+      const prepared = await prepareDealing(
+        mnemonic,
+        services,
+        record.cid,
+        record.approvedRosterHash,
+        setProgress,
+        record.accountIndex,
+      );
       setProgress(null);
       await sendTracked(
         services,
@@ -408,35 +440,53 @@ function ContributeCard({ record, view }: { record: CeremonyRecord; view: Ceremo
 
 // --- finalize / abort (permissionless) ---
 
-export function FinishCard({ record, view }: { record: CeremonyRecord; view: CeremonyView }) {
+export function FinishCard({
+  record,
+  view,
+  policy,
+}: {
+  record: CeremonyRecord;
+  view: CeremonyView;
+  policy: PhasePolicyView;
+}) {
   const services = useServices();
   const { refreshRecords } = useApp();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
   const triedRef = useRef(false);
-  const canFinalize = finalizeEligible(view, nowSec());
-  const canAbort = abortEligible(view, nowSec());
+  const state = toScheduleState(view, policy);
+  const canFinalize = finalizeEligible(state, nowSec());
+  // §8.3: the deadline passed with enough members — anyone may close joining now.
+  const canClose = !canFinalize && scheduledCloseEligible(state, nowSec());
+  const canAbort = !canFinalize && !canClose && abortEligible(state, nowSec());
   /** Sent from this device, or already done at the head by someone else: waiting for finality. */
   const finishing = findPending(record, { kind: 'finish' });
+  const closing = findPending(record, { kind: 'close' });
 
-  const run = async (abort: boolean) => {
+  const run = async (step: 'finalize' | 'abort' | 'close') => {
     setBusy(true);
     setNote(null);
     try {
-      await sendTracked(
-        services,
-        record,
-        abort ? abortAction(record.cid) : finalizeAction(record.cid),
-        { kind: 'finish', abort },
-        refreshRecords,
-      );
+      if (step === 'close') {
+        await sendTracked(services, record, scheduledCloseAction(record.cid), { kind: 'close' }, refreshRecords);
+      } else {
+        await sendTracked(
+          services,
+          record,
+          step === 'abort' ? abortAction(record.cid) : finalizeAction(record.cid),
+          { kind: 'finish', abort: step === 'abort' },
+          refreshRecords,
+        );
+      }
     } catch (err) {
       // Losing the race to another member is success, not failure.
       const fresh = await services.client.getCeremony(record.cid).catch(() => null);
-      if (!abort && fresh?.phase === (Phase.Live as number)) {
+      if (step === 'finalize' && fresh?.phase === (Phase.Live as number)) {
         setNote({ tone: 'ok', text: 'Already done — the key is finished.' });
-      } else if (abort && fresh?.phase === (Phase.Aborted as number)) {
+      } else if (step === 'abort' && fresh?.phase === (Phase.Aborted as number)) {
         setNote({ tone: 'ok', text: 'Already done — the committee was called off.' });
+      } else if (step === 'close' && fresh !== null && fresh.phase !== (Phase.Registration as number)) {
+        setNote({ tone: 'ok', text: 'Already done — the member list is locked.' });
       } else {
         setNote({
           tone: 'warn',
@@ -449,20 +499,49 @@ export function FinishCard({ record, view }: { record: CeremonyRecord; view: Cer
   };
 
   useEffect(() => {
-    if (record.liveMode && canFinalize && !finishing && !triedRef.current) {
+    if (!record.liveMode || triedRef.current) return;
+    if (canFinalize && !finishing) {
       triedRef.current = true;
-      void run(false);
+      void run('finalize');
+    } else if (canClose && !closing) {
+      triedRef.current = true;
+      void run('close');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record.liveMode, canFinalize]);
+  }, [record.liveMode, canFinalize, canClose]);
 
-  if (!canFinalize && !canAbort) return null;
+  if (!canFinalize && !canAbort && !canClose) return null;
   if (finishing) {
     return (
       <Card title={finishing.abort ? 'Calling it off' : 'Finishing the key'}>
         <ConfirmingNote
           lead={finishing.abort ? 'The committee is being called off.' : 'The key is being finished.'}
         />
+      </Card>
+    );
+  }
+  if (canClose) {
+    if (closing) {
+      return (
+        <Card title="Closing the joining period">
+          <ConfirmingNote lead="The member list is being locked." />
+        </Card>
+      );
+    }
+    return (
+      <Card title="The joining period is over">
+        <p className="mb-3 text-sm">
+          The joining date passed and enough people are in. Anyone can lock the list now; it takes a few
+          seconds.
+        </p>
+        <Button disabled={busy} onClick={() => void run('close')}>
+          {busy ? 'Working…' : 'Lock the member list'}
+        </Button>
+        {note && (
+          <div className="mt-3">
+            <Note tone={note.tone}>{note.text}</Note>
+          </div>
+        )}
       </Card>
     );
   }
@@ -473,7 +552,7 @@ export function FinishCard({ record, view }: { record: CeremonyRecord; view: Cer
           ? 'Enough contributions are in. Anyone can press this; it takes a few seconds.'
           : 'The deadline passed without enough contributions. Anyone can call it off so people stop waiting.'}
       </p>
-      <Button disabled={busy} onClick={() => void run(!canFinalize)}>
+      <Button disabled={busy} onClick={() => void run(canFinalize ? 'finalize' : 'abort')}>
         {busy ? 'Working…' : canFinalize ? 'Finish the key' : 'Call it off'}
       </Button>
       {note && (
@@ -487,13 +566,30 @@ export function FinishCard({ record, view }: { record: CeremonyRecord; view: Cer
 
 // --- unlock card (§9.3) ---
 
-function UnlockCard({ record }: { record: CeremonyRecord }) {
+/** Why the results cannot be opened yet (§8.7), in plain language. */
+function lockedSentence(policy: PhasePolicyView): string {
+  if (policy.decryptionMode === (PhaseMode.Scheduled as number)) {
+    return `the results are locked until ${dateWithUtc(Number(policy.decryptionOpenAt))}`;
+  }
+  return policy.manualDecryptionFallbackAt !== 0n
+    ? `the results stay locked until the organizer opens them — or until ${dateWithUtc(
+        Number(policy.manualDecryptionFallbackAt),
+      )}, whichever comes first`
+    : 'the results stay locked until the organizer opens them';
+}
+
+function UnlockCard({ record, policy }: { record: CeremonyRecord; policy: PhasePolicyView }) {
   const services = useServices();
   const { mnemonic, refreshRecords } = useApp();
+  // The contract's own view of the §8.7 gate at the finalized block — never this device's clock.
+  const gateOpen = policy.decryptionOpen;
   /** Turned on this device, not in the finalized state yet. */
   const turning = (r: RequestSummary) => findPending(record, { kind: 'partial', requestId: r.requestId }) !== undefined;
+  const republishing = (r: RequestSummary) =>
+    findPending(record, { kind: 'republish', requestId: r.requestId }) !== undefined;
   const [requests, setRequests] = useState<RequestSummary[] | null>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
+  const [needRepub, setNeedRepub] = useState<Record<string, RepublishState>>({});
   const [refusals, setRefusals] = useState<Record<string, string[]>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<ProveProgress | null>(null);
@@ -502,8 +598,31 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
 
   usePoll(
     async () => {
-      setRequests(await listRequests(services, record.cid, record.participantIndex));
+      const list = await listRequests(services, record.cid, record.participantIndex);
+      setRequests(list);
       setLabels(await getVoteLabels(record.chainId, record.manager, record.cid));
+      // §10.4: a vote stuck at the threshold with our part admitted but its data
+      // unavailable or mismatched can be finished by republishing that data. A
+      // provider that refuses old records makes it unverifiable, never hidden;
+      // only a failed authenticated read leaves the button off.
+      if (record.participantIndex !== undefined) {
+        const repub: Record<string, RepublishState> = {};
+        for (const r of list) {
+          if (!r.ready && r.myPartialDone && r.partialCount >= r.threshold) {
+            repub[r.requestId] = await republishCheck(
+              services.client,
+              record.cid,
+              r.requestId,
+              r.fieldCount,
+              record.participantIndex,
+            ).then(
+              (c) => c.state,
+              () => 'not-needed' as const,
+            );
+          }
+        }
+        setNeedRepub(repub);
+      }
     },
     10_000,
     [record.cid, record.participantIndex],
@@ -519,9 +638,15 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
     try {
       // The user approved *this* vote; preparePartial refuses if the
       // authenticated binding names any other.
-      const prepared = await preparePartial(mnemonic, services, record.cid, requestId, setProgress, {
-        processId: r.processId,
-      });
+      const prepared = await preparePartial(
+        mnemonic,
+        services,
+        record.cid,
+        requestId,
+        setProgress,
+        { processId: r.processId },
+        record.accountIndex,
+      );
       if ((prepared.processId ?? '').toLowerCase() !== (r.processId ?? '').toLowerCase()) {
         throw new FlowRefusal(['the vote this request belongs to changed while we were checking — nothing was sent']);
       }
@@ -544,13 +669,47 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
     }
   };
 
+  // §10.4: rebuild and republish this member's already-admitted unlock data.
+  const republish = async (r: RequestSummary) => {
+    const requestId = r.requestId;
+    if (busyRef.current || !mnemonic) return;
+    busyRef.current = true;
+    setBusyId(requestId);
+    setRefusals((m) => ({ ...m, [requestId]: undefined as never }));
+    setErrors((m) => ({ ...m, [requestId]: undefined as never }));
+    try {
+      const prepared = await prepareRepublish(mnemonic, services, record.cid, requestId, record.accountIndex);
+      await sendTracked(
+        services,
+        record,
+        prepared.action,
+        {
+          kind: 'republish',
+          requestId,
+          memberIndex: prepared.participantIndex,
+          fieldCount: r.fieldCount,
+          publishedBlock: prepared.publishedBlock.toString(10),
+        },
+        refreshRecords,
+      );
+    } catch (err) {
+      if (err instanceof FlowRefusal) setRefusals((m) => ({ ...m, [requestId]: err.reasons }));
+      else setErrors((m) => ({ ...m, [requestId]: errText(err) }));
+    } finally {
+      setBusyId(null);
+      busyRef.current = false;
+    }
+  };
+
   // Live mode: auto-unlock pending requests whose vote binding is verified
-  // (checks always re-run inside preparePartial).
+  // (checks always re-run inside preparePartial). Never before the gate is
+  // open, and never for a vote that has not submitted its results.
   useEffect(() => {
-    if (!record.liveMode || busyRef.current || !requests) return;
+    if (!record.liveMode || !gateOpen || busyRef.current || !requests) return;
     const next = requests.find(
       (r) =>
         !r.ready &&
+        !r.notSubmitted &&
         !r.myPartialDone &&
         !turning(r) &&
         r.partialCount < r.threshold &&
@@ -560,7 +719,7 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
     );
     if (next) void unlock(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record.liveMode, requests]);
+  }, [record.liveMode, gateOpen, requests]);
 
   return (
     <Card title="Unlock requests">
@@ -571,6 +730,16 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
           No vote has asked to be opened yet. When one does, it appears here.
         </p>
       ) : (
+        <>
+        {!gateOpen && requests.some((r) => !r.ready && !r.notSubmitted) && (
+          <div className="mb-3">
+            <Note tone="info">
+              Right now {lockedSentence(policy)}. The date is a rule every member’s device checks against
+              the public record before turning a key — committee members who ignore it could still act
+              early, so it relies on them honoring it.
+            </Note>
+          </div>
+        )}
         <ul className="space-y-4">
           {requests.map((r, i) => (
             <li key={r.requestId} className="rounded-lg border border-ink/10 p-3">
@@ -582,15 +751,21 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
               <p className="mt-1 text-sm text-ink/70">
                 {r.ready
                   ? `Open — results: ${(r.values ?? []).map((v) => v.toString(10)).join(', ')}. The numbers are in the ballot’s answer order; the voting system shows what each one means.`
-                  : `${r.partialCount} of the ${r.threshold} needed members have turned their key${r.myPartialDone ? '.' : ' — your turn.'}`}
+                  : r.notSubmitted
+                    ? 'This vote has not sent in its locked results yet — there is nothing for you to do. It becomes unlockable once the voting system submits them.'
+                    : !gateOpen
+                      ? `Waiting — ${lockedSentence(policy)}.`
+                      : `${r.partialCount} of the ${r.threshold} needed members have turned their key${r.myPartialDone ? '.' : ' — your turn.'}`}
               </p>
-              {!r.ready && r.myPartialDone && <p className="mt-1 text-sm text-ok">You have done your part.</p>}
-              {!r.ready && !r.myPartialDone && turning(r) && (
+              {!r.ready && !r.notSubmitted && r.myPartialDone && (
+                <p className="mt-1 text-sm text-ok">You have done your part.</p>
+              )}
+              {gateOpen && !r.ready && !r.notSubmitted && !r.myPartialDone && turning(r) && (
                 <div className="mt-2">
                   <ConfirmingNote lead="You turned your key." />
                 </div>
               )}
-              {!r.ready && !r.myPartialDone && !turning(r) && (
+              {gateOpen && !r.ready && !r.notSubmitted && !r.myPartialDone && !turning(r) && (
                 <div className="mt-2 space-y-2">
                   {busyId === r.requestId && progress ? (
                     <ProveProgressView progress={progress} />
@@ -602,6 +777,28 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
                   <p className="text-xs text-ink/60">
                     We first check that this request is genuine; if anything is off, nothing is revealed.
                   </p>
+                </div>
+              )}
+              {gateOpen &&
+                !r.ready &&
+                r.myPartialDone &&
+                (needRepub[r.requestId] === 'missing' || needRepub[r.requestId] === 'unverifiable') &&
+                !republishing(r) && (
+                  <div className="mt-2 space-y-2">
+                    <Button disabled={busyId !== null} onClick={() => void republish(r)}>
+                      {busyId === r.requestId ? 'Working…' : 'Help finish opening the results'}
+                    </Button>
+                    <p className="text-xs text-ink/60">
+                      {needRepub[r.requestId] === 'missing'
+                        ? 'Your part went through, but the copy the others need to finish is missing.'
+                        : 'Your part went through, but this device cannot check whether the copy the others need to finish is still available (the public record’s older entries are not served here). If the results do not open, send it again.'}{' '}
+                      This re-sends exactly what you published before — nothing new is revealed.
+                    </p>
+                  </div>
+                )}
+              {!r.ready && republishing(r) && (
+                <div className="mt-2">
+                  <ConfirmingNote lead="Your unlock data was re-sent." />
                 </div>
               )}
               {refusals[r.requestId] && <div className="mt-2"><RefusalNote reasons={refusals[r.requestId] as string[]} /></div>}
@@ -622,6 +819,7 @@ function UnlockCard({ record }: { record: CeremonyRecord }) {
             </li>
           ))}
         </ul>
+        </>
       )}
     </Card>
   );
@@ -634,17 +832,19 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
   const { mnemonic, refreshRecords } = useApp();
   /** Undefined before the first read; null while the finalized block does not hold the committee. */
   const [view, setView] = useState<CeremonyView | null | undefined>(undefined);
+  const [policy, setPolicy] = useState<PhasePolicyView | null>(null);
   const [failed, setFailed] = useState<FailedAction[]>([]);
   const poll = usePoll(
     async () => {
       const v = await readCeremony(services.client, record.cid);
       setView(v);
+      if (v !== null) setPolicy(await services.client.getPolicy(record.cid));
       const settled = await settlePending(services, record, v);
       if (settled.failed.length > 0) setFailed((f) => [...f, ...settled.failed]);
       let changed = settled.changed;
       // A fresh join learns its member index once the finalized state lists it (authenticated).
       if (v && record.participantIndex === undefined && mnemonic && v.joinedCount > 0) {
-        const auth = participantKeys(mnemonic, services.config, record.cid).auth.address;
+        const auth = participantKeys(mnemonic, services.config, record.cid, record.accountIndex).auth.address;
         const index = await participantIndexOf(services.client, record.cid, auth);
         if (index > 0) {
           await updateRecord(record.chainId, record.manager, record.cid, { participantIndex: index });
@@ -700,8 +900,9 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
         )}
         {view.phase === Phase.Registration && !joining && (
           <p className="mt-1 text-sm text-ink/70">
-            You are on the list. The organizer locks it once everyone joined (
-            {timeLeft(Number(view.registrationDeadline))}).
+            {view.registrationDeadline === 0n
+              ? 'You are on the list. The organizer locks it once everyone joined.'
+              : `You are on the list. Joining closes ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
           </p>
         )}
         {view.phase === Phase.Dealing && (
@@ -720,9 +921,10 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
       </Card>
 
       {view.phase === Phase.Dealing && <ContributeCard record={record} view={view} />}
-      {view.phase === Phase.Dealing && <FinishCard record={record} view={view} />}
-      {view.phase === Phase.Registration && <FinishCard record={record} view={view} />}
-      {view.phase === Phase.Live && <UnlockCard record={record} />}
+      {policy && view.phase === Phase.Dealing && <FinishCard record={record} view={view} policy={policy} />}
+      {policy && view.phase === Phase.Registration && <FinishCard record={record} view={view} policy={policy} />}
+      {policy && view.phase === Phase.Live && <UnlockCard record={record} policy={policy} />}
+      {policy && view.phase === Phase.Live && <OpeningReminder cid={record.cid} name={record.name} policy={policy} />}
       {view.phase === Phase.Aborted && (
         <Note tone="warn">This committee was called off. If a new one starts, you will get a fresh invitation.</Note>
       )}

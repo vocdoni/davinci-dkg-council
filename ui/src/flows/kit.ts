@@ -34,21 +34,22 @@ export function manifestEntryFor(
   const chainId = BigInt(record.chainId);
   const manager = record.manager.toLowerCase() as Hex;
   const cid = record.cid.toLowerCase() as Hex;
+  const accountIndex = record.accountIndex ?? 0;
   const appUrl = typeof location !== 'undefined' ? location.origin : undefined;
   if (record.role === 'organizer') {
-    const key = organizerAuthKey(root, { chainId, manager });
+    const key = organizerAuthKey(root, { chainId, manager, accountIndex });
     return {
       role: 'organizer',
       chainId: record.chainId.toString(10),
       manager,
       ceremonyId: cid,
-      accountIndex: 0,
+      accountIndex,
       authAddress: key.address.toLowerCase() as Hex,
       ...(extras.circuitReleaseId ? { circuitReleaseId: extras.circuitReleaseId } : {}),
       ...(appUrl ? { appUrl } : {}),
     };
   }
-  const ctx = { chainId, manager, ceremonyId: cid };
+  const ctx = { chainId, manager, ceremonyId: cid, accountIndex };
   const auth = participantAuthKey(root, ctx);
   const share = shareEncryptionKey(root, ctx);
   return {
@@ -56,7 +57,7 @@ export function manifestEntryFor(
     chainId: record.chainId.toString(10),
     manager,
     ceremonyId: cid,
-    accountIndex: 0,
+    accountIndex,
     authAddress: auth.address.toLowerCase() as Hex,
     sharePublicKey: { x: toDecimal(share.publicKey.x), y: toDecimal(share.publicKey.y) },
     ...(record.participantIndex ? { participantIndex: record.participantIndex } : {}),
@@ -97,10 +98,15 @@ export const kitFileName = (): string => `council-recovery-kit-${new Date().toIS
  * every identity in the kit's manifest is implied to re-derive identically.
  */
 export function mnemonicMatchesKit(entered: string, kit: KitFile): boolean {
+  return mnemonicMatches(entered, kit.private.mnemonic);
+}
+
+/** Do the entered words rebuild exactly the root of `mnemonic`? (Full re-derivation, checksum included.) */
+export function mnemonicMatches(entered: string, mnemonic: string): boolean {
   const normalize = (m: string) => m.trim().toLowerCase().split(/\s+/).join(' ');
   try {
     const a = rootFromMnemonic(normalize(entered)).prk;
-    const b = rootFromMnemonic(normalize(kit.private.mnemonic)).prk;
+    const b = rootFromMnemonic(normalize(mnemonic)).prk;
     return a.length === b.length && a.every((v, i) => v === b[i]);
   } catch {
     return false;

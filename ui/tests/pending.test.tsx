@@ -141,6 +141,36 @@ describe('when a pending action counts as shown', () => {
     expect(await settled(partial, at({ phase: Phase.Live }))).toBe(false);
     (f.chain.requests.get(rid) as { partialBitmap: number }).partialBitmap = 0b010;
     expect(await settled(partial, at({ phase: Phase.Live }))).toBe(true);
+
+    // open: settled once the finalized policy shows the §8.7 gate opened.
+    f.chain.policy.manualOpenedAt = 0n;
+    expect(await settled(pending({ kind: 'open' }), at({ phase: Phase.Live }))).toBe(false);
+    f.chain.policy.manualOpenedAt = 5n;
+    expect(await settled(pending({ kind: 'open' }), at({ phase: Phase.Live }))).toBe(true);
+
+    // republish: settled once there is nothing left to republish (or the results opened).
+    const rid2 = f.addRequest([2n], { processId: `0x${'ee'.repeat(31)}` as Hex });
+    const repub = pending({ kind: 'republish', requestId: rid2, memberIndex: 2, fieldCount: 1 });
+    expect(await settled(repub, at({ phase: Phase.Live }))).toBe(true); // nothing admitted: nothing to do
+    f.chain.partials.set(`${rid2.toLowerCase()}:2`, {
+      accepted: true,
+      dataHash: `0x${'aa'.repeat(32)}` as Hex,
+      publishedBlock: 0n,
+    });
+    expect(await settled(repub, at({ phase: Phase.Live }))).toBe(false); // admitted but its data is gone
+    f.chain.plaintexts.set(rid2.toLowerCase(), { ready: true, values: [2n] });
+    expect(await settled(repub, at({ phase: Phase.Live }))).toBe(true); // the results opened anyway
+
+    // History unreadable from this device (M-01): settled once the authenticated commitment shows
+    // a publication block past the one recorded before re-sending.
+    const rid3 = f.addRequest([3n], { processId: `0x${'ef'.repeat(31)}` as Hex });
+    f.chain.historyError = 'history pruned';
+    const commitment = { accepted: true, dataHash: `0x${'bb'.repeat(32)}` as Hex, publishedBlock: 50n };
+    f.chain.partials.set(`${rid3.toLowerCase()}:2`, commitment);
+    const repub3 = pending({ kind: 'republish', requestId: rid3, memberIndex: 2, fieldCount: 1, publishedBlock: '50' });
+    expect(await settled(repub3, at({ phase: Phase.Live }))).toBe(false);
+    f.chain.partials.set(`${rid3.toLowerCase()}:2`, { ...commitment, publishedBlock: 60n });
+    expect(await settled(repub3, at({ phase: Phase.Live }))).toBe(true);
   });
 });
 
@@ -230,7 +260,18 @@ describe('sending a tracked action', () => {
   it('never uses words the app avoids', () => {
     const banned = /wallet|\bgas\b|\bsign|transaction|key pair|on-chain|relayer/i;
     expect(CONFIRMING_TEXT).not.toMatch(banned);
-    for (const kind of ['create', 'addInvites', 'join', 'close', 'deal', 'finish', 'grant', 'partial'] as const) {
+    for (const kind of [
+      'create',
+      'addInvites',
+      'join',
+      'close',
+      'deal',
+      'finish',
+      'grant',
+      'partial',
+      'open',
+      'republish',
+    ] as const) {
       expect(failedText({ action: pending({ kind }), reason: 'WrongPhase()' })).not.toMatch(banned);
     }
   });

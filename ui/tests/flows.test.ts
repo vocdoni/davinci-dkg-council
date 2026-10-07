@@ -13,6 +13,7 @@ import {
   listRequests,
   prepareDealing,
   preparePartial,
+  toScheduleState,
 } from '../src/flows/participant';
 import { getJoinedParticipants, inviteLinkage } from '../src/lib/chain';
 import { ADAPTER, CREATOR, makeFixture, PROCESS_ID } from './helpers/fake';
@@ -59,14 +60,15 @@ describe('contribute (§8.3)', () => {
     ).toMatch(/already in/);
   });
 
-  it('finalize/abort eligibility follows qual count and deadlines', () => {
+  it('finalize/abort eligibility follows qual count and deadlines', async () => {
     const f = makeFixture({ phase: Phase.Dealing });
     const now = Math.floor(Date.now() / 1000);
-    expect(finalizeEligible(f.chain.view, now)).toBe(false);
+    const state = async () => toScheduleState(f.chain.view, await f.chain.getPolicy());
+    expect(finalizeEligible(await state(), now)).toBe(false);
     f.chain.view.qualBitmap = 0b111;
-    expect(finalizeEligible(f.chain.view, now)).toBe(true);
+    expect(finalizeEligible(await state(), now)).toBe(true);
     f.chain.view.qualBitmap = 0b001; // below threshold after deadline
-    expect(abortEligible(f.chain.view, Number(f.chain.view.dealingDeadline) + 1)).toBe(true);
+    expect(abortEligible(await state(), Number(f.chain.view.dealingDeadline) + 1)).toBe(true);
   });
 });
 
@@ -194,6 +196,15 @@ describe('authenticated participant reads', () => {
     const waiting = await getJoinedParticipants(dealing.chain, dealing.cid, 3);
     expect(waiting.map((p) => p.dealt)).toEqual([false, false, false]);
     expect(waiting[0]?.auth).toBe(dealing.memberKeys[0]?.auth.address);
+  });
+
+  it('refuses a joined key outside the prime subgroup (strict decode + subgroup check)', async () => {
+    const f = makeFixture();
+    const member = f.chain.participants[1];
+    if (!member) throw new Error('fixture member missing');
+    // The order-two point (0, p − 1): a valid §2.5 encoding, but never an admissible X_i.
+    member.key = { x: 0n, y: P - 1n };
+    await expect(getJoinedParticipants(f.chain, f.cid, 3)).rejects.toThrow(/X_2: not in the prime-order subgroup/);
   });
 
   it('invite linkage only trusts events matching authenticated participants', () => {

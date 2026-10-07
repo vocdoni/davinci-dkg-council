@@ -4,12 +4,21 @@
  * permanent access grants need an explicit address confirmation.
  */
 
-import { Phase } from '@vocdoni/davinci-dkg-council-sdk';
+import {
+  Phase,
+  trackDomain,
+  TRACK_TYPES,
+  type Hex,
+  type TrackCeremonyRequest,
+} from '@vocdoni/davinci-dkg-council-sdk';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { recoverTypedDataAddress } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { organizerAddress } from '../src/flows/organizer';
 import { identityCode } from '../src/lib/format';
 import { resetInviteFragmentForTests } from '../src/lib/inviteCapture';
+import { getRecord } from '../src/lib/records';
 import { ADAPTER, makeFixture } from './helpers/fake';
 import { fixtureRecord, renderApp } from './helpers/render';
 
@@ -97,5 +106,47 @@ describe('permanent grants (finding 8)', () => {
     if (action?.kind === 'allowAdapter') {
       expect(action.message.adapter.toLowerCase()).toBe(ADAPTER.toLowerCase());
     }
+  });
+});
+
+describe('relayer tracking (/v1/track)', () => {
+  it('registers an untracked committee from the dashboard and flags the record', async () => {
+    const f = makeFixture({ phase: Phase.Dealing });
+    const requests: TrackCeremonyRequest[] = [];
+    f.services.trackCeremony = async (request) => {
+      requests.push(request);
+      return true;
+    };
+    await renderApp(f, `/c/${f.cid}`, { mnemonic: f.organizerMnemonic, record: fixtureRecord(f, 'organizer') });
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const req = requests[0] as TrackCeremonyRequest;
+    expect(req.ceremonyId).toBe(f.cid);
+    // Signed by the organizer key, in the relayer's own domain (never the protocol's).
+    const signer = await recoverTypedDataAddress({
+      domain: trackDomain(BigInt(f.config.chainId), f.config.manager),
+      types: TRACK_TYPES,
+      primaryType: 'TrackCeremony',
+      message: { ceremonyId: req.ceremonyId, validUntil: req.validUntil as bigint },
+      signature: req.signature as Hex,
+    });
+    expect(signer.toLowerCase()).toBe(organizerAddress(f.organizerMnemonic, f.config).toLowerCase());
+    await waitFor(async () => {
+      const rec = await getRecord(f.config.chainId, f.config.manager, f.cid);
+      expect(rec?.relayerTracked).toBe(true);
+    });
+  });
+
+  it('leaves an already-tracked committee alone', async () => {
+    const f = makeFixture({ phase: Phase.Dealing });
+    let calls = 0;
+    f.services.trackCeremony = async () => {
+      calls += 1;
+      return true;
+    };
+    const record = { ...fixtureRecord(f, 'organizer'), relayerTracked: true };
+    await renderApp(f, `/c/${f.cid}`, { mnemonic: f.organizerMnemonic, record });
+    await screen.findByText('Your committee');
+    expect(calls).toBe(0);
   });
 });
