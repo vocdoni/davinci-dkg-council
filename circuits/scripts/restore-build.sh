@@ -4,9 +4,10 @@
 # flags, same paths — compilation is deterministic, so the r1cs and wasm bytes are verified
 # against the release pins), then copy the released deal_final.zkey, partial_final.zkey and both
 # vkeys from ${COUNCIL_ARTIFACTS_DIR:-~/.davinci-dkg-council/artifacts},
-# downloading them from the GitHub release named by release/release.json "tag" (the URL
-# sdk/src/artifacts.ts pins) when that cache is missing. Every file is sha256-verified against release/release.json. The cache ends up with all
-# six files plus release.json.
+# downloading them when that cache is missing from the release named by release/release.json
+# "tag", at the URLs sdk/src/artifacts.ts pins: the DAVINCI CDN first, then the GitHub release.
+# Every file is sha256-verified against release/release.json. The cache ends up with all six
+# files plus release.json.
 #
 # This is what a fresh clone wants to run the circuit tests: the restored setup matches the
 # committed verifiers, contract pins (CouncilRelease.sol), SDK pins (sdk/src/artifacts.ts) and
@@ -52,8 +53,10 @@ for c in deal partial; do
   check "build/${c}_js/${c}.wasm" "$c" wasm
 done
 
-# Pinned phase-2 outputs (never regenerated here): the local cache first, else the GitHub release.
+# Pinned phase-2 outputs (never regenerated here): the local cache first, else the CDN, else the
+# GitHub release.
 tag=$(node -e 'console.log(require("./release/release.json").tag)')
+cdn="https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/$tag"
 base="https://github.com/vocdoni/davinci-dkg-council/releases/download/$tag"
 mkdir -p "$ARTIFACTS_DIR"
 for e in deal_final.zkey:deal:zkey partial_final.zkey:partial:zkey deal_vkey.json:deal:vkey partial_vkey.json:partial:vkey; do
@@ -62,13 +65,15 @@ for e in deal_final.zkey:deal:zkey partial_final.zkey:partial:zkey deal_vkey.jso
   c=${c%%:*}
   kind=${e##*:}
   if ! matches "$ARTIFACTS_DIR/$file" "$c" "$kind"; then
-    echo "== fetch $file from $base/$file"
-    # The plain URL first; `gh` (authenticated) as a fallback, which a private repository needs.
-    curl -fsSL --retry 2 -o "$ARTIFACTS_DIR/$file" "$base/$file" ||
+    echo "== fetch $file from $cdn/$file"
+    # The CDN, then the release's plain URL, then `gh` (authenticated), which a private
+    # repository needs. A wrong copy fails the check below.
+    curl -fsSL --retry 2 -o "$ARTIFACTS_DIR/$file" "$cdn/$file" ||
+      curl -fsSL --retry 2 -o "$ARTIFACTS_DIR/$file" "$base/$file" ||
       { command -v gh >/dev/null &&
         gh release download "$tag" -R vocdoni/davinci-dkg-council -p "$file" -D "$ARTIFACTS_DIR" --clobber; } || {
       rm -f "$ARTIFACTS_DIR/$file"
-      echo "cannot get $file: not in $ARTIFACTS_DIR and the pinned release is unreachable at $base" \
+      echo "cannot get $file: not in $ARTIFACTS_DIR and the pinned release is unreachable at $cdn and $base" \
         "(it may not be published yet). Publish the release, or populate $ARTIFACTS_DIR with the" \
         "files from the machine that made this setup." >&2
       exit 1

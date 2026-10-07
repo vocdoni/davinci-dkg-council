@@ -250,8 +250,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # Headless e2e (on demand): Anvil (Osaka) and forge from the Foundry image,
   # real proofs from the pinned circuit release, the relayer in front.
-  # scripts/ci-e2e.sh downloads the release and skips with a notice while it
-  # is not published. The DAVINCI round trip needs the sibling davinci-contracts
+  # scripts/ci-e2e.sh downloads the pinned files (the DAVINCI CDN, then the
+  # GitHub release) and skips with a notice when neither serves them. The DAVINCI round trip needs the sibling davinci-contracts
   # and davinci-sdk checkouts and is excluded. Runs on the org's self-hosted
   # runners (Default group): the 16-member lifecycle proves about 70 Groth16
   # statements.

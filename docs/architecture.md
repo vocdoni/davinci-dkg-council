@@ -632,17 +632,22 @@ and the release manifest are committed at `circuits/release/` (`deal_vkey.json`,
 sha256s); the heavy assets are `deal.wasm`, `deal_final.zkey`, `partial.wasm`,
 `partial_final.zkey` on a GitHub release of this repository tagged `circuits-v1`
 (`https://github.com/vocdoni/davinci-dkg-council/releases/download/circuits-v1/`), staged as a
-draft by the `Publish Circuits` workflow. The `circuitReleaseId` sha256 inputs are the published
+draft by the `Publish Circuits` workflow, and copied with the vkeys and `release.json` to the
+DAVINCI CDN (`https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/circuits-v1/`), which
+the SDK and the scripts try first. Browsers can read the CDN only through its CORS rule and never
+the GitHub release (its downloads redirect without CORS headers), so a hosted app also serves the
+files from its own origin and lists that copy first. The `circuitReleaseId` sha256 inputs are the published
 vkey JSON files, byte-exact — never re-serialized; for `circuits-v1` the id is
 `0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301` (§1.6). Locally the six
 files live in `~/.davinci-dkg-council/artifacts/` (`COUNCIL_ARTIFACTS_DIR`), where
 `make circuits-restore`, the SDK's real-prover tests, the e2e suite and `make dev` find them.
 
 Artifact distribution follows davinci-sdk's `src/prover/artifacts.ts` pattern: the SDK exports a
-record keyed by vkey hash mapping to `{wasm: {url, sha256}, zkey: {url, sha256}, vkey: {url,
-sha256}}`, every file stream-verified against its pinned sha256 before use, cached in the browser
-via the Cache API (zkeys are tens of MB; the app shows download progress and keeps them across
-sessions). The base URL is overridable for local e2e; the sha256 pins are not.
+record keyed by vkey hash mapping to `{wasm: {url, sha256, mirrors}, zkey: …, vkey: …}` (`url`
+on the CDN, `mirrors` the GitHub release), every file stream-verified against its pinned sha256
+before use, cached in the browser via the Cache API (zkeys are tens of MB; the app shows download
+progress and keeps them across sessions). The download locations are overridable (app mirrors,
+local e2e); the sha256 pins are not.
 
 ## 3. DAVINCI integration
 
@@ -1036,7 +1041,8 @@ action. Empty means no relayer: direct sending, dev mode only.
 stream-verified against the SDK's sha256 pins (which are **not** configurable), so any mirror is
 as good as the canonical release — a mirror that is down or serves bytes that do not hash to the
 pin is skipped. `{release}` in an entry is replaced with the deployment's release tag at download
-time, so one mirror layout serves several releases. Empty means the canonical release URL.
+time, so one mirror layout serves several releases. Empty means the SDK's own locations (the
+CDN, then the GitHub release).
 [hosting.md](hosting.md) is the policy for how many mirrors and relayers a production deployment
 needs.
 
@@ -1173,8 +1179,9 @@ What must still exist for results to open, however late:
    keeps running, reachable through at least two independent RPC providers that serve the
    finalized block (no archive access needed).
 2. **The app and its circuit files**: a copy of the app pinned to the deployment (or any client
-   built from the protocol) and the six pinned circuit files at `artifactsBaseUrl` or the release
-   URL; the app checks every byte against the SDK's sha256 pins, so any mirror will do.
+   built from the protocol) and the six pinned circuit files at one of its `artifactsBaseUrls`
+   (the CDN, the release, a copy on the app's origin); the app checks every byte against the
+   SDK's sha256 pins, so any mirror will do.
 3. **Someone to pay for the transactions**: the relayer (and its combine worker), or anyone
    sending the partials and the combine directly from a funded account; the combine needs no
    trust (§10.3 of the protocol), and a relayer restarted months later enumerates known

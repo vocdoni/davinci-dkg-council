@@ -1,7 +1,7 @@
 // Re-pins the SDK and the deployment to the circuit release in circuits/release/release.json
 // (written by build.sh) and to the verifiers compiled from it (solidity/out, after `forge build`):
-//   - sdk/src/artifacts.ts: release tag, download base URL, the sha256 of the six files and the
-//     circuitReleaseId comment;
+//   - sdk/src/artifacts.ts: release tag, download base URLs (the CDN, then the GitHub release), the
+//     sha256 of the six files and the circuitReleaseId comment;
 //   - solidity/script/CouncilRelease.sol: tag, DEVELOPMENT_SETUP (release.json "developmentSetup",
 //     absent = true: build.sh's single-party setups never write it; the multi-party ceremony writes
 //     false), both vkey sha256s, circuitReleaseId and the runtime code hash (EXTCODEHASH) of both
@@ -18,6 +18,7 @@ const REPO = process.env.COUNCIL_REPO_ROOT || join(dirname(fileURLToPath(import.
 const ROOT = join(REPO, "circuits");
 const ARTIFACTS_TS = join(REPO, "sdk", "src", "artifacts.ts");
 const RELEASE_SOL = join(REPO, "solidity", "script", "CouncilRelease.sol");
+const CDN = "https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council";
 const RELEASES = "https://github.com/vocdoni/davinci-dkg-council/releases/download";
 
 interface FilePin {
@@ -48,7 +49,8 @@ function replaceOne(text: string, re: RegExp, value: string, what: string): stri
 }
 
 let ts = readFileSync(ARTIFACTS_TS, "utf8");
-ts = replaceOne(ts, /(const BASE = ')[^']*/, `${RELEASES}/${release.tag}`, "artifacts.ts BASE");
+ts = replaceOne(ts, /(const BASE = ')[^']*/, `${CDN}/${release.tag}`, "artifacts.ts BASE");
+ts = replaceOne(ts, /(const MIRROR = ')[^']*/, `${RELEASES}/${release.tag}`, "artifacts.ts MIRROR");
 ts = replaceOne(ts, /(\n  release: ')[^']*/, release.tag, "artifacts.ts release");
 ts = replaceOne(ts, /(\(circuitReleaseId )0x[0-9a-f]{64}/, release.circuitReleaseId, "artifacts.ts release id");
 ts = replaceOne(

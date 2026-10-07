@@ -3,7 +3,8 @@
  * (architecture §4, protocol §4.4). The sha256 pins are part of the SDK
  * release and are NOT overridable; only the download location is (CDN
  * mirrors, tried in order — any copy that hashes to the pin is as good as
- * the original).
+ * the original). Without caller mirrors every file comes from the DAVINCI
+ * CDN first and the GitHub release second.
  *
  * Every release also carries its trust status: `developmentSetup` marks a
  * development trusted setup (one local phase-2 contribution) whose holder
@@ -16,10 +17,12 @@ import { circuitReleaseId } from './encoding.js';
 import type { Hex } from './types.js';
 
 export interface ArtifactFile {
-  /** Canonical download URL. */
+  /** Canonical download URL (also the browser cache key). */
   url: string;
   /** sha256 of the exact released file bytes, 0x-hex. */
   sha256: Hex;
+  /** Further copies tried in order after `url` when the caller names no mirrors. */
+  mirrors?: readonly string[];
 }
 
 export interface CircuitArtifactSet {
@@ -43,7 +46,11 @@ export interface ArtifactsRelease {
 
 const UNPINNED: Hex = `0x${'0'.repeat(64)}`;
 
-const BASE = 'https://github.com/vocdoni/davinci-dkg-council/releases/download/circuits-v1';
+// Where the release is published, tried in that order: the DAVINCI CDN (DigitalOcean Spaces; browsers
+// need its CORS rule), then the GitHub release (no CORS headers: Node, CI and scripts only). A
+// hosted app lists its own copy first (`baseUrls`).
+const BASE = 'https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/circuits-v1';
+const MIRROR = 'https://github.com/vocdoni/davinci-dkg-council/releases/download/circuits-v1';
 
 /**
  * The pinned release. Pins come from `circuits/release/release.json`
@@ -58,28 +65,34 @@ export const COUNCIL_ARTIFACTS: ArtifactsRelease = {
     wasm: {
       url: `${BASE}/deal.wasm`,
       sha256: '0x1956a88d40344b23f039e0f20957d0bd9ad08fe4448997b29a15ce7ae68ca089',
+      mirrors: [`${MIRROR}/deal.wasm`],
     },
     zkey: {
       url: `${BASE}/deal_final.zkey`,
       sha256: '0x2f500df2886c17f91cbc7332518f4d501cfaee732d9577fb692962fc1a342e4b',
+      mirrors: [`${MIRROR}/deal_final.zkey`],
     },
     vkey: {
       url: `${BASE}/deal_vkey.json`,
       sha256: '0x329f3456ac194bf8f7e07974b7f782a8bcc797e2ce37e46dc357dd3dbd442444',
+      mirrors: [`${MIRROR}/deal_vkey.json`],
     },
   },
   partial: {
     wasm: {
       url: `${BASE}/partial.wasm`,
       sha256: '0x55aa433c9c3d472f01573323c2c1599bbd4874f8f0ae863ed3a4ace4dcf3d795',
+      mirrors: [`${MIRROR}/partial.wasm`],
     },
     zkey: {
       url: `${BASE}/partial_final.zkey`,
       sha256: '0x10567ac3b0b642f58cbc6785212d0cb4ddb7f22c3dd29aaa90ba1a6244756d52',
+      mirrors: [`${MIRROR}/partial_final.zkey`],
     },
     vkey: {
       url: `${BASE}/partial_vkey.json`,
       sha256: '0xae15a6c0ab9dfe26756aef8af8d7766c8d462bbeefae0847f513a2d317ad1991',
+      mirrors: [`${MIRROR}/partial_vkey.json`],
     },
   },
 };
@@ -136,8 +149,8 @@ export interface FetchArtifactOptions {
   /**
    * Mirrors tried in order (after `baseUrl`, when both are given): a mirror
    * that is down, answers an error or serves bytes that do not match the pin
-   * is skipped. Empty/absent: the canonical URL. `{release}` in a base URL
-   * is replaced with `release`.
+   * is skipped. Empty/absent: the canonical URL, then the file's own
+   * `mirrors`. `{release}` in a base URL is replaced with `release`.
    */
   baseUrls?: readonly string[];
   /** Release tag substituted for `{release}` in mirror base URLs. */
@@ -166,7 +179,7 @@ export function artifactUrl(file: ArtifactFile, baseUrl?: string, release?: stri
 /** The download candidates for one file, in the order `fetchArtifact` tries them. */
 export function artifactUrls(file: ArtifactFile, options: Pick<FetchArtifactOptions, 'baseUrl' | 'baseUrls' | 'release'> = {}): string[] {
   const bases = [...(options.baseUrl ? [options.baseUrl] : []), ...(options.baseUrls ?? [])].filter((b) => b.trim() !== '');
-  const urls = bases.length === 0 ? [file.url] : bases.map((b) => artifactUrl(file, b, options.release));
+  const urls = bases.length === 0 ? [file.url, ...(file.mirrors ?? [])] : bases.map((b) => artifactUrl(file, b, options.release));
   return [...new Set(urls)];
 }
 

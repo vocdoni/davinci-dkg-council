@@ -43,7 +43,8 @@ test("a ceremony re-pin flips the SDK developmentSetup flag and DEVELOPMENT_SETU
     const ts = readFileSync(join(repo, "sdk", "src", "artifacts.ts"), "utf8");
     assert.match(ts, /\n {2}developmentSetup: false,\n/);
     assert.match(ts, /\n {2}release: 'circuits-v2-test',\n/);
-    assert.match(ts, /releases\/download\/circuits-v2-test'/);
+    assert.match(ts, /const BASE = 'https:\/\/davinci-assets\.fra1\.cdn\.digitaloceanspaces\.com\/council\/circuits-v2-test'/);
+    assert.match(ts, /const MIRROR = 'https:\/\/github\.com\/[^']*\/releases\/download\/circuits-v2-test'/);
     assert.match(ts, /multi-party phase-2 ceremony release/);
     assert.doesNotMatch(ts, /NOT FOR PRODUCTION/);
     const sol = readFileSync(join(repo, "solidity", "script", "CouncilRelease.sol"), "utf8");

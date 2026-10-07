@@ -8,7 +8,8 @@
 # solidity/script/CouncilRelease.sol. A freshly regenerated dev phase-2 (circuits/build.sh,
 # random contribution entropy) can never match those pins, so:
 #   1. use the files already in $COUNCIL_ARTIFACTS_DIR when they verify;
-#   2. else download the pinned release named in circuits/release/release.json;
+#   2. else download the pinned release named in circuits/release/release.json, from the
+#      DAVINCI CDN first and the GitHub release second;
 #   3. else skip the suite with a notice instead of failing the run (the release is not
 #      published yet).
 #
@@ -53,10 +54,13 @@ mkdir -p "$artifacts_dir"
 if verify_all; then
   echo "circuit artifacts in $artifacts_dir match the pins"
 else
+  cdn="https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/$tag"
   base="https://github.com/vocdoni/davinci-dkg-council/releases/download/$tag"
   echo "staged artifacts do not match the pins; fetching the $tag release"
-  # The repository may be private: `gh` with the job's token when available, else plain URLs.
+  # The CDN first; then the release, which may be private: `gh` with the job's token when
+  # available, else its plain URL. verify_all checks whatever arrived against the pins.
   fetch() {
+    curl -fsSL --retry 2 -o "$artifacts_dir/$1" "$cdn/$1" && return 0
     if [[ -n ${GH_TOKEN:-} ]] && command -v gh >/dev/null; then
       gh release download "$tag" -R "${GITHUB_REPOSITORY:-vocdoni/davinci-dkg-council}" -p "$1" -D "$artifacts_dir" --clobber
     else

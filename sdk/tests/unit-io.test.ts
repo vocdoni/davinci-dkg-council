@@ -448,6 +448,44 @@ describe('artifact mirrors (tried in order, pins unchanged)', () => {
     ]);
   });
 
+  it("falls through a CORS refusal (fetch's TypeError) in the hosted order: own copy, CDN, GitHub", async () => {
+    // A browser reports a cross-origin response without Access-Control-Allow-Origin only as a
+    // rejected fetch, exactly like a network failure.
+    const cors = (host: string): typeof fetch =>
+      (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (new URL(url).host !== host) throw new TypeError('Failed to fetch');
+        return new Response(bytes.slice());
+      }) as unknown as typeof fetch;
+    const hosted = {
+      baseUrls: [
+        'https://app.example/{release}',
+        'https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/{release}',
+        'https://github.com/vocdoni/davinci-dkg-council/releases/download/{release}',
+      ],
+      release: 'circuits-v1',
+    };
+    // The app's own copy missing (404), the CDN refused by CORS, the GitHub release too: no copy.
+    const seen: string[] = [];
+    const none = hosts({ 'app.example': 404 }, seen);
+    const err = await fetchArtifact(file, { ...hosted, fetchFn: none }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ArtifactUnavailableError);
+    expect((err as ArtifactUnavailableError).failures.map((f) => f.reason)).toEqual([
+      expect.stringMatching(/HTTP 404/),
+      'Failed to fetch',
+      'Failed to fetch',
+    ]);
+    expect(seen.map((u) => new URL(u).host)).toEqual([
+      'app.example',
+      'davinci-assets.fra1.cdn.digitaloceanspaces.com',
+      'github.com',
+    ]);
+    // Each later mirror is reached when the ones before it refuse.
+    for (const host of ['app.example', 'davinci-assets.fra1.cdn.digitaloceanspaces.com', 'github.com']) {
+      expect(await fetchArtifact(file, { ...hosted, fetchFn: cors(host) })).toEqual(bytes);
+    }
+  });
+
   it('skips a mirror that stalls before headers or mid-body', async () => {
     const seen: string[] = [];
     const fetchFn = (async (input: RequestInfo | URL) => {
@@ -510,6 +548,25 @@ describe('artifact mirrors (tried in order, pins unchanged)', () => {
       'https://n.example/deal.wasm',
     ]);
     expect(artifactUrl(file, 'https://m.example/{release}/', 'circuits-v9')).toBe('https://m.example/circuits-v9/deal.wasm');
+  });
+
+  it("without caller mirrors, the file's own mirrors follow its canonical URL", () => {
+    const withMirror: ArtifactFile = { ...file, mirrors: ['https://fallback.example/circuits-v1/deal.wasm'] };
+    expect(artifactUrls(withMirror)).toEqual([file.url, 'https://fallback.example/circuits-v1/deal.wasm']);
+    expect(artifactUrls(withMirror, { baseUrls: ['https://m.example'] })).toEqual(['https://m.example/deal.wasm']);
+  });
+
+  it('the pinned release comes from the DAVINCI CDN first and the GitHub release second', () => {
+    const tag = COUNCIL_ARTIFACTS.release;
+    for (const set of [COUNCIL_ARTIFACTS.deal, COUNCIL_ARTIFACTS.partial]) {
+      for (const f of [set.wasm, set.zkey, set.vkey]) {
+        const name = f.url.slice(f.url.lastIndexOf('/') + 1);
+        expect(artifactUrls(f)).toEqual([
+          `https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/${tag}/${name}`,
+          `https://github.com/vocdoni/davinci-dkg-council/releases/download/${tag}/${name}`,
+        ]);
+      }
+    }
   });
 });
 
