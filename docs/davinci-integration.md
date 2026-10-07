@@ -11,9 +11,10 @@ Elections pairing connects a committee to an Elections organization.
 > https://council-gnosis-relayer-production.up.railway.app). It runs on `circuits-v1`, a
 > **development** trusted setup (one-party phase 2: whoever holds its toxic waste can forge
 > dealings and partial decryptions), which the owner accepted for the beta; the app says so on
-> every page. The runs below used a test DAVINCI registry and the then unreleased `council`
-> branches of davinci-contracts, davinci-sdk and davinci-sequencer. [Known limits](#known-limits)
-> lists what the beta still lacks.
+> every page. Every side is released: `@vocdoni/davinci-sdk@3.0.0` and davinci-sequencer v0.5.0
+> name the production registry (davinci-contracts v0.0.50) as their `gnosis` preset. The
+> [measured run](#measured-run-2026-10-07) below predates the release and ran on a since-retired
+> test registry. [Known limits](#known-limits) lists what the beta still lacks.
 
 ## How it fits together
 
@@ -47,8 +48,8 @@ of any process. The Council side is documented in [protocol.md](protocol.md) §8
 |---|---|---|
 | A Live Council ceremony | the key; its decryption opening policy is fixed at creation | the committee's organizer, with the Council app or `@vocdoni/davinci-dkg-council-sdk` |
 | Two grants on that ceremony | `allowAdapter(registry.councilAdapter())` and `authorizeCreator(<the address that calls createProcess>)`, both irreversible for the ceremony | the organizer (app "Authorize" screen, or a signed action) |
-| A DAVINCI registry with Council support | davinci-contracts `ProcessRegistry` deployed with a Council manager | Vocdoni (the [test registry](#the-test-deployment-on-gnosis) for now) |
-| Sequencer nodes for that registry | davinci-sequencer with `KeyMode::Council` | Vocdoni or the product |
+| A DAVINCI registry with Council support | davinci-contracts `ProcessRegistry` deployed with a Council manager | Vocdoni (the [production registry](#the-production-deployment-on-gnosis)) |
+| Sequencer nodes for that registry | davinci-sequencer ≥ v0.5.0 (`KeyMode::Council`) | Vocdoni (the public https://sequencer2.davinci.vote); a product need not run one |
 | `@vocdoni/davinci-sdk` with `keyMode: 'council'` | process creation, votes, results | the product |
 | Census and metadata hosting | an `Uploader` that serves the files over public `https` | the product |
 | A Council relayer | forwards members' signed actions and runs the combine step | the committee (any relayer works; anyone may also send directly) |
@@ -107,56 +108,54 @@ creation (read from chain state, its binding authenticated), marked as waiting u
 sequencer submits the tally. The app refuses to compute a partial until a finalized snapshot
 shows the gate open; in live mode it then unlocks by itself.
 
-## The test deployment on Gnosis
+## The production deployment on Gnosis
 
-Chain id 100. Council v2, `circuits-v1` DEVELOPMENT setup (the manager is now the production
-beta, [deployments.md](deployments.md#gnosis-chain-production-beta)); a test DAVINCI registry
-from davinci-contracts `council` at `f4abc5d` (record: [`scripts/davinci-gnosis/deployment.json`](../scripts/davinci-gnosis/deployment.json)).
-The production DAVINCI registry that binds this manager replaces the test registry for the beta;
-its addresses belong in davinci-contracts' deployment records.
+Chain id 100, the production beta. Council v2 with the `circuits-v1` DEVELOPMENT setup
+([deployments.md](deployments.md#gnosis-chain-production-beta)); the DAVINCI registry is
+davinci-contracts v0.0.50's R2 (record `deployments/100.json` in that repository, addresses also
+exported by npm `@vocdoni/davinci-contracts@0.0.50`).
 
 | | Address | Since block |
 |---|---|---|
 | CouncilManager | `0x2f5b110864cbad4017fe8ac59111812278f5f71f` (views `0xb6011a651bb8495a837dd9723e6e1f8fea797fcc`, ops `0x0d5bab4c31bf49da98a386588085e354bd644b47`) | 48,627,018 |
-| ProcessRegistry | `0x847a16CC56E0Ef57FEc28735105941a0299cDC62` | 48,627,101 |
-| its CouncilAdapter | `0x4817493b792db101dcc75306754242ceFd928E40` | (created by the registry) |
-| its DavinciDKGAdapter | `0x9d356d42eC5a04ABeaDA1AE31D83Eb431f120958` (davinci-dkg `0x9999F38F…c01B`) | |
-| ZiskVerifier | `0x150547716bD6f15D872508b66b2ae7ce17677C9C` (the production one, reused) | |
+| ProcessRegistry (R2) | `0x20b96e465CA7C3536B9C733571ec1eCf42b2eA21` | 48,633,301 |
+| its CouncilAdapter | `0x33e91518521Feb5D2A14928563dc6930Bc2F0755` | (created by the registry) |
+| its DavinciDKGAdapter | `0xB74270Af067Bd75e30cC0cc6D24786EbD6816919` (davinci-dkg `0xC6Fb38c42ed3FB35D363a702218746d5C7Da36BF`) | |
+| ZiskVerifier | `0x150547716bD6f15D872508b66b2ae7ce17677C9C` (reused) | |
 
 The registry carries the production pins (batch and results program vks, `rootCVadcopFinal`,
 `ballotVKHash`, the verifier's code hash) and grace settings (default 180 s, floor 150 s, ceiling
 600 s, max total 1800 s, notice 60 s), so released provers and the davinci-sdk release checks
 accept it (`verifyDeployment` passes). The registry and both adapters are source-verified on
-Gnosisscan and Blockscout.
+Gnosisscan, Blockscout and Sourcify.
 
 - RPCs: `https://gnosis-rpc.publicnode.com`, `https://rpc.gnosischain.com`,
   `https://gnosis.drpc.org`; beacon API (blobs) `https://rpc-gbc.gnosischain.com`. The Council
   SDK's authenticated reads need at least two independent providers that agree on the finalized
   block.
-- Sequencer: a test node, `davinci-sequencer-council-test`, runs on Vocdoni's prover host
-  (`127.0.0.1:9095` there); it is **not publicly reachable**. Run your own against the registry
-  ([below](#running-a-sequencer-for-the-test-registry)).
+- Sequencer: the public `https://sequencer2.davinci.vote` (davinci-sequencer v0.5.0) serves the
+  registry; a product does not need to run one ([below](#running-your-own-sequencer)).
 - Council app and relayer: https://council-gnosis-ui-production.up.railway.app and
   https://council-gnosis-relayer-production.up.railway.app (open admission, combine worker on;
-  [deployments.md](deployments.md#gnosis-production-beta-2026-10-07)). The runs below used their
+  [deployments.md](deployments.md#gnosis-production-beta-2026-10-07)). The measured run used its
   own local relayer (`scripts/davinci-gnosis/relayer.sh`); any relayer for the manager works.
 
-The SDK network config:
+`@vocdoni/davinci-sdk@3.0.0`'s `gnosis` preset names this registry — and is the default — so no
+custom network object is needed:
 
 ```ts
-const network = {
-  name: 'gnosis (Council test registry)',
-  chainId: 100,
-  processRegistry: '0x847a16CC56E0Ef57FEc28735105941a0299cDC62',
-  startBlock: 48_627_101,
-  rpcUrls: ['https://gnosis-rpc.publicnode.com', 'https://rpc.gnosischain.com', 'https://gnosis.drpc.org'],
-};
+const sdk = new DavinciSDK({ signer, sequencerUrls: ['https://sequencer2.davinci.vote'], uploader });
+// network defaults to 'gnosis': ProcessRegistry 0x20b9…eA21 from block 48,633,301
 ```
+
+SDKs before 3.0.0 do not know key mode 3 and throw `unknown key mode 3` on any council process
+they meet, so pin `@vocdoni/davinci-sdk` to `^3.0.0`.
 
 ## Minimal end-to-end example
 
 Condensed from [`scripts/davinci-gnosis/roundtrip.gnosis.ts`](../scripts/davinci-gnosis/roundtrip.gnosis.ts),
-which ran it on the test deployment ([measured run](#measured-run-2026-10-07)). The ceremony
+which ran it against the since-retired test registry ([measured run](#measured-run-2026-10-07));
+the calls are unchanged on the production deployment. The ceremony
 steps use the Council SDK the way the app does; in a product the organizer and the members do
 them in the Council app instead.
 
@@ -165,18 +164,18 @@ the organizer's derived key and sent through a relayer (the app's "Authorize" sc
 same):
 
 ```ts
-import { DavinciSDK, FailoverRpcProvider, OffchainCensus, type Uploader } from '@vocdoni/davinci-sdk';
+import { DavinciSDK, FailoverRpcProvider, GNOSIS, OffchainCensus, type Uploader } from '@vocdoni/davinci-sdk';
 import { Wallet } from 'ethers';
 import { accountFromSecret, RelayerClient, signAction, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
 
 // Census files and metadata documents, served unchanged over public https (your storage).
 const uploader: Uploader = { upload: ({ data, sha256 }) => publishFile(`${sha256.slice(2)}.json`, data) };
 
-const organizer = new Wallet(PRODUCT_KEY, new FailoverRpcProvider(network.rpcUrls, network.chainId));
-const sdk = new DavinciSDK({ signer: organizer, network, sequencerUrls: [SEQUENCER_URL], uploader });
-await sdk.init(); // checks the registry pins and the nodes' /info
+const organizer = new Wallet(PRODUCT_KEY, new FailoverRpcProvider(GNOSIS.rpcUrls, GNOSIS.chainId));
+const sdk = new DavinciSDK({ signer: organizer, sequencerUrls: [SEQUENCER_URL], uploader });
+await sdk.init(); // network defaults to 'gnosis'; checks the registry pins and the nodes' /info
 
-const adapter = (await sdk.registry.getCouncilAdapter()) as Hex; // 0x4817…8E40 on the test registry
+const adapter = (await sdk.registry.getCouncilAdapter()) as Hex; // 0x33e9…0755 on gnosis
 const relayer = new RelayerClient(RELAYER_URL);
 const grant = async (type: 'AllowAdapter' | 'AuthorizeCreator', message: Record<string, unknown>) => {
   const kind = type === 'AllowAdapter' ? 'allowAdapter' : 'authorizeCreator';
@@ -214,7 +213,7 @@ const p = await sdk.registry.getProcess(processId);
 **3. Voters vote**, each with their own SDK instance (a bare wallet is enough):
 
 ```ts
-const voter = new DavinciSDK({ signer: voterWallet, network, sequencerUrls: [SEQUENCER_URL] });
+const voter = new DavinciSDK({ signer: voterWallet, sequencerUrls: [SEQUENCER_URL] });
 await voter.init();
 const { voteId } = await voter.submitVote({ processId, choices: [1, 2, 3] });
 await voter.waitForVoteStatus(processId, voteId); // pending > aggregated > processed > settled
@@ -246,8 +245,14 @@ sequencer nodes download the census at process creation and refuse private hosts
 
 ## Measured run (2026-10-07)
 
+**History, measured on the retired test registry.** This run predates the production release by
+hours: it used the production Council manager but the test registry
+`0x847a16CC56E0Ef57FEc28735105941a0299cDC62` (replaced by R2 the same day), a private test
+sequencer and the then unreleased `council` branches. The production registry carries the same
+pins and grace settings, so the shapes and timings carry over.
+
 `scripts/davinci-gnosis/run.sh`, run 2026-10-07 03:10–04:02 UTC: all checks passed. Two n = 3,
-t = 2 ceremonies on the test manager, three processes on the test registry through the test
+t = 2 ceremonies on the manager, three processes on the test registry through the test
 sequencer, real proofs everywhere (Council dealings and partials, DAVINCI ballots, zkVM state
 transitions on the shared GPU prover). Every tally was read back through `waitForResults` and
 checked against the ballots, and through the Council SDK's authenticated `getPlaintexts`.
@@ -280,49 +285,37 @@ creator 5 (2.7M gas: creations 0.84–0.88M, ends 41k); the sequencer 8 (4.0M ga
 cost is blob gas: each settlement carries one blob at Gnosis' 1 gwei blob fee floor, 1.3e-4 xDAI,
 so the sequencer spent 2.6e-4 xDAI for the run.
 
-## Running a sequencer for the test registry
+## Running your own sequencer
 
-The node must be a davinci-sequencer build of the `council` branch (released images do not know
-key mode 3 and ignore such processes). Built from the directory holding `davinci-sequencer/` and
-`davinci-zkvm/` (`davinci-sequencer/Dockerfile`), the test node runs as:
+The public `https://sequencer2.davinci.vote` (davinci-sequencer v0.5.0) serves the production
+registry, so a product only runs its own node for isolation or throughput. The released image
+knows the deployment as its default preset (`DAVINCI_NETWORK=gnosis`: R2, its start block, the
+RPCs and the beacon API); images before v0.5.0 do not know key mode 3 and ignore council
+processes.
 
 ```bash
-docker run -d --name davinci-sequencer-council-test --restart unless-stopped \
-  --user "$(id -u):$(id -g)" -p 127.0.0.1:9095:9090 \
-  -v ~/.davinci-gnosis/sequencer-council-test/data:/data \
-  -v ~/.davinci-gnosis/keys/seq-council-test.key:/run/secrets/sequencer_key:ro \
-  -e DAVINCI_NETWORK=custom \
-  -e DAVINCI_REGISTRY=0x847a16cc56e0ef57fec28735105941a0299cdc62 \
-  -e DAVINCI_START_BLOCK=48627101 \
-  -e DAVINCI_RPC_URL=https://gnosis-rpc.publicnode.com,https://rpc.gnosischain.com,https://gnosis.drpc.org \
-  -e DAVINCI_BLOB_SOURCE=beacon:https://rpc-gbc.gnosischain.com \
-  -e DAVINCI_CONFIRMATIONS=3 \
+docker run -d --name davinci-sequencer --restart unless-stopped \
+  --user "$(id -u):$(id -g)" -p 127.0.0.1:9090:9090 \
+  -v ~/davinci/data:/data \
+  -v ~/davinci/sequencer.key:/run/secrets/sequencer_key:ro \
   -e DAVINCI_PROVER_URL=http://<davinci-zkvm prover>:8080 \
   -e DAVINCI_PRIVKEY_FILE=/run/secrets/sequencer_key \
-  -e DAVINCI_CENSUS_ALLOW_PRIVATE=true \
-  -e DAVINCI_BATCH_TIME=2m \
-  davinci-sequencer:council-test
+  ghcr.io/vocdoni/davinci-sequencer:v0.5.0
 ```
 
 Its key pays settlements, decryption requests and finalizations (a few transactions per process
 at Gnosis' fee level; fund it with a fraction of an xDAI). At boot it checks the registry's pins
 against the davinci-zkvm release it was built with and stops on any difference, so the prover
-must run the same release. `DAVINCI_BATCH_TIME=2m` only shortens batching for tests (default
-15 min).
-
-`DAVINCI_CENSUS_ALLOW_PRIVATE=true` is there because the run served its census and metadata from
-a plain HTTP server on the Docker bridge (`http://172.17.0.1:8099`, with
-`documents: { allowPrivateHosts: true }` in the SDK): there was no public host to commit them to.
-A product does not do this; it gives the SDK an `uploader` backed by public `https` storage and
-the nodes keep refusing private hosts.
+must run the same release.
 
 ## Reproducing the run
 
 `scripts/davinci-gnosis/` holds the run: `relayer.sh start` starts a restricted-mode Council
 relayer (its own hot key, combine worker on), and `run.sh` runs `roundtrip.gnosis.ts` through the
 e2e package's vitest, reusing the e2e actors (`tests/src/actors.ts`) for the organizer and the
-members. It needs the sequencer above, a file server for `DAVINCI_FILES_DIR`, a built davinci-sdk
-`council` checkout (`DAVINCI_SDK_DIR`), the pinned Council circuit files
+members. It is kept as recorded (pointed at the retired test registry; retarget it to reproduce
+on the production one). It needs a sequencer whose registry it targets, a file server for
+`DAVINCI_FILES_DIR`, a built davinci-sdk checkout (`DAVINCI_SDK_DIR`), the pinned Council circuit files
 (`COUNCIL_ARTIFACTS_DIR`) and a funded process-creator key (`DAVINCI_ORGANIZER_KEY_FILE`). Each run
 writes a record (`run-*.json`, addresses, hashes, states, timings) and a 0600 secrets file with
 the recovery phrases and voter keys to `COUNCIL_RUN_DIR`; `COUNCIL_RESUME=<secrets file>` reruns
@@ -373,19 +366,14 @@ the adapter** — those come from the app's pinned configuration and from chain.
 
 ## Known limits
 
-- **Development trusted setup.** The test manager pins `circuits-v1`, a one-party phase 2: its
-  operator can forge any dealing or partial, so the test deployment protects nothing. Production
-  needs the multi-party phase-2 release (`circuits/scripts/ceremony/`), a new CouncilManager
-  pinned to it, and a DAVINCI registry deployed against that manager.
-- **Unreleased code on every side.** davinci-contracts, davinci-sdk and davinci-sequencer carry
-  the Council mode on local `council` branches; the Council repository and its circuit release
-  are private and unpublished (the app needs a public mirror of the circuit files). Production is
-  a coordinated release: the registry redeploy, a davinci-sequencer release, and a **davinci-sdk
-  major release published before the first mode-3 process exists on any chain its users index**
-  (older SDKs throw `unknown key mode 3` on such a process).
-- **The test sequencer is private** and serves this run only; the census of the test processes
-  was hosted on a private address (see above). The hosted Council app and relayer are one
-  Railway project with no standby yet ([hosting.md](hosting.md)).
+- **Development trusted setup.** The production beta pins `circuits-v1`, a one-party phase 2:
+  whoever holds its toxic waste can forge dealings and partial decryptions. The owner accepted
+  this for the beta, and the app states it on every page. Dropping the label needs a real
+  multi-party phase 2 (`circuits/scripts/ceremony/`), a new CouncilManager pinned to its release,
+  and a DAVINCI registry deployed against that manager — new ceremonies on new contracts, not an
+  upgrade in place.
+- **One of everything.** `sequencer2.davinci.vote` is a single node, and the hosted Council app
+  and relayer are one Railway project with no standby yet ([hosting.md](hosting.md)).
 - **Relayer sends on Gnosis.** In one rehearsal the Council relayer's dealing transactions
   (≈1.2M gas) waited one to three minutes and up to five automatic fee bumps for inclusion; in
   the final run none needed a bump. publicnode refused most of the relayer's

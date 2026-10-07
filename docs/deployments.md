@@ -265,7 +265,9 @@ action carries the roster keys read from finalized state); B in 25 min, bounded 
 **Observations.**
 
 - A DAVINCI request on this manager (`0x3cc882790761798d53c385aeb5498487d3e277e895c529e41aa2b112e72ce75f`,
-  submitted through the DAVINCI `ProcessRegistry` at `0x847a16cc56e0ef57fec28735105941a0299cdc62`)
+  submitted through the since-retired test DAVINCI `ProcessRegistry` at
+  `0x847a16cc56e0ef57fec28735105941a0299cdc62`; the production registry is
+  `0x20b96e465ca7c3536b9c733571ec1ecf42b2ea21`)
   was also picked up by this open relayer's worker, which lost the race to another combiner in
   block 48,627,686: its combine reverted after 69,290 gas
   (`0x5b452ecaad12bb1e64c8eb749ceefb520a3bcbd7cdc34689cb0101967974afce`). Simulation cannot see a
