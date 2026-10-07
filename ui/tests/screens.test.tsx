@@ -3,7 +3,7 @@
  * explicit roster approval gate before contributing (§8.3).
  */
 
-import { accountFromSecret, generateMnemonic } from '@vocdoni/davinci-dkg-council-sdk';
+import { accountFromSecret, generateMnemonic, RelayerError } from '@vocdoni/davinci-dkg-council-sdk';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
@@ -12,7 +12,8 @@ import { AppProvider, AppRoutes } from '../src/App';
 import { RecoveryKitStep } from '../src/components/RecoveryKitStep';
 import { buildKitForRecords } from '../src/flows/kit';
 import { resetInviteFragmentForTests } from '../src/lib/inviteCapture';
-import { putRecord, recordKey, type CeremonyRecord } from '../src/lib/records';
+import { plainSubmitError } from '../src/lib/relayerErrors';
+import { listRecords, putRecord, recordKey, type CeremonyRecord } from '../src/lib/records';
 import { saveRoot, type VaultStore } from '../src/lib/vault';
 import { makeFixture, type Fixture } from './helpers/fake';
 import { Phase } from '@vocdoni/davinci-dkg-council-sdk';
@@ -115,6 +116,70 @@ describe('contribute gate (§8.3)', () => {
 
     await waitFor(() => expect(f.actions.length).toBeGreaterThan(0), { timeout: 20_000 });
     expect(f.actions[0]?.kind).toBe('deal');
+  }, 30_000);
+});
+
+describe('join flow resilience (2026-10-07 production run)', () => {
+  const SECRET = 123456789n;
+  const fragment = `#v1.0.${SECRET.toString(16).padStart(64, '0')}`;
+
+  /** Walk explain → kit rehearsal → join with a pre-saved mnemonic (so the rehearsal can pass). */
+  async function walkToJoin(f: Fixture, mnemonic: string) {
+    const user = userEvent.setup();
+    await renderApp(f, `/c/${f.cid}${fragment}`, { mnemonic });
+    const create = await screen.findByRole('button', { name: /Create my key/ });
+    await waitFor(() => expect(create).toBeEnabled());
+    await user.click(create);
+    await user.click(await screen.findByRole('button', { name: /Download the kit file/ }));
+    await user.click(screen.getByRole('button', { name: /I saved it/ }));
+    const box = screen.getByLabelText('Your twelve recovery words');
+    await user.click(box);
+    await user.paste(mnemonic);
+    await user.click(screen.getByRole('button', { name: /Check the words/ }));
+  }
+
+  it('keeps the member view when the answer was lost (the join may have landed)', async () => {
+    const f = makeFixture({ phase: Phase.Registration });
+    f.chain.invites[0] = { key: accountFromSecret(SECRET).address, consumed: false };
+    f.services.submit = async () => {
+      throw plainSubmitError(new RelayerError('TIMEOUT', 'no answer'));
+    };
+    await walkToJoin(f, generateMnemonic());
+    // Persisted before the send: the route now shows the member view tracking the join.
+    await screen.findByText(/You joined the member list/);
+    expect(screen.queryByText(/That did not work/)).toBeNull();
+    const mine = (await listRecords()).filter((r) => r.cid === f.cid);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.pending?.[0]?.kind).toBe('join');
+  }, 30_000);
+
+  it('a definitive refusal leaves nothing behind and offers Try again', async () => {
+    const f = makeFixture({ phase: Phase.Registration });
+    f.chain.invites[0] = { key: accountFromSecret(SECRET).address, consumed: false };
+    f.services.submit = async () => {
+      throw plainSubmitError(new RelayerError('SIMULATION_REVERTED', 'NotInvited()', '0x12345678'));
+    };
+    await walkToJoin(f, generateMnemonic());
+    await screen.findByText(/That did not work/);
+    screen.getByRole('button', { name: /Try again/ });
+    expect((await listRecords()).filter((r) => r.cid === f.cid)).toHaveLength(0);
+  }, 30_000);
+
+  it('a consumed invite used by this device resumes the member view instead of dead-ending', async () => {
+    const f = makeFixture({ phase: Phase.Registration });
+    f.chain.invites[0] = { key: accountFromSecret(SECRET).address, consumed: true };
+    await renderApp(f, `/c/${f.cid}${fragment}`, { mnemonic: f.memberMnemonics[0] as string });
+    await screen.findByText(/You are on the list/);
+    expect(screen.queryByText(/This invitation was already used/)).toBeNull();
+    const mine = (await listRecords()).filter((r) => r.cid === f.cid);
+    expect(mine[0]?.participantIndex).toBe(1);
+  }, 30_000);
+
+  it('a consumed invite used by someone else still says so', async () => {
+    const f = makeFixture({ phase: Phase.Registration });
+    f.chain.invites[0] = { key: accountFromSecret(SECRET).address, consumed: true };
+    await renderApp(f, `/c/${f.cid}${fragment}`, { mnemonic: generateMnemonic() });
+    await screen.findByText(/This invitation was already used/);
   }, 30_000);
 });
 

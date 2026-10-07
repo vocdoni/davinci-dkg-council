@@ -9,9 +9,9 @@ export function Layout({ children }: { children: ReactNode }) {
       <header className="border-b border-ink/10 bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <Link to="/" className="text-lg font-bold tracking-tight">
-            Council
+            DAVINCI Council
           </Link>
-          <span className="text-xs text-ink/50">shared keys for elections</span>
+          <span className="text-xs text-ink/50">Election committees for DAVINCI</span>
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-6">{children}</main>

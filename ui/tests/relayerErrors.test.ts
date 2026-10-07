@@ -1,6 +1,6 @@
 import { RelayerError, RelayersUnavailableError } from '@vocdoni/davinci-dkg-council-sdk';
 import { describe, expect, it } from 'vitest';
-import { plainSubmitError } from '../src/lib/relayerErrors';
+import { mayHaveLanded, plainSubmitError } from '../src/lib/relayerErrors';
 
 const CODES = [
   'INVALID_ACTION',
@@ -74,7 +74,7 @@ describe('plain relayer errors', () => {
           new RelayerError('TIMEOUT', 'no answer'),
         ),
       );
-      expect(err.message).toMatch(/^none of our 4 services answered right now — reload the page in a minute to see whether the step went through/);
+      expect(err.message).toMatch(/^none of our 4 services answered right now — the step may still have gone through; this page keeps checking/);
       expect(err.message).not.toMatch(/nothing was sent/i);
       expect(err.message).not.toMatch(BANNED);
     });
@@ -111,5 +111,34 @@ describe('plain relayer errors', () => {
     const e = new Error('the proof does not match');
     expect(plainSubmitError(e)).toBe(e);
     expect(plainSubmitError('odd').message).toBe('odd');
+  });
+});
+
+describe('mayHaveLanded (a lost answer is not a refusal)', () => {
+  const down = new TypeError('Failed to fetch');
+  const pool = (...errors: unknown[]) =>
+    new RelayersUnavailableError(errors.map((error, i) => ({ url: `https://r${i}.example`, error })));
+
+  it.each([
+    ['network failure', down],
+    ['relayer timeout', new RelayerError('TIMEOUT', 'no answer')],
+    ['relayer 5xx', new RelayerError('INTERNAL', 'x', undefined, 500)],
+    ['pool, all unreachable', pool(down, new RelayerError('TIMEOUT', 'no answer'))],
+  ])('%s: true', (_name, err) => {
+    expect(mayHaveLanded(err)).toBe(true);
+    // The plain-language wrapper classifies like the error inside it (cause chain).
+    expect(mayHaveLanded(plainSubmitError(err))).toBe(true);
+  });
+
+  it.each([
+    ['a refusal', new RelayerError('SIMULATION_REVERTED', 'WrongPhase()', '0x12345678')],
+    ['rate limited', new RelayerError('RATE_LIMITED', 'slow down', undefined, 429)],
+    ['pool with one answer', pool(down, new RelayerError('QUOTA_EXCEEDED', 'quota', undefined, 429))],
+    ['a programming error', new TypeError('Illegal invocation')],
+    ['a plain error', new Error('the proof does not match')],
+    ['not an error', 'odd'],
+  ])('%s: false', (_name, err) => {
+    expect(mayHaveLanded(err)).toBe(false);
+    expect(mayHaveLanded(plainSubmitError(err))).toBe(false);
   });
 });

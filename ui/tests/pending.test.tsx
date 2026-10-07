@@ -40,7 +40,7 @@ URL.createObjectURL = vi.fn(() => 'blob:council-test');
 URL.revokeObjectURL = vi.fn();
 
 const TX = `0x${'01'.repeat(32)}` as Hex;
-const CONFIRMING = /Waiting for the network to confirm — about 15–20 minutes on Sepolia, 1–2 minutes on Gnosis\. You can close this page and come back\./;
+const CONFIRMING = /Waiting for the network to confirm — usually about 4 minutes on Gnosis, 15–20 minutes on Sepolia\. You can close this page; we pick up where you left off\./;
 const ERRORS = /could not reach the public record|That did not work|did not go through|UnknownCeremony/;
 
 /** What viem throws for a view that reverts `UnknownCeremony()` (the committee is not at the finalized block). */

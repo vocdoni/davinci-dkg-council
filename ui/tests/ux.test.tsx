@@ -5,8 +5,7 @@
  */
 
 import { NotFinalizedYetError, Phase } from '@vocdoni/davinci-dkg-council-sdk';
-import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildKitForRecords, manifestFingerprint } from '../src/flows/kit';
 import { resetInviteFragmentForTests } from '../src/lib/inviteCapture';
@@ -52,18 +51,15 @@ describe('kit banners (P0-1)', () => {
     expect(screen.queryByText(/save a fresh copy/)).toBeNull();
   });
 
-  it('shows the one-time join prompt and clears it on save', async () => {
-    const user = userEvent.setup();
+  it('never re-prompts right after joining (the kit saved while joining covers the record)', async () => {
     const f = makeFixture();
-    await renderApp(f, `/c/${f.cid}`, {
-      mnemonic: f.memberMnemonics[0] as string,
-      record: { ...fixtureRecord(f, 'participant', 1), kitExportFingerprint: 'pre-join', kitJoinNudge: true },
-    });
-    await screen.findByText(/You joined this committee after saving your kit/);
-    await user.click(screen.getByRole('button', { name: /Download the kit file/ }));
-    // The record is rewritten in IndexedDB first: wait for it rather than racing it.
-    await waitFor(() => expect(screen.queryByText(/You joined this committee after saving your kit/)).toBeNull());
-    expect(screen.queryByText(/save a fresh copy/)).toBeNull();
+    const mnemonic = f.memberMnemonics[0] as string;
+    const record = fixtureRecord(f, 'participant', 1);
+    record.kitExportFingerprint = manifestFingerprint(buildKitForRecords(mnemonic, [record]).manifest);
+    record.kitJoinNudge = true; // legacy flag from an older release: ignored
+    await renderApp(f, `/c/${f.cid}`, { mnemonic, record });
+    await screen.findByText(/Recovery kit/);
+    expect(screen.queryByText(/after saving your kit|save a fresh copy|no saved kit yet/)).toBeNull();
   });
 
   it('stays silent when the saved kit covers this device', async () => {
@@ -104,6 +100,62 @@ describe('vote names (P0-2)', () => {
   });
 });
 
+describe('DAVINCI vote titles (2026-10-07 production run)', () => {
+  it('member: shows the verified process title instead of the raw id', async () => {
+    const f = makeFixture();
+    f.addRequest([7n]);
+    f.services.voteTitle = async () => 'Board election 2026';
+    await renderApp(f, `/c/${f.cid}`, {
+      mnemonic: f.memberMnemonics[0] as string,
+      record: fixtureRecord(f, 'participant', 1),
+    });
+    await screen.findByText('Board election 2026');
+  });
+
+  it('a local label still wins over the fetched title', async () => {
+    const f = makeFixture();
+    f.addRequest([7n]);
+    f.services.voteTitle = async () => 'Board election 2026';
+    await setVoteLabel(f.config.chainId, f.config.manager, f.cid, PROCESS_ID, 'City budget');
+    await renderApp(f, `/c/${f.cid}`, {
+      mnemonic: f.memberMnemonics[0] as string,
+      record: fixtureRecord(f, 'participant', 1),
+    });
+    await screen.findByText('City budget');
+    expect(screen.queryByText('Board election 2026')).toBeNull();
+  });
+});
+
+describe('organizer dashboard order (2026-10-07 production run)', () => {
+  it('pairing is the obvious step; open-results and raw connections sit behind Advanced', async () => {
+    const f = makeFixture({ davinci: true, policy: { manualOpenedAt: 0n } });
+    f.addRequest([7n]);
+    await renderApp(f, `/c/${f.cid}`, { mnemonic: f.organizerMnemonic, record: fixtureRecord(f, 'organizer') });
+    const pairing = await screen.findByText('Connect to DAVINCI Elections');
+    const advanced = await screen.findByText('Advanced');
+    // The pairing card comes before the Advanced disclosure in the page.
+    expect(pairing.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const details = advanced.closest('details');
+    expect(details).not.toBeNull();
+    // Both irreversible paths live inside the disclosure.
+    expect(details?.contains(screen.getByRole('button', { name: 'Open the results now' }))).toBe(true);
+    expect(details?.contains(screen.getByText('Connections'))).toBe(true);
+    // A locked vote points at the disclosure, not "above".
+    await screen.findByText(/open the results from the Advanced section below/);
+  });
+
+  it('without a pairing card the raw connections stay visible outside Advanced', async () => {
+    const f = makeFixture({ policy: { manualOpenedAt: 0n } });
+    await renderApp(f, `/c/${f.cid}`, { mnemonic: f.organizerMnemonic, record: fixtureRecord(f, 'organizer') });
+    const connections = await screen.findByText('Connections');
+    expect(connections.closest('details')).toBeNull();
+    const advanced = await screen.findByText('Advanced');
+    expect(advanced.closest('details')?.contains(screen.getByRole('button', { name: 'Open the results now' }))).toBe(
+      true,
+    );
+  });
+});
+
 describe('waiting copy matches the counters (P1-1, P1-4)', () => {
   it('participant: all contributions in → "Finish the key" copy, not "waiting for the others"', async () => {
     const f = makeFixture({ phase: Phase.Dealing });
@@ -134,7 +186,7 @@ describe('waiting copy matches the counters (P1-1, P1-4)', () => {
 });
 
 describe('waiting for the network to confirm (never a failure)', () => {
-  const CONFIRMING = /Waiting for the network to confirm — about 15–20 minutes on Sepolia/;
+  const CONFIRMING = /Waiting for the network to confirm — usually about 4 minutes on Gnosis/;
 
   it('a not-yet-finalized deployment shows the confirming note and keeps polling', async () => {
     const f = makeFixture();

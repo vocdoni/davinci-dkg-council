@@ -862,10 +862,20 @@ function ResultsCard({
   const services = useServices();
   const [requests, setRequests] = useState<RequestSummary[] | null>(null);
   const [labels, setLabels] = useState<VoteLabelMap>({});
+  /** DAVINCI process titles by id (display only, hash-verified in lib/voteMeta.ts). */
+  const [titles, setTitles] = useState<Record<string, string>>({});
   usePoll(
     async () => {
-      setRequests(await listRequests(services, record.cid));
+      const list = await listRequests(services, record.cid);
+      setRequests(list);
       setLabels(await getVoteLabels(record.chainId, record.manager, record.cid));
+      if (services.voteTitle) {
+        for (const pid of list.flatMap((r) => (r.processId ? [r.processId.toLowerCase()] : []))) {
+          void services.voteTitle(pid as Hex).then((t) => {
+            if (t) setTitles((m) => (m[pid] === t ? m : { ...m, [pid]: t }));
+          });
+        }
+      }
     },
     10_000,
     [record.cid],
@@ -884,7 +894,9 @@ function ResultsCard({
               <li key={r.requestId} className="rounded-lg border border-ink/10 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium">
-                    {r.processId ? voteName(labels[pid as string], i + 1, r.processId) : `Request ${shortId(r.requestId)}`}
+                    {r.processId
+                      ? voteName(labels[pid as string] ?? titles[pid as string], i + 1, r.processId)
+                      : `Request ${shortId(r.requestId)}`}
                   </p>
                   {pid && (
                     <input
@@ -907,7 +919,7 @@ function ResultsCard({
                       : !policy.decryptionOpen
                         ? policy.decryptionMode === (PhaseMode.Scheduled as number)
                           ? `Locked until ${dateWithUtc(Number(policy.decryptionOpenAt))}.`
-                          : 'Locked — open the results above to let the members act.'
+                          : 'Locked — open the results from the Advanced section below to let the members act.'
                         : `${r.partialCount} of the ${view.threshold} needed members have turned their key.`}
                 </p>
                 <Disclosure>
@@ -1033,12 +1045,29 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
       {policy && <PeopleCard record={record} view={view} joined={joined} policy={policy} />}
       <KeyCard record={record} view={view} joined={joined} />
       {policy && <FinishCard record={record} view={view} policy={policy} />}
-      {policy && view.phase === (Phase.Live as number) && <OpenResultsCard record={record} policy={policy} />}
       <DavinciConnectCard record={record} view={view} />
-      {view.phase === (Phase.Live as number) && <AccessCard record={record} failed={failed} />}
       {policy && view.phase === (Phase.Live as number) && (
         <ResultsCard record={record} view={view} policy={policy} />
       )}
+      {/* Raw connections stay visible when there is no pairing card — they are then the only path. */}
+      {view.phase === (Phase.Live as number) && !(services.config.davinci && mnemonic) && (
+        <AccessCard record={record} failed={failed} />
+      )}
+      {policy &&
+        view.phase === (Phase.Live as number) &&
+        (policy.decryptionMode === (PhaseMode.Manual as number) || Boolean(services.config.davinci && mnemonic)) && (
+          <details className="rounded-xl border border-ink/10 bg-white p-4 sm:p-6">
+            <summary className="cursor-pointer select-none text-base font-semibold">Advanced</summary>
+            <p className="mt-2 text-sm text-ink/70">
+              Rarely needed, and some of it is permanent. For a committee made for DAVINCI Elections, the
+              pairing card above is the connection you want.
+            </p>
+            <div className="mt-3 space-y-4">
+              <OpenResultsCard record={record} policy={policy} />
+              {services.config.davinci && mnemonic && <AccessCard record={record} failed={failed} />}
+            </div>
+          </details>
+        )}
       {view.phase === (Phase.Aborted as number) && (
         <Note tone="warn">This committee was called off. Start a new one when your group is ready.</Note>
       )}

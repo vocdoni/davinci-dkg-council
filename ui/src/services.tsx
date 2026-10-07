@@ -28,6 +28,7 @@ import { MISMATCH_TEXT, PairingError } from './lib/davinci';
 import { proveInWorker, type OnProveProgress, type ProveProgress } from './lib/proving';
 import { releaseArtifacts } from './lib/release';
 import { plainSubmitError, TxRejectedError } from './lib/relayerErrors';
+import { makeVoteTitle } from './lib/voteMeta';
 import type {
   CircuitName,
   DealWitnessInput,
@@ -85,6 +86,13 @@ export interface Services {
    * (PairingError with the plain mismatch text otherwise).
    */
   readDavinciAdapter(): Promise<Hex>;
+  /**
+   * Display-only DAVINCI vote title for a process id: the metadata document the pinned registry
+   * points to, verified against the registry's `metadataHash` (lib/voteMeta.ts). Undefined when
+   * unavailable; absent when no DAVINCI registry is configured. Nothing a member does is gated
+   * by it — it only replaces the raw id in vote lists.
+   */
+  voteTitle?(processId: Hex): Promise<string | undefined>;
 }
 
 /** eth_getLogs requests one `joinedEvents` call may make (the next call resumes). */
@@ -231,6 +239,7 @@ export function buildServices(config: AppConfig): Services {
       }
       return adapter;
     },
+    voteTitle: config.davinci ? makeVoteTitle(logSources, config.davinci.registry) : undefined,
   };
 }
 

@@ -9,7 +9,7 @@
 
 import type { Hex } from '@vocdoni/davinci-dkg-council-sdk';
 import type { PendingAction } from './pending';
-import { idbGet, idbGetAll, idbPut, STORE_CEREMONIES, STORE_LABELS } from './db';
+import { idbDelete, idbGet, idbGetAll, idbPut, STORE_CEREMONIES, STORE_LABELS } from './db';
 
 export type Role = 'organizer' | 'participant';
 
@@ -122,6 +122,11 @@ export async function updateRecord(
     await putRecord(next);
     return next;
   });
+}
+
+/** Remove one record outright (a join the network definitively refused leaves nothing behind). */
+export async function deleteRecord(chainId: number, manager: Hex, cid: Hex): Promise<void> {
+  await idbDelete(STORE_CEREMONIES, recordKey(chainId, manager, cid));
 }
 
 export async function listRecords(includeArchived = false): Promise<CeremonyRecord[]> {

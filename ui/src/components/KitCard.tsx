@@ -33,12 +33,12 @@ export function KitCard({ record }: { record: CeremonyRecord }) {
   }
 
   const fingerprint = manifestFingerprint(kit.manifest);
-  // Three distinct prompts, never a generic cry-wolf (UX review P0-1): a
-  // device with no saved kit (restored from words), the one-time nudge after
-  // joining, and a manifest that genuinely covers more than the saved kit.
+  // Two distinct prompts, never a generic cry-wolf (UX review P0-1): a device
+  // with no saved kit (restored from words), and a manifest that genuinely
+  // covers more than the saved kit. The kit saved during joining already
+  // covers the member role, so joining itself prompts nothing.
   const neverSaved = record.kitExportFingerprint === undefined;
-  const joinNudge = !neverSaved && record.kitJoinNudge === true;
-  const stale = !neverSaved && !joinNudge && record.kitExportFingerprint !== fingerprint;
+  const stale = !neverSaved && record.kitExportFingerprint !== fingerprint;
   const markExported = async () => {
     await updateRecord(record.chainId, record.manager, record.cid, {
       kitExportFingerprint: fingerprint,
@@ -52,14 +52,6 @@ export function KitCard({ record }: { record: CeremonyRecord }) {
       {neverSaved && (
         <div className="mb-3">
           <Note tone="info">This device has no saved kit yet. Download one now in case you lose this browser.</Note>
-        </div>
-      )}
-      {joinNudge && (
-        <div className="mb-3">
-          <Note tone="warn">
-            You joined this committee after saving your kit. Save it once more so your kit knows about your new
-            role — then you’re done.
-          </Note>
         </div>
       )}
       {stale && (
@@ -81,7 +73,7 @@ export function KitCard({ record }: { record: CeremonyRecord }) {
         <Button
           variant="secondary"
           onClick={() => {
-            if (printTextSheet('Council recovery words', printableSheet(kit.private.mnemonic))) {
+            if (printTextSheet('DAVINCI Council recovery words', printableSheet(kit.private.mnemonic))) {
               setPrintError(null);
               void markExported();
             } else {

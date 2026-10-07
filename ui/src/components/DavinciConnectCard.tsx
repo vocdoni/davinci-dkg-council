@@ -149,7 +149,7 @@ export function DavinciConnectCard({ record, view }: { record: CeremonyRecord; v
       }
       // §6: complete only once BOTH grants show in the finalized state this app reads at — a
       // sent grant can still be unmined or reverted, and completion consumes the one-use code.
-      setBusy('Waiting for the network to confirm the approvals…');
+      setBusy('Waiting for the network to confirm the approvals — usually about 4 minutes…');
       await waitForGrants(async () => {
         const ok = await Promise.all(grants.map((g) => g.granted().catch(() => false)));
         return ok.every(Boolean);

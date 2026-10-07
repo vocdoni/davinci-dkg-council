@@ -98,7 +98,7 @@ export function RecoveryKitStep({ kit, onDone }: { kit: KitFile; onDone: () => v
           <Button
             variant="secondary"
             onClick={() => {
-              if (printTextSheet('Council recovery words', printableSheet(kit.private.mnemonic))) {
+              if (printTextSheet('DAVINCI Council recovery words', printableSheet(kit.private.mnemonic))) {
                 setSaved(true);
                 setSaveError(null);
               } else {

@@ -59,7 +59,8 @@ import {
   settlePending,
   type FailedAction,
 } from '../lib/pending';
-import { getVoteLabels, putRecord, recordKey, updateRecord, type CeremonyRecord } from '../lib/records';
+import { mayHaveLanded } from '../lib/relayerErrors';
+import { deleteRecord, getVoteLabels, putRecord, recordKey, updateRecord, type CeremonyRecord } from '../lib/records';
 import { KEEP_WORDS_UNTIL_RESULTS } from '../lib/storage';
 import { useServices, type ProveProgress } from '../services';
 import { phaseSentence } from './ViewerView';
@@ -105,27 +106,6 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
   const [error, setError] = useState<string | null>(null);
   const [draftMnemonic] = useState(() => mnemonic ?? generateMnemonic());
 
-  const poll = usePoll(
-    async () => {
-      const v = await readCeremony(services.client, cid);
-      setView(v);
-      // The invitation is checked once the committee is visible: before that its views revert.
-      if (v !== null && inviteState === 'checking') {
-        try {
-          const info = await services.client.getInvite(cid, invite.inviteId);
-          const capAddress = accountFromSecret(invite.secret).address;
-          if (info.key.toLowerCase() !== capAddress.toLowerCase()) setInviteState('invalid');
-          else if (info.consumed) setInviteState('used');
-          else setInviteState('ok');
-        } catch {
-          setInviteState('invalid');
-        }
-      }
-    },
-    8000,
-    [cid, invite.inviteId],
-  );
-
   const draftRecord: CeremonyRecord = useMemo(
     () => ({
       key: recordKey(services.config.chainId, services.config.manager, cid),
@@ -140,34 +120,70 @@ export function JoinFlow({ cid, invite }: { cid: Hex; invite: { inviteId: number
   );
   const kit = useMemo(() => buildKitForRecords(draftMnemonic, [draftRecord]), [draftMnemonic, draftRecord]);
 
+  const poll = usePoll(
+    async () => {
+      const v = await readCeremony(services.client, cid);
+      setView(v);
+      // The invitation is checked once the committee is visible: before that its views revert.
+      if (v !== null && inviteState === 'checking') {
+        try {
+          const info = await services.client.getInvite(cid, invite.inviteId);
+          const capAddress = accountFromSecret(invite.secret).address;
+          if (info.key.toLowerCase() !== capAddress.toLowerCase()) setInviteState('invalid');
+          else if (info.consumed) {
+            // "Already used" may mean used by *this device* — a join that landed while the
+            // local record (or the answer) was lost. If this device's key is on the member
+            // list, write the record back and resume the member view instead of dead-ending.
+            const index = mnemonic
+              ? await participantIndexOf(
+                  services.client,
+                  cid,
+                  participantKeys(mnemonic, services.config, cid).auth.address,
+                ).catch(() => 0)
+              : 0;
+            if (index > 0) {
+              await putRecord({ ...draftRecord, participantIndex: index });
+              await refreshRecords(); // re-renders into ParticipantView
+              return;
+            }
+            setInviteState('used');
+          } else setInviteState('ok');
+        } catch {
+          setInviteState('invalid');
+        }
+      }
+    },
+    8000,
+    [cid, invite.inviteId],
+  );
+
   const join = async () => {
     setStep('joining');
     setError(null);
     try {
       const action = await prepareJoin(draftMnemonic, services.config, cid, invite);
-      let txHash: Hex | undefined;
+      // Persist the role BEFORE sending (the kit saved a moment ago already covers this record,
+      // so no fresh save prompt): a reload — or a lost answer — lands in the member view, which
+      // tracks the pending join, instead of back at a consumed invite link.
+      const entry = {
+        kind: 'join' as const,
+        sentAt: Date.now(),
+        address: participantKeys(draftMnemonic, services.config, cid).auth.address,
+      };
+      await putRecord({ ...draftRecord, kitExportFingerprint: manifestFingerprint(kit.manifest), pending: [entry] });
       try {
-        txHash = await services.submit(action);
+        const txHash = await services.submit(action);
+        await updateRecord(draftRecord.chainId, draftRecord.manager, cid, { pending: [{ ...entry, txHash }] });
       } catch (err) {
-        // This key is already on the list at the head (an earlier try whose answer was lost).
-        if (!alreadyAtHead('join', err)) throw err;
+        // Already on the list at the head (an earlier try whose answer was lost): success. A
+        // lost answer may have carried the join anyway: keep the record — the member view keeps
+        // checking and settles it either way. Only a definitive refusal leaves nothing behind.
+        if (!alreadyAtHead('join', err) && !mayHaveLanded(err)) {
+          await deleteRecord(draftRecord.chainId, draftRecord.manager, cid);
+          throw err;
+        }
       }
-      if (txHash !== undefined) await services.waitTx(txHash);
       // The member index is filled in by ParticipantView once the finalized state shows the join.
-      await putRecord({
-        ...draftRecord,
-        kitExportFingerprint: manifestFingerprint(kit.manifest),
-        // One-time prompt: the kit saved a minute ago predates this new role.
-        kitJoinNudge: true,
-        pending: [
-          {
-            kind: 'join',
-            txHash,
-            sentAt: Date.now(),
-            address: participantKeys(draftMnemonic, services.config, cid).auth.address,
-          },
-        ],
-      });
       await refreshRecords(); // re-renders into ParticipantView
     } catch (err) {
       setError(errText(err));
@@ -589,6 +605,8 @@ function UnlockCard({ record, policy }: { record: CeremonyRecord; policy: PhaseP
     findPending(record, { kind: 'republish', requestId: r.requestId }) !== undefined;
   const [requests, setRequests] = useState<RequestSummary[] | null>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
+  /** DAVINCI process titles by id (display only, hash-verified in lib/voteMeta.ts). */
+  const [titles, setTitles] = useState<Record<string, string>>({});
   const [needRepub, setNeedRepub] = useState<Record<string, RepublishState>>({});
   const [refusals, setRefusals] = useState<Record<string, string[]>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -601,6 +619,13 @@ function UnlockCard({ record, policy }: { record: CeremonyRecord; policy: PhaseP
       const list = await listRequests(services, record.cid, record.participantIndex);
       setRequests(list);
       setLabels(await getVoteLabels(record.chainId, record.manager, record.cid));
+      if (services.voteTitle) {
+        for (const pid of list.flatMap((r) => (r.processId ? [r.processId.toLowerCase()] : []))) {
+          void services.voteTitle(pid as Hex).then((t) => {
+            if (t) setTitles((m) => (m[pid] === t ? m : { ...m, [pid]: t }));
+          });
+        }
+      }
       // §10.4: a vote stuck at the threshold with our part admitted but its data
       // unavailable or mismatched can be finished by republishing that data. A
       // provider that refuses old records makes it unverifiable, never hidden;
@@ -745,7 +770,7 @@ function UnlockCard({ record, policy }: { record: CeremonyRecord; policy: PhaseP
             <li key={r.requestId} className="rounded-lg border border-ink/10 p-3">
               <p className="text-sm font-medium">
                 {r.processId
-                  ? voteName(labels[r.processId.toLowerCase()], i + 1, r.processId)
+                  ? voteName(labels[r.processId.toLowerCase()] ?? titles[r.processId.toLowerCase()], i + 1, r.processId)
                   : `Request ${shortId(r.requestId)}`}
               </p>
               <p className="mt-1 text-sm text-ink/70">
@@ -898,12 +923,20 @@ export function ParticipantView({ record }: { record: CeremonyRecord }) {
             <ConfirmingNote lead="You joined the member list." />
           </div>
         )}
-        {view.phase === Phase.Registration && !joining && (
+        {view.phase === Phase.Registration && !joining && record.participantIndex !== undefined && (
           <p className="mt-1 text-sm text-ink/70">
             {view.registrationDeadline === 0n
               ? 'You are on the list. The organizer locks it once everyone joined.'
               : `You are on the list. Joining closes ${formatDate(Number(view.registrationDeadline))} (${timeLeft(Number(view.registrationDeadline))}).`}
           </p>
+        )}
+        {view.phase === Phase.Registration && !joining && record.participantIndex === undefined && (
+          <div className="mt-2">
+            <Note tone="warn">
+              We cannot see you on the member list yet. Open your invitation link again to join — if you
+              already did, it resumes where you left off.
+            </Note>
+          </div>
         )}
         {view.phase === Phase.Dealing && (
           <p className="mt-1 text-sm text-ink/70">

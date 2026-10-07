@@ -33,7 +33,7 @@ const PLAIN: Record<string, string> = {
   BUSY: 'our service is busy right now — try again in a moment',
   FORBIDDEN_ORIGIN: 'our service does not accept requests from this page’s address — please tell whoever runs this app',
   UNSUPPORTED_MEDIA_TYPE: 'our service refused the request format — reload the page to get the current app',
-  TIMEOUT: 'our service did not answer in time — the step may still go through; reload the page in a minute to see where things stand',
+  TIMEOUT: 'our service did not answer in time — the step may still go through; this page keeps checking and shows it once it lands',
 };
 
 interface CodedError {
@@ -58,6 +58,25 @@ const unreachable = (err: unknown): boolean =>
   (err instanceof TypeError && NETWORK_FAILURE.test(err.message)) ||
   (isRelayerError(err) &&
     (err.code === 'INTERNAL' || err.code === 'BUSY' || err.code === 'TIMEOUT' || (err.httpStatus ?? 0) >= 500));
+
+/**
+ * The submission's answer was lost, not given: the step may have been carried anyway (a slow
+ * relayer broadcast after its reply timed out on Gnosis, 2026-10-07). Walks the cause chain, so
+ * the plain-language wrapper `plainSubmitError` returns is classified like the error inside it.
+ * A relayer that *answered* (a refusal, a revert) is definitive: false.
+ */
+export function mayHaveLanded(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let cur: unknown = err;
+  while (cur instanceof Error && !seen.has(cur)) {
+    seen.add(cur);
+    if (isPoolError(cur)) return cur.failures.length > 0 && cur.failures.every((f) => unreachable(f.error));
+    if (unreachable(cur)) return true;
+    if (isRelayerError(cur)) return false; // an answer, not a lost one
+    cur = cur.cause;
+  }
+  return false;
+}
 
 /** The contract's refusal name from a SIMULATION_REVERTED detail such as `DuplicateParticipant()`. */
 const revertName = (detail: string | undefined): string | undefined => /^([A-Za-z_]\w*)\(/.exec(detail ?? '')?.[1];
@@ -110,7 +129,7 @@ export function plainSubmitError(err: unknown): Error {
     if (failures.every((f) => unreachable(f.error))) {
       // No answer is not "not sent": a service may have carried the step and lost its reply.
       return new Error(
-        `none of our ${failures.length} services answered right now — reload the page in a minute to see whether the step went through, and if not, try again; if it keeps failing, tell whoever runs this app`,
+        `none of our ${failures.length} services answered right now — the step may still have gone through; this page keeps checking. If nothing shows in a few minutes, try again; if it keeps failing, tell whoever runs this app`,
         { cause: err },
       );
     }
