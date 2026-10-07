@@ -13,6 +13,7 @@ import {
   ceremonyId as computeCeremonyId,
   checkRecoveredShare,
   dealContext,
+  decompressPoint,
   dealerCoefficients,
   dealerEphemeral,
   dealPayloadHash,
@@ -23,8 +24,10 @@ import {
   parseKit,
   participantAuthKey,
   partialPayloadHash,
+  PhaseMode,
   provePossession,
   recoverShare,
+  recoveryDealingsFromSlice,
   rehearseEntry,
   restoreFromKit,
   rootFromMnemonic,
@@ -38,6 +41,7 @@ import {
   type ActionStructName,
   type CouncilRoot,
   type Hex,
+  type Point,
   type SecpKey,
   type ShareKey,
 } from '@vocdoni/davinci-dkg-council-sdk';
@@ -59,12 +63,27 @@ function randomUint64(): bigint {
 
 const sameAddress = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
+/** The joined share keys 1..count, decompressed from chain state (what both closes take as rosterKeys). */
+async function joinedKeys(h: ActorHost, cid: Hex, count: number): Promise<Point[]> {
+  const keys: Point[] = [];
+  for (let i = 1; i <= count; i++) {
+    keys.push(decompressPoint((await h.reader.getParticipantCompressed(cid, i)).compressedKey));
+  }
+  return keys;
+}
+
 export class Organizer {
+  readonly mnemonic: string;
   readonly root: CouncilRoot;
   readonly key: SecpKey;
 
-  constructor(private readonly h: ActorHost) {
-    this.root = rootFromMnemonic(generateMnemonic());
+  /** A fresh recovery phrase, or `mnemonic` to resume a saved organizer (live runs). */
+  constructor(
+    private readonly h: ActorHost,
+    mnemonic?: string,
+  ) {
+    this.mnemonic = mnemonic ?? generateMnemonic();
+    this.root = rootFromMnemonic(this.mnemonic);
     this.key = organizerAuthKey(this.root, { chainId: h.chainId, manager: h.manager });
   }
 
@@ -79,8 +98,21 @@ export class Organizer {
     );
   }
 
-  /** CreateCeremony with `invites` derived capability keys; returns the (pre-computed) ceremony id. */
-  async create(opts: { threshold: number; invites: number; registrationWindow?: bigint; dealingDuration?: bigint }) {
+  /**
+   * CreateCeremony with `invites` derived capability keys; returns the (pre-computed) ceremony
+   * id. Defaults to the v1-equivalent policy: Manual registration with an expiry, Manual
+   * decryption with no fallback (§8.1).
+   */
+  async create(opts: {
+    threshold: number;
+    invites: number;
+    registrationWindow?: bigint;
+    dealingDuration?: bigint;
+    registrationMode?: PhaseMode;
+    decryptionMode?: PhaseMode;
+    decryptionOpenAt?: bigint;
+    manualDecryptionFallbackAt?: bigint;
+  }) {
     const nonce = randomUint64();
     const cid = computeCeremonyId(this.h.chainId, this.h.manager, this.key.address, nonce);
     const now = await this.h.now();
@@ -88,8 +120,12 @@ export class Organizer {
       organizer: this.key.address,
       nonce,
       threshold: opts.threshold,
+      registrationMode: opts.registrationMode ?? PhaseMode.Manual,
       registrationDeadline: now + (opts.registrationWindow ?? 86_400n),
       dealingDuration: opts.dealingDuration ?? 3600n,
+      decryptionMode: opts.decryptionMode ?? PhaseMode.Manual,
+      decryptionOpenAt: opts.decryptionOpenAt ?? 0n,
+      manualDecryptionFallbackAt: opts.manualDecryptionFallbackAt ?? 0n,
       inviteKeys: this.capabilityAddresses(cid, 0, opts.invites),
       validUntil: now + 3600n,
     };
@@ -115,7 +151,19 @@ export class Organizer {
 
   async close(cid: Hex, participantCount: number): Promise<Action> {
     const message = { ceremonyId: cid, participantCount, validUntil: await this.h.validUntil() };
-    return { kind: 'closeRegistration', message, signature: await this.sign('CloseRegistration', message) };
+    return {
+      kind: 'closeRegistration',
+      message,
+      signature: await this.sign('CloseRegistration', message),
+      // The joined roster in index order, for direct submission (the relayer rebuilds it itself).
+      rosterKeys: await joinedKeys(this.h, cid, participantCount),
+    };
+  }
+
+  /** The §8.7 manual decryption opening — organizer-signed, Manual mode only. */
+  async openDecryption(cid: Hex): Promise<Action> {
+    const message = { ceremonyId: cid, validUntil: await this.h.validUntil() };
+    return { kind: 'openDecryption', message, signature: await this.sign('OpenDecryption', message) };
   }
 
   async allowAdapter(cid: Hex, adapter: Hex): Promise<Action> {
@@ -137,11 +185,13 @@ export class Member {
   /** 1-based member index, known after the roster is read. */
   index = 0;
 
+  /** A fresh recovery phrase, or `mnemonic` to resume a saved member (live runs). */
   constructor(
     private readonly h: ActorHost,
     readonly cid: Hex,
+    mnemonic?: string,
   ) {
-    this.mnemonic = generateMnemonic();
+    this.mnemonic = mnemonic ?? generateMnemonic();
     this.root = rootFromMnemonic(this.mnemonic);
     const ctx = { chainId: h.chainId, manager: h.manager, ceremonyId: cid };
     this.auth = participantAuthKey(this.root, ctx);
@@ -261,16 +311,17 @@ export class Member {
       payloadHash: dealPayloadHash(ctx, payload),
       validUntil: await this.h.validUntil(),
     };
-    return { kind: 'deal', message, signature: await this.sign('Deal', message), payload };
+    // rosterKeys ride along for direct submission; the relayer rebuilds them from chain state.
+    return { kind: 'deal', message, signature: await this.sign('Deal', message), payload, rosterKeys: roster.memberKeys };
   }
 
   /** Recover the final share from chain state (all §8.6 checks); returns s_i. */
   async recoverShare(): Promise<bigint> {
     const { view } = await this.approveRoster();
     const anchor = await this.h.reader.finalizedAnchor();
-    const qual: number[] = [];
-    for (let j = 1; j <= view.n; j++) if (view.qualBitmap & (1 << (j - 1))) qual.push(j);
-    const dealings = await this.h.reader.getQualDealings(this.cid, qual, anchor);
+    const slice = await this.h.reader.getRecoverySlice(this.cid, this.index, anchor);
+    const { qual, dealings } = recoveryDealingsFromSlice(slice);
+    const aggregates = await this.h.reader.getAggregates(this.cid, anchor);
     const expectedMemberKey = await this.h.reader.getMemberKey(this.cid, this.index, anchor);
     const { share } = recoverShare({
       ctx: view.ctx,
@@ -278,6 +329,7 @@ export class Member {
       shareSecret: this.share.secret,
       qual,
       dealings,
+      aggregates,
       expectedMemberKey,
     });
     checkRecoveredShare(share, expectedMemberKey);
@@ -302,6 +354,24 @@ export class Member {
       payloadHash: partialPayloadHash(requestId, payload),
       validUntil: await this.h.validUntil(),
     };
-    return { kind: 'submitPartial', message, signature: await this.sign('Partial', message), payload };
+    return {
+      kind: 'submitPartial',
+      message,
+      signature: await this.sign('Partial', message),
+      payload,
+      C1: snapshot.cts.map((f) => f.c1),
+    };
+  }
+
+  /**
+   * Recompute this member's padded D vector deterministically (D_k = s_i·C1_k) and build the
+   * permissionless §10.4 republish action — the fallback for a combiner whose provider lost the
+   * original submission's log.
+   */
+  async republish(requestId: Hex): Promise<Action> {
+    const share = await this.recoverShare();
+    const snapshot = await this.h.reader.getPartialRequestSnapshot(requestId, this.index, { expectedCeremonyId: this.cid });
+    const built = buildPartialDecryption(snapshot, share, { chainId: this.h.chainId, manager: this.h.manager });
+    return { kind: 'publishPartialData', requestId, participantIndex: this.index, D: built.D };
   }
 }

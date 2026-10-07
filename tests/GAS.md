@@ -12,51 +12,64 @@ The last three rows are the DAVINCI round-trip on a davinci-contracts `ProcessRe
 
 | Action | Parameters | Gas (mean) | Min | Max | Samples | Sent via |
 |---|---|---:|---:|---:|---:|---|
-| createCeremony | invites=2 | 129,721 | 129,721 | 129,721 | 1 | direct |
-| createCeremony | invites=3 | 153,447 | 153,428 | 153,456 | 3 | relayer |
-| createCeremony | invites=4 | 177,370 | 177,370 | 177,370 | 1 | direct |
-| createCeremony | invites=5 | 201,520 | 201,520 | 201,520 | 1 | relayer |
-| createCeremony | invites=16 | 480,871 | 480,871 | 480,871 | 1 | relayer |
-| addInvites | invites=1 | 69,664 | 69,664 | 69,664 | 1 | direct |
-| addInvites | invites=2 | 96,502 | 96,502 | 96,502 | 1 | relayer |
-| join | – | 542,633 | 540,080 | 545,935 | 37 | direct, relayer |
-| closeRegistration | n=3 | 110,749 | 110,747 | 110,751 | 2 | direct, relayer |
-| closeRegistration | n=4 | 117,811 | 117,811 | 117,811 | 1 | direct |
-| closeRegistration | n=5 | 124,876 | 124,862 | 124,890 | 2 | relayer |
-| closeRegistration | n=16 | 202,456 | 202,456 | 202,456 | 1 | relayer |
-| deal | n=3, t=2 | 1,080,551 | 1,080,494 | 1,080,594 | 6 | direct, relayer |
-| deal | n=4, t=3 | 1,152,726 | 1,152,676 | 1,152,776 | 2 | direct |
-| deal | n=5, t=3 | 1,179,629 | 1,179,572 | 1,179,672 | 9 | relayer |
-| deal | n=16, t=16 | 2,064,175 | 2,064,126 | 2,064,246 | 16 | relayer |
-| finalize | n=3, t=2, \|QUAL\|=3 | 302,951 | 302,945 | 302,957 | 2 | direct, relayer |
-| finalize | n=5, t=3, \|QUAL\|=4 | 488,367 | 488,367 | 488,367 | 1 | relayer |
-| finalize | n=5, t=3, \|QUAL\|=5 | 501,071 | 501,071 | 501,071 | 1 | relayer |
-| finalize | n=16, t=16, \|QUAL\|=16 | 3,415,451 | 3,415,451 | 3,415,451 | 1 | relayer |
-| abort | in Dealing, \|QUAL\| < t | 31,344 | 31,344 | 31,344 | 1 | direct |
-| abort | in Registration | 31,153 | 31,153 | 31,153 | 1 | relayer |
-| allowAdapter | – | 55,978 | 55,962 | 55,998 | 5 | direct, relayer |
-| authorizeCreator | – | 56,215 | 56,204 | 56,244 | 5 | direct, relayer |
-| bindProcess | – | 190,300 | 178,908 | 196,008 | 6 | adapter |
-| submitRequest | fields=2 | 902,530 | 902,530 | 902,530 | 1 | adapter |
-| submitRequest | fields=3 | 1,332,405 | 1,332,399 | 1,332,411 | 2 | adapter |
-| submitRequest | fields=5 | 2,192,234 | 2,192,234 | 2,192,234 | 1 | adapter |
-| submitRequest | fields=6 | 2,622,128 | 2,622,128 | 2,622,128 | 1 | adapter |
-| submitRequest | fields=16 | 6,922,174 | 6,922,174 | 6,922,174 | 1 | adapter |
-| submitPartial | fields=2 | 824,123 | 824,097 | 824,149 | 2 | relayer |
-| submitPartial | fields=3 | 873,800 | 873,770 | 873,834 | 8 | direct, relayer |
-| submitPartial | fields=5 | 973,101 | 973,080 | 973,116 | 4 | direct, relayer |
-| submitPartial | fields=6 | 1,022,782 | 1,022,765 | 1,022,805 | 5 | direct, relayer |
-| submitPartial | fields=16 | 1,519,340 | 1,519,267 | 1,519,415 | 16 | direct, relayer |
-| combine | t=2, fields=2 | 865,793 | 865,793 | 865,793 | 1 | direct |
-| combine | t=2, fields=4 | 1,642,921 | 1,642,921 | 1,642,921 | 1 | direct |
-| combine | t=3, fields=1 | 670,601 | 670,601 | 670,601 | 1 | relayer (worker) |
-| combine | t=3, fields=2 | 1,233,668 | 1,233,668 | 1,233,668 | 1 | relayer (worker) |
-| combine | t=3, fields=3 | 1,784,479 | 1,772,174 | 1,796,784 | 2 | relayer (worker) |
-| combine | t=3, fields=4 | 2,351,382 | 2,327,034 | 2,375,730 | 2 | relayer (worker) |
-| combine | t=16, fields=2 | 3,806,751 | 3,774,598 | 3,820,140 | 8 | relayer (worker) |
-| newProcess (council) | fields=4 | 886,426 | 886,426 | 886,426 | 1 | davinci-sdk |
-| newProcess (council) | fields=8 | 920,626 | 920,626 | 920,626 | 1 | davinci-sdk |
-| requestResultsDecryption | fields=4, active=3 | 1,396,998 | 1,396,998 | 1,396,998 | 1 | direct |
-| requestResultsDecryption | fields=8, active=6 | 2,691,141 | 2,691,141 | 2,691,141 | 1 | direct |
-| finalizeResultsFromDKG | fields=4 | 150,488 | 150,488 | 150,488 | 1 | davinci-sdk |
-| finalizeResultsFromDKG | fields=8 | 225,662 | 225,662 | 225,662 | 1 | direct |
+| createCeremony | invites=2 | 143,212 | 136,542 | 156,520 | 3 | direct, relayer |
+| createCeremony | invites=3 | 167,776 | 160,276 | 180,288 | 8 | relayer |
+| createCeremony | invites=4 | 184,258 | 184,258 | 184,258 | 1 | direct |
+| createCeremony | invites=5 | 208,397 | 208,397 | 208,397 | 1 | relayer |
+| createCeremony | invites=16 | 487,752 | 487,752 | 487,752 | 1 | relayer |
+| addInvites | invites=1 | 71,777 | 71,777 | 71,777 | 1 | direct |
+| addInvites | invites=2 | 98,051 | 98,051 | 98,051 | 1 | relayer |
+| join | – | 520,590 | 517,229 | 523,780 | 55 | direct, relayer |
+| closeRegistration | n=3 | 112,572 | 112,555 | 112,593 | 7 | direct, relayer |
+| closeRegistration | n=4 | 119,316 | 119,316 | 119,316 | 1 | direct |
+| closeRegistration | n=5 | 125,988 | 125,963 | 126,013 | 2 | relayer |
+| closeRegistration | n=16 | 199,914 | 199,914 | 199,914 | 1 | relayer |
+| closeRegistrationScheduled | n=2 | 98,460 | 98,460 | 98,460 | 1 | relayer (scheduler) |
+| deal | n=2, t=2 | 1,003,237 | 973,988 | 1,032,485 | 2 | relayer |
+| deal | n=3, t=2 | 1,020,193 | 1,000,650 | 1,059,239 | 21 | direct, relayer |
+| deal | n=4, t=3 | 1,086,259 | 1,041,093 | 1,131,424 | 2 | direct |
+| deal | n=5, t=3 | 1,087,829 | 1,067,711 | 1,158,102 | 9 | relayer |
+| deal | n=16, t=16 | 1,570,965 | 1,539,351 | 2,043,839 | 16 | relayer |
+| finalize | n=3, t=2, \|QUAL\|=3 | 33,923 | 33,923 | 33,923 | 7 | direct, relayer |
+| finalize | n=5, t=3, \|QUAL\|=4 | 36,243 | 36,243 | 36,243 | 1 | relayer |
+| finalize | n=5, t=3, \|QUAL\|=5 | 33,923 | 33,923 | 33,923 | 1 | relayer |
+| finalize | n=16, t=16, \|QUAL\|=16 | 33,923 | 33,923 | 33,923 | 1 | relayer |
+| abort | in Dealing, \|QUAL\| < t | 34,061 | 34,061 | 34,061 | 1 | direct |
+| abort | in Registration | 34,122 | 34,122 | 34,122 | 2 | relayer, relayer (scheduler) |
+| openDecryption | – | 56,083 | 41,139 | 58,227 | 8 | direct, relayer |
+| allowAdapter | – | 58,637 | 58,617 | 58,655 | 10 | direct, relayer |
+| authorizeCreator | – | 58,792 | 58,766 | 58,816 | 10 | direct, relayer |
+| bindProcess | – | 191,355 | 178,919 | 196,019 | 11 | adapter |
+| submitRequest | fields=2 | 814,511 | 814,508 | 814,520 | 4 | adapter |
+| submitRequest | fields=3 | 1,200,350 | 1,200,338 | 1,200,362 | 4 | adapter |
+| submitRequest | fields=5 | 1,972,083 | 1,972,083 | 1,972,083 | 1 | adapter |
+| submitRequest | fields=6 | 2,357,962 | 2,357,962 | 2,357,962 | 1 | adapter |
+| submitRequest | fields=16 | 6,217,666 | 6,217,666 | 6,217,666 | 1 | adapter |
+| submitPartial | fields=2 | 807,971 | 798,011 | 823,839 | 12 | direct, relayer |
+| submitPartial | fields=3 | 816,315 | 801,987 | 828,526 | 12 | direct, relayer |
+| submitPartial | fields=5 | 827,620 | 817,358 | 837,804 | 4 | direct, relayer |
+| submitPartial | fields=6 | 831,230 | 817,213 | 842,403 | 5 | direct, relayer |
+| submitPartial | fields=16 | 977,876 | 956,302 | 1,002,402 | 16 | direct, relayer |
+| publishPartialData | fields=2 | 63,240 | 63,234 | 63,246 | 2 | direct |
+| combine | t=2, fields=2 | 620,810 | 491,813 | 867,409 | 4 | direct, relayer (worker) |
+| combine | t=2, fields=3 | 777,516 | 777,516 | 777,516 | 1 | relayer (worker) |
+| combine | t=2, fields=4 | 1,646,840 | 1,646,840 | 1,646,840 | 1 | direct |
+| combine | t=3, fields=1 | 686,522 | 686,522 | 686,522 | 1 | relayer (worker) |
+| combine | t=3, fields=2 | 1,240,123 | 1,240,123 | 1,240,123 | 1 | relayer (worker) |
+| combine | t=3, fields=3 | 1,789,492 | 1,777,163 | 1,801,821 | 2 | relayer (worker) |
+| combine | t=3, fields=4 | 2,350,294 | 2,324,818 | 2,375,770 | 2 | relayer (worker) |
+| combine | t=16, fields=2 | 4,015,426 | 3,985,300 | 4,031,616 | 8 | relayer (worker) |
+| newProcess (council) | fields=2 | 886,471 | 886,471 | 886,471 | 1 | davinci-sdk |
+| newProcess (council) | fields=3 | 903,571 | 903,571 | 903,571 | 1 | davinci-sdk |
+| newProcess (council) | fields=4 | 886,459 | 886,459 | 886,459 | 1 | davinci-sdk |
+| newProcess (council) | fields=8 | 920,659 | 920,659 | 920,659 | 1 | davinci-sdk |
+| requestResultsDecryption | fields=2, active=2 | 877,067 | 877,067 | 877,067 | 1 | direct |
+| requestResultsDecryption | fields=3, active=0, gate closed | 91,634 | 91,634 | 91,634 | 1 | direct |
+| requestResultsDecryption | fields=3, active=2 | 877,973 | 877,973 | 877,973 | 1 | direct |
+| requestResultsDecryption | fields=4, active=0, results published | 132,864 | 132,864 | 132,864 | 1 | direct |
+| requestResultsDecryption | fields=4, active=3 | 1,264,966 | 1,264,966 | 1,264,966 | 1 | direct |
+| requestResultsDecryption | fields=8, active=6 | 2,426,932 | 2,426,932 | 2,426,932 | 1 | direct |
+| finalizeResultsFromDKG | fields=2 | 132,394 | 132,394 | 132,394 | 1 | davinci-sdk |
+| finalizeResultsFromDKG | fields=3 | 115,183 | 115,183 | 115,183 | 1 | direct |
+| finalizeResultsFromDKG | fields=4 | 158,574 | 158,574 | 158,574 | 1 | davinci-sdk |
+| finalizeResultsFromDKG | fields=8 | 231,721 | 231,721 | 231,721 | 1 | direct |

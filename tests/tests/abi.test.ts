@@ -44,15 +44,17 @@ const diff = (a: string[], b: string[]): string[] => a.filter((l) => !b.includes
 
 describe('SDK ABI vs the compiled manager surface', () => {
   // EIP-170 split: one address serves CouncilManager's functions and, through its fallback,
-  // CouncilViews'. ICouncil declares the union; the errors live in the implementation.
+  // CouncilViews' and CouncilOps'. ICouncil declares the union; the errors live in the
+  // implementations.
   const iface = loadArtifact('ICouncil.sol', 'ICouncil').abi;
   const manager = loadArtifact('CouncilManager.sol', 'CouncilManager').abi;
   const views = loadArtifact('CouncilViews.sol', 'CouncilViews').abi;
+  const ops = loadArtifact('CouncilOps.sol', 'CouncilOps').abi;
 
-  it('ICouncil declares exactly what CouncilManager and CouncilViews implement', () => {
+  it('ICouncil declares exactly what CouncilManager, CouncilViews and CouncilOps implement', () => {
     const surface = normalize(iface);
     const implemented = normalize(
-      [...manager, ...views].filter((x) => x.type === 'function' || x.type === 'event') as Abi,
+      [...manager, ...views, ...ops].filter((x) => x.type === 'function' || x.type === 'event') as Abi,
     );
     expect({ notDeclared: diff(implemented, surface), notImplemented: diff(surface, implemented) }).toEqual({
       notDeclared: [],
@@ -60,8 +62,9 @@ describe('SDK ABI vs the compiled manager surface', () => {
     });
   });
 
-  it('the SDK ABI equals ICouncil plus the manager errors, in both directions', () => {
-    const compiled = normalize([...iface, ...manager.filter((x) => x.type === 'error')] as Abi);
+  it('the SDK ABI equals ICouncil plus the implementation errors, in both directions', () => {
+    const errors = [...manager, ...views, ...ops].filter((x) => x.type === 'error');
+    const compiled = [...new Set(normalize([...iface, ...errors] as Abi))];
     const sdk = normalize(COUNCIL_MANAGER_ABI as Abi);
     expect({ missingFromSdk: diff(compiled, sdk), unknownToContract: diff(sdk, compiled) }).toEqual({
       missingFromSdk: [],

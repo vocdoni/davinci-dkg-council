@@ -7,7 +7,7 @@
  */
 
 import { beforeAll, describe, expect, inject, it } from 'vitest';
-import { COUNCIL_MANAGER_ABI, RelayerError, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
+import { PhaseMode, RelayerError, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
 import { Member, Organizer } from '../src/actors.js';
 import { Harness, randomProcessId } from '../src/harness.js';
 
@@ -35,6 +35,12 @@ describe('n=5, t=3 lifecycle (relayer, real proofs)', () => {
     expect(view.phase).toBe(PHASE.Registration);
     expect(view.inviteCount).toBe(5);
     expect(view.threshold).toBe(3);
+    // The default actor policy is the v1-equivalent one: everything manual, no fallback (§8.1).
+    const policy = await h.reader.getPolicy(cid);
+    expect(policy.registrationMode).toBe(PhaseMode.Manual);
+    expect(policy.decryptionMode).toBe(PhaseMode.Manual);
+    expect(policy.decryptionOpenAt).toBe(0n);
+    expect(policy.manualDecryptionFallbackAt).toBe(0n);
   });
 
   it('five members join from their invite links (one submits directly)', async () => {
@@ -90,6 +96,13 @@ describe('n=5, t=3 lifecycle (relayer, real proofs)', () => {
     await h.expectRelayRevert(await org.allowAdapter(cid, adapter), 'AlreadyListed');
   });
 
+  it('decryption stays gated until the organizer opens it; a second opening is refused (§8.7)', async () => {
+    expect(await h.reader.isDecryptionOpen(cid)).toBe(false);
+    await h.submit(await org.openDecryption(cid), 'relayer', { action: 'openDecryption' });
+    expect(await h.reader.isDecryptionOpen(cid)).toBe(true);
+    await h.expectRelayRevert(await org.openDecryption(cid), 'AlreadyOpen');
+  });
+
   const decrypt = async (opts: { values: bigint[]; direct: Member; relayed: Member[]; expectMemberSet: number[] }) => {
     const publicKey = await h.reader.getPublicKey(cid);
     const rid = await h.bind(adapter, cid, randomProcessId());
@@ -136,13 +149,8 @@ describe('n=5, t=3 lifecycle (relayer, real proofs)', () => {
     });
     expect(chunks.map((c) => c.fields)).toEqual([3]);
     expect(rid).not.toBe(first);
-    const ids = (await h.client.readContract({
-      address: h.manager,
-      abi: COUNCIL_MANAGER_ABI,
-      functionName: 'getRequestIds',
-      args: [cid],
-    })) as readonly Hex[];
-    expect(ids).toEqual([first, rid]);
+    // Request ids come paged from state (getRequestCount + getRequestIdsPage under the client).
+    expect(await h.reader.getRequestIds(cid)).toEqual([first, rid]);
   });
 
   it('with automining off, a pending partial holds its slot: identical resolves to it, a variant is refused', async () => {

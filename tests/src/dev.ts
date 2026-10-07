@@ -256,7 +256,7 @@ async function up(): Promise<void> {
     const artifactsUrl = `http://${HOST}:${ports.artifacts}`;
 
     const appOrigins = [`http://${HOST}:${ports.app}`, `http://localhost:${ports.app}`];
-    step(`starting the relayer on ${HOST}:${ports.relayer} (Anvil account ${ACCOUNT.relayer}, combine worker on)`);
+    step(`starting the relayer on ${HOST}:${ports.relayer} (Anvil account ${ACCOUNT.relayer}, combine worker and scheduler on)`);
     const relayer = await startRelayer(
       {
         COUNCIL_RPC_URL: anvil.rpcUrl,
@@ -266,6 +266,9 @@ async function up(): Promise<void> {
         COUNCIL_DATA_DIR: freshDir(path.join(DEV_DIR, 'relayer')),
         COUNCIL_COMBINER_ENABLED: 'true',
         COUNCIL_COMBINER_POLL_MS: '1000',
+        // v2 scheduled transitions (close, finalize, abort) fire by themselves.
+        COUNCIL_SCHEDULER_ENABLED: 'true',
+        COUNCIL_SCHEDULER_POLL_MS: '1000',
         COUNCIL_TX_POLL_MS: '500',
         // Open admission (no allow-list, no tokens), generous local limits.
         COUNCIL_DAILY_BUDGET_WEI: (100n * 10n ** 18n).toString(),

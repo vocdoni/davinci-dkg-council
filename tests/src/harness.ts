@@ -58,8 +58,12 @@ export interface GasLabel {
 }
 
 const MOCK_ADAPTER = loadArtifact('MockCouncilAdapter.sol', 'MockCouncilAdapter');
-/** The compiled manager ABI: decodes every custom error the contract can raise. */
-const MANAGER_ABI = loadArtifact('CouncilManager.sol', 'CouncilManager').abi;
+/** Manager + fallback-dispatched CouncilOps/CouncilViews ABIs: decodes every custom error the deployment can raise. */
+const MANAGER_ABI = [
+  ...loadArtifact('CouncilManager.sol', 'CouncilManager').abi,
+  ...loadArtifact('CouncilOps.sol', 'CouncilOps').abi,
+  ...loadArtifact('CouncilViews.sol', 'CouncilViews').abi,
+];
 
 /** The custom error name in an RPC error's cause chain, decoded with the compiled ABI. */
 export function revertName(err: unknown): string | undefined {

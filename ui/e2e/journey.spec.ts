@@ -1,13 +1,17 @@
 /**
  * The whole Council journey in a real browser, against `make dev`: the
- * organizer creates a 2-of-3 committee in the app; three people join from
- * their invite links on their own devices (browser contexts), each saving and
- * rehearsing a recovery kit; the organizer locks the list; every member
+ * organizer creates a 2-of-3 committee in the app, choosing to close joining
+ * himself and to open the results himself (with the default safety date on);
+ * three people join from their invite links on their own devices (browser
+ * contexts), each saving and rehearsing a recovery kit; the organizer locks
+ * the list; every member
  * approves the frozen list and contributes with real snarkjs proving in the
  * app's worker; the key goes live; the organizer approves the DAVINCI adapter
  * and a process creator; davinci-test creates a DAVINCI process on the
  * ceremony; the dev stack settles a known tally and requests its decryption
- * (as the e2e DAVINCI round-trip does); two members unlock it in the browser,
+ * (as the e2e DAVINCI round-trip does); the results are locked until the
+ * organizer opens them (§8.7), which he does through the irreversible
+ * confirmation; two members unlock the vote in the browser,
  * the relayer combines, davinci-test finalizes, and the organizer dashboard
  * and davinci-test show the tally. Then about six months pass (700,000 blocks),
  * every device's RPC behaves like a public provider (eth_getLogs refused above
@@ -143,6 +147,10 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     await org.getByLabel('How many people are in the committee?').fill(String(N));
     await org.getByLabel('How many of them are needed to open the results?').fill(String(T));
     await expect(org.getByText(`any ${T} of ${N} together can open the results`)).toBeVisible();
+    // Schedule (§8.1): close joining by hand, open the results by hand — with the default
+    // safety date on, so a disappearing organizer cannot lock the results away forever.
+    await org.getByLabel("I'll close joining myself when everyone is in").check();
+    await expect(org.getByLabel('…or automatically on a safety date, in case I never do')).toBeChecked();
     await shot(org, 'org-create', `organizer: creation wizard filled in (${N} members, any ${T} open the results)`);
     await org.getByRole('button', { name: 'Continue' }).click();
     await passKitStep(org, {
@@ -150,6 +158,8 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
       shot: (name, what) => shot(org, `org-${name}`, `organizer: ${what}`),
     });
     await expect(org.getByText('Ready to create')).toBeVisible();
+    await expect(org.getByText(/You close joining yourself — or it closes automatically on/)).toBeVisible();
+    await expect(org.getByText(/You open the results yourself — or they unlock automatically on/)).toBeVisible();
     await shot(org, 'org-review', 'organizer: review before creating (nothing sent to anyone yet)');
     await org.getByRole('button', { name: 'Create the committee' }).click();
     await expect(org.getByText(`0 of ${N} invited people have joined`)).toBeVisible({ timeout: 60_000 });
@@ -209,21 +219,27 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
       const t = await proveInBrowser(
         page,
         'Add my contribution now',
-        page.getByRole('heading', { name: 'Your contribution is in' }),
+        // At QUAL = n the relayer's scheduler finalizes within a second: the last member's
+        // page may jump straight to the Live dashboard, skipping the "contribution is in" card.
+        page
+          .getByRole('heading', { name: 'Your contribution is in' })
+          .or(page.getByText('The shared key is ready and in use.')),
         i === 0 ? () => shot(page, 'm1-proving', `${who}: contribution proof running in the browser worker`) : undefined,
       );
       timings.push({ step: 'contribution (deal circuit)', member: who, ...t });
       await shot(page, `m${i + 1}-contributed`, `${who}: contribution in (${(t.proveMs / 1000).toFixed(1)} s of in-browser proving)`);
     }
 
-    // --- the key goes live (anyone may finish it; the organizer does) ---
+    // --- the key goes live (the scheduler finalizes at QUAL = n within a second; if the
+    // button still shows, the organizer presses it — the end state, Live, is what counts) ---
+    const ready = org.getByText(`The key is ready: any ${T} of ${N} together can open the results`);
     const finish = org.getByRole('button', { name: 'Finish the key' });
-    await expect(finish).toBeVisible({ timeout: 45_000 });
-    await shot(org, 'org-finish', 'organizer: all contributions in, "Finish the key"');
-    await finish.click();
-    await expect(org.getByText(`The key is ready: any ${T} of ${N} together can open the results`)).toBeVisible({
-      timeout: 60_000,
-    });
+    await expect(ready.or(finish)).toBeVisible({ timeout: 45_000 });
+    if (await finish.isVisible().catch(() => false)) {
+      await shot(org, 'org-finish', 'organizer: all contributions in, "Finish the key"');
+      await finish.click({ timeout: 5_000 }).catch(() => {}); // the scheduler may win the race mid-click
+    }
+    await expect(ready).toBeVisible({ timeout: 60_000 });
     await shot(org, 'org-live', 'organizer: the shared key is ready; connections and votes appear');
     await expect(members[0]?.page.getByText('No vote has asked to be opened yet') as Locator).toBeVisible({ timeout: 45_000 });
     await shot(members[0]?.page as Page, 'm1-live', 'Alice: key ready, nothing to unlock yet');
@@ -276,6 +292,24 @@ test.describe.serial('Council journey in the browser (n=3, t=2)', () => {
     expect(created.ceremonyId.toLowerCase()).toBe(cid);
     const settled = await settleTally(created.processId, TALLY_A);
     expect(settled.requestId).toBe(created.requestId);
+
+    // --- the results are locked until the organizer opens them (§8.7: the contract's gate) ---
+    const alice = members[0]?.page as Page;
+    await expect(alice.getByText(voteLabel(1, created.processId))).toBeVisible({ timeout: 45_000 });
+    await expect(alice.getByText(/Waiting — the results stay locked until the organizer opens them/)).toBeVisible();
+    await expect(alice.getByRole('button', { name: 'Check and turn my key' })).toHaveCount(0);
+    await shot(alice, 'm1-locked', 'Alice: the vote arrived, but the results stay locked until the organizer opens them');
+
+    // --- organizer: open the results (irreversible; the consequence is stated before the button) ---
+    await expect(org.getByText(/Results open when you say so — or on .* at the latest\./)).toBeVisible();
+    await org.getByRole('button', { name: 'Open the results now' }).click();
+    await expect(org.getByText('Opening the results cannot be undone.')).toBeVisible();
+    await shot(org, 'org-open-confirm', 'organizer: opening the results, the consequence stated first');
+    await org.getByRole('button', { name: 'I understand — open the results' }).click();
+    await expect(org.getByText('The results are open').or(org.getByText('You opened the results.'))).toBeVisible({
+      timeout: 90_000,
+    });
+    await shot(org, 'org-opened', 'organizer: results opened for every vote on this key, current and future');
 
     // --- two members unlock it in the browser ---
     for (const i of [0, 1]) {

@@ -24,6 +24,7 @@ import {
   partialPayloadHash,
   Phase,
   recoverShare,
+  recoveryDealingsFromSlice,
   rootFromMnemonic,
   rosterHash as computeRosterHash,
   shareEncryptionKey,
@@ -84,6 +85,8 @@ describe('a vote unlocked six months after the ceremony, through public-provider
     await h.submit({ kind: 'finalize', ceremonyId: cid }, 'relayer', { action: 'finalize', params: 'n=3, t=2, |QUAL|=3' });
     await h.submit(await org.allowAdapter(cid, adapter), 'relayer', { action: 'allowAdapter' });
     await h.submit(await org.authorizeCreator(cid, h.creator), 'relayer', { action: 'authorizeCreator' });
+    // Manual mode: the organizer opens decryption once, right away; the gate stays open forever.
+    await h.submit(await org.openDecryption(cid), 'relayer', { action: 'openDecryption' });
     expect((await h.reader.getCeremony(cid)).phase).toBe(Phase.Live);
   });
 
@@ -134,13 +137,15 @@ describe('a vote unlocked six months after the ceremony, through public-provider
     const shareKey = shareEncryptionKey(root, ctx);
     expect(roster.authAddresses[index - 1]?.toLowerCase()).toBe(auth.address.toLowerCase());
 
-    const qual = Array.from({ length: view.n }, (_, i) => i + 1).filter((j) => (view.qualBitmap >> (j - 1)) & 1);
+    const { qual, dealings } = recoveryDealingsFromSlice(await reader.getRecoverySlice(committee, index, anchor));
+    expect(qual).toEqual(Array.from({ length: view.n }, (_, i) => i + 1).filter((j) => (view.qualBitmap >> (j - 1)) & 1));
     const { share } = recoverShare({
       ctx: view.ctx,
       memberIndex: index,
       shareSecret: shareKey.secret,
       qual,
-      dealings: await reader.getQualDealings(committee, qual, anchor),
+      dealings,
+      aggregates: await reader.getAggregates(committee, anchor),
       expectedMemberKey: await reader.getMemberKey(committee, index, anchor),
     });
     const snapshot = await reader.getPartialRequestSnapshot(rid, index, { expectedCeremonyId: committee });

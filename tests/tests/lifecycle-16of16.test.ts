@@ -45,6 +45,7 @@ describe('n=16, t=16 lifecycle (relayer, real proofs)', () => {
   it('a 16-field request is decrypted by all sixteen members and combined in chunks of 2', async () => {
     await h.submit(await org.allowAdapter(cid, adapter), 'relayer', { action: 'allowAdapter' });
     await h.submit(await org.authorizeCreator(cid, h.creator), 'relayer', { action: 'authorizeCreator' });
+    await h.submit(await org.openDecryption(cid), 'direct', { action: 'openDecryption' });
     const rid = await h.bind(adapter, cid, randomProcessId());
     const values = Array.from({ length: 16 }, (_, k) => (k === 0 ? 0n : k === 15 ? (1n << 40n) - 2n : BigInt(k) * 1_000_003n));
     await h.request(adapter, cid, rid, values, await h.reader.getPublicKey(cid));

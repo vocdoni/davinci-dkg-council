@@ -19,10 +19,16 @@ describe('abort paths', () => {
     await h.submit(await new Member(h, cid).join(org.inviteLink(cid, 0)), 'relayer', { action: 'join' });
 
     await h.expectRelayRevert({ kind: 'abort', ceremonyId: cid }, 'AbortConditionNotMet');
+    // v2 gates while joining is open: the time-close is not due yet, the gate opener needs Live.
+    await h.expectRelayRevert({ kind: 'closeRegistrationScheduled', ceremonyId: cid }, 'RegistrationNotDue');
+    await h.expectRelayRevert(await org.openDecryption(cid), 'WrongPhase');
     const lateJoin = await new Member(h, cid).join(org.inviteLink(cid, 1));
     await h.warp(901n);
-    await h.expectRelayRevert(lateJoin, 'Expired');
-    await h.expectRelayRevert(await org.close(cid, 1), 'Expired');
+    // At or past a nonzero registration deadline, joining and the manual close are over (§8.2).
+    await h.expectRelayRevert(lateJoin, 'RegistrationEnded');
+    await h.expectRelayRevert(await org.close(cid, 1), 'RegistrationEnded');
+    // Past the expiry with one member below t: the permissionless time-close is refused too.
+    await h.expectRelayRevert({ kind: 'closeRegistrationScheduled', ceremonyId: cid }, 'BelowThreshold');
 
     await h.submit({ kind: 'abort', ceremonyId: cid }, 'relayer', { action: 'abort', params: 'in Registration' });
     expect((await h.reader.getCeremony(cid)).phase).toBe(PHASE.Aborted);
