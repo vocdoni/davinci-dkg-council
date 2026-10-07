@@ -24,6 +24,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { AppConfig } from './config';
 import type { Deployments } from './deployments';
 import type { ChainReader, ManagerEvent } from './lib/chain';
+import { MISMATCH_TEXT, PairingError } from './lib/davinci';
 import { proveInWorker, type OnProveProgress, type ProveProgress } from './lib/proving';
 import { releaseArtifacts } from './lib/release';
 import { plainSubmitError, TxRejectedError } from './lib/relayerErrors';
@@ -77,6 +78,13 @@ export interface Services {
    * head; what was found so far is returned either way. Nothing a member does waits on this.
    */
   joinedEvents(cid: Hex, fromBlock?: bigint): Promise<{ events: ManagerEvent[]; complete: boolean }>;
+  /**
+   * DAVINCI pairing: `councilAdapter()` read on chain from the pinned `davinci.registry` — the
+   * address actually granted, never one from a link or an API response. Every configured provider
+   * must agree; the adapter must be non-zero and its `manager()` this deployment's manager
+   * (PairingError with the plain mismatch text otherwise).
+   */
+  readDavinciAdapter(): Promise<Hex>;
 }
 
 /** eth_getLogs requests one `joinedEvents` call may make (the next call resumes). */
@@ -85,6 +93,13 @@ const LOG_REQUESTS_PER_CALL = 40;
 const PARTICIPANT_JOINED = COUNCIL_MANAGER_ABI.find(
   (e) => e.type === 'event' && e.name === 'ParticipantJoined',
 ) as AbiEvent;
+
+const DAVINCI_REGISTRY_ABI = [
+  { type: 'function', name: 'councilAdapter', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+] as const;
+const COUNCIL_ADAPTER_ABI = [
+  { type: 'function', name: 'manager', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+] as const;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -195,6 +210,26 @@ export function buildServices(config: AppConfig): Services {
         events: decodeManagerLogs([...scanner.logs]) as unknown as ManagerEvent[],
         complete: scanner.complete,
       };
+    },
+    readDavinciAdapter: async () => {
+      const davinci = config.davinci;
+      if (!davinci) throw new Error('this deployment has no DAVINCI Elections connection configured');
+      const read = async (address: Hex, abi: typeof DAVINCI_REGISTRY_ABI | typeof COUNCIL_ADAPTER_ABI, fn: string) => {
+        const values = await Promise.all(
+          logSources.map((c) => c.readContract({ address, abi, functionName: fn as never }) as Promise<Hex>),
+        );
+        const first = (values[0] as Hex).toLowerCase() as Hex;
+        if (values.some((v) => v.toLowerCase() !== first)) {
+          throw new Error(`the network providers disagree on ${fn} — refusing`);
+        }
+        return first;
+      };
+      const adapter = await read(davinci.registry, DAVINCI_REGISTRY_ABI, 'councilAdapter');
+      if (BigInt(adapter) === 0n) throw new PairingError(MISMATCH_TEXT, 'councilAdapter() is zero');
+      if ((await read(adapter, COUNCIL_ADAPTER_ABI, 'manager')) !== config.manager.toLowerCase()) {
+        throw new PairingError(MISMATCH_TEXT, 'adapter.manager() is not this deployment');
+      }
+      return adapter;
     },
   };
 }

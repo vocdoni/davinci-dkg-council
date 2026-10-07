@@ -2,7 +2,7 @@
 
 import { generateMnemonic, PhaseMode, type Hex } from '@vocdoni/davinci-dkg-council-sdk';
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../App';
 import { RecoveryKitStep } from '../components/RecoveryKitStep';
 import { Button, Card, Disclosure, Field, Note, Spinner } from '../components/ui';
@@ -48,9 +48,16 @@ export function CreateCeremony() {
   const { mnemonic, saveMnemonic, refreshRecords } = useApp();
   const services = useServices();
   const navigate = useNavigate();
+  // DAVINCI Elections deep link (docs/davinci-integration.md §9): cosmetic only. `label`
+  // pre-fills the local display name; every other parameter is ignored — never an address,
+  // never a return URL, and never a pairing code from a link.
+  const [params] = useSearchParams();
+  const forDavinci = params.get('davinci') === 'v1';
 
   const [step, setStep] = useState<'params' | 'kit' | 'review'>('params');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() =>
+    forDavinci ? (params.get('label') ?? '').replace(/\s+/g, ' ').trim().slice(0, 80) : '',
+  );
   const [members, setMembers] = useState(5);
   const [threshold, setThreshold] = useState(3);
   const [dealingHours, setDealingHours] = useState(24);
@@ -82,9 +89,10 @@ export function CreateCeremony() {
       role: 'organizer',
       name: name.trim() || undefined,
       nonce: nonce.toString(10),
+      ...(forDavinci ? { forDavinciElections: true } : {}),
       createdAt: Date.now(),
     }),
-    [services.config, cid, name, nonce],
+    [services.config, cid, name, nonce, forDavinci],
   );
   const kit = useMemo(() => buildKitForRecords(draftMnemonic, [draftRecord]), [draftMnemonic, draftRecord]);
 
@@ -172,6 +180,12 @@ export function CreateCeremony() {
       <div className="space-y-4">
         <Card title="Set up your committee">
           <div className="space-y-4">
+            {forDavinci && (
+              <Note tone="info">
+                This committee is for DAVINCI Elections. Set it up as usual — once its key is ready, you
+                connect it to your organization with a pairing code from DAVINCI Elections.
+              </Note>
+            )}
             <Field
               label="Name (only you see this)"
               value={name}

@@ -15,6 +15,7 @@ import {
 } from '@vocdoni/davinci-dkg-council-sdk';
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../App';
+import { DavinciConnectCard } from '../components/DavinciConnectCard';
 import { KitCard } from '../components/KitCard';
 import { QrCode } from '../components/QrCode';
 import { Button, Card, ConfirmingNote, CopyButton, Disclosure, Field, Note, Spinner } from '../components/ui';
@@ -1033,6 +1034,7 @@ export function OrganizerView({ record }: { record: CeremonyRecord }) {
       <KeyCard record={record} view={view} joined={joined} />
       {policy && <FinishCard record={record} view={view} policy={policy} />}
       {policy && view.phase === (Phase.Live as number) && <OpenResultsCard record={record} policy={policy} />}
+      <DavinciConnectCard record={record} view={view} />
       {view.phase === (Phase.Live as number) && <AccessCard record={record} failed={failed} />}
       {policy && view.phase === (Phase.Live as number) && (
         <ResultsCard record={record} view={view} policy={policy} />

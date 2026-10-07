@@ -47,7 +47,10 @@ import type { Services } from '../../src/services';
 export const MANAGER = '0x00000000000000000000000000000000000000aa' as Hex;
 const DEFAULT_MANAGER = MANAGER;
 
-export function makeConfig(manager: Hex = MANAGER): AppConfig {
+export const DAVINCI_REGISTRY = '0x00000000000000000000000000000000000000de' as Hex;
+export const ELECTIONS_ORIGIN = 'https://elections.invalid';
+
+export function makeConfig(manager: Hex = MANAGER, davinci = false): AppConfig {
   return {
     chainId: 31337,
     manager,
@@ -56,6 +59,7 @@ export function makeConfig(manager: Hex = MANAGER): AppConfig {
     artifactsBaseUrls: [],
     deploymentBlock: 0,
     legacyDeployments: [],
+    ...(davinci ? { davinci: { registry: DAVINCI_REGISTRY, electionsOrigins: [ELECTIONS_ORIGIN] } } : {}),
     devMode: true,
   };
 }
@@ -420,13 +424,15 @@ export function makeFixture(
     accountIndex?: number;
     /** Another manager (a second deployment on the same chain). */
     manager?: Hex;
+    /** Pin a DAVINCI Elections connection (DAVINCI_REGISTRY / ELECTIONS_ORIGIN) in the config. */
+    davinci?: boolean;
   } = {},
 ): Fixture {
   const t = opts.t ?? 2;
   const n = opts.n ?? 3;
   const accountIndex = opts.accountIndex ?? 0;
   const MANAGER = opts.manager ?? DEFAULT_MANAGER;
-  const config = makeConfig(MANAGER);
+  const config = makeConfig(MANAGER, opts.davinci ?? false);
   const chainId = BigInt(config.chainId);
   const organizerMnemonic = generateMnemonic();
   const org = organizerAuthKey(rootFromMnemonic(organizerMnemonic), { chainId, manager: MANAGER, accountIndex });
@@ -518,6 +524,11 @@ export function makeFixture(
       publicSignals: signalsFromWitness(circuit, witnessInput),
     }),
     joinedEvents: async () => ({ events, complete: true }),
+    // The on-chain councilAdapter() of the pinned registry; tests override it for mismatches.
+    readDavinciAdapter: async () => {
+      if (!config.davinci) throw new Error('no DAVINCI connection configured');
+      return ADAPTER;
+    },
   };
 
   const addRequest = (

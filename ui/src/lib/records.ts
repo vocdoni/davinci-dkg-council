@@ -13,6 +13,15 @@ import { idbGet, idbGetAll, idbPut, STORE_CEREMONIES, STORE_LABELS } from './db'
 
 export type Role = 'organizer' | 'participant';
 
+/** One completed DAVINCI Elections pairing (display only; never part of a kit). */
+export interface DavinciConnection {
+  orgId: string;
+  orgName: string;
+  /** The pinned Elections origin the pairing ran against. */
+  origin: string;
+  connectedAt: number;
+}
+
 export interface CeremonyRecord {
   /** `${chainId}:${manager}:${cid}` */
   key: string;
@@ -55,6 +64,13 @@ export interface CeremonyRecord {
    * decryption is served from state, without log discovery). Unset: the dashboard retries.
    */
   relayerTracked?: boolean;
+  /**
+   * Organizer: the committee was started from a DAVINCI Elections deep link (cosmetic), so the
+   * dashboard offers the pairing card prominently once the key is ready.
+   */
+  forDavinciElections?: boolean;
+  /** Organizer: DAVINCI Elections organizations this committee was connected to (display only). */
+  davinciConnections?: DavinciConnection[];
   /** Set when the record's root was switched away from (restore-switch); hidden from the UI. */
   archived?: boolean;
   /**
