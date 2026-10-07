@@ -13,11 +13,10 @@
 #      (/new, /c/<ceremony id>) their single-page-app fallback.
 #
 # The values below target the Sepolia rehearsal deployment of circuits-v1 (development setup,
-# docs/deployments.md), as in ui/public/config.sepolia.json. RELAYER_URL and ARTIFACTS_BASE_URL
-# are still placeholders: set them to a running relayer and to a public, CORS-enabled mirror of
-# the six circuit files before creating the app (while the repository is private, browsers cannot
-# fetch the GitHub release assets). The build refuses a production config with fewer than two RPC
-# endpoints.
+# docs/deployments.md), as in ui/public/config.sepolia.json, whose circuit-file mirrors (the
+# DAVINCI CDN, then the GitHub release) the app keeps. RELAYER_URL is still a placeholder: set it
+# to a running relayer before creating the app. The build refuses a production config with fewer
+# than two RPC endpoints.
 
 name: davinci-dkg-council-ui
 region: ams3
@@ -70,8 +69,4 @@ static_sites:
       - key: RELAYER_URL
         scope: BUILD_TIME
         value: https://relayer.davinci-dkg-council.example.invalid
-      # A CORS-enabled mirror of the pinned circuit files; the sha256 pins live in the SDK.
-      - key: ARTIFACTS_BASE_URL
-        scope: BUILD_TIME
-        value: https://artifacts.davinci-dkg-council.example.invalid/circuits-v1
 

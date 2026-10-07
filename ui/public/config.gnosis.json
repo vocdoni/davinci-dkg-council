@@ -7,6 +7,9 @@
     "https://rpc.gnosischain.com"
   ],
   "relayerUrl": "https://relayer.davinci-dkg-council.example.invalid",
-  "artifactsBaseUrl": "https://artifacts.davinci-dkg-council.example.invalid/circuits-v1",
+  "artifactsBaseUrls": [
+    "https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/{release}",
+    "https://github.com/vocdoni/davinci-dkg-council/releases/download/{release}"
+  ],
   "devMode": false
 }

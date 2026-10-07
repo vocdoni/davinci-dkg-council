@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Deploy (or redeploy) the Council web app as a Railway service, built on Railway from
-# ui/Dockerfile at the committed tree, with the six pinned circuit files baked into the image and
-# served same-origin under /<release>/ (browsers cannot fetch a private repository's release
-# assets, and the strict CSP stays as it is). Creates the service and its *.up.railway.app domain
-# on the first run. Deploy the relayer first: its domain becomes the app's relayerUrl. See
-# docs/deployments.md, "Hosting on Railway".
+# ui/Dockerfile at the committed tree. The six pinned circuit files are baked into the image and
+# served same-origin under /<release>/; the app tries that copy first, then the mirrors in
+# UI_CONFIG (the DAVINCI CDN, which browsers can read once its CORS rule is set, then the GitHub
+# release, which browsers never can: it sends no CORS headers). Creates the service and its
+# *.up.railway.app domain on the first run. Deploy the relayer first: its domain becomes the
+# app's relayerUrl. See docs/deployments.md, "Hosting on Railway".
 #
 #   RAILWAY_TOKEN_FILE=railway-api-key RAILWAY_PROJECT_ID=… RAILWAY_ENVIRONMENT_ID=… \
 #   scripts/railway-deploy-ui.sh
@@ -15,6 +16,8 @@
 #                          deployment block override UI_CONFIG's)
 #   RPC_URLS               override UI_CONFIG's rpcUrls (two independent providers or more)
 #   RELAYER_URL            default https://<the relayer service's Railway domain>
+#   ARTIFACTS_BASE_URLS    circuit-file mirrors, comma-separated, tried in order; default
+#                          https://<this app's domain>/{release}, then UI_CONFIG's artifactsBaseUrls
 #   COUNCIL_ARTIFACTS_DIR  the released circuit files, default ~/.davinci-dkg-council/artifacts;
 #                          each must match its sha256 pin in sdk/src/artifacts.ts
 #   SERVICE_NAME           default council-ui;  RELAYER_SERVICE_NAME  default council-relayer
@@ -62,9 +65,19 @@ for name, pin in pins:
     print(f"  {name}  {pin}")
 PY
 
+# Mirrors: this origin's baked copy (an absolute URL: the app accepts no relative mirror), then
+# UI_CONFIG's own, without repeating the first.
+if [[ -z ${ARTIFACTS_BASE_URLS:-} ]]; then
+	ARTIFACTS_BASE_URLS=$(python3 -c 'import json, sys
+c = json.load(open(sys.argv[1]))
+own = sys.argv[2]
+urls = ([c["artifactsBaseUrl"]] if c.get("artifactsBaseUrl") else []) + (c.get("artifactsBaseUrls") or [])
+print(",".join([own] + [u for u in urls if ".invalid" not in u and u.rstrip("/") != own]))' "$stage/$UI_CONFIG" "https://$domain/{release}")
+fi
+
 # /config.json: rendered here and kept as is by the image build (UI_CONFIG defaults to it there).
 (cd "$stage" && UI_CONFIG=$UI_CONFIG MANAGER_ADDRESS=$manager DEPLOYMENT_BLOCK=$block RPC_URLS=${RPC_URLS:-} \
-	RELAYER_URL=$RELAYER_URL ARTIFACTS_BASE_URL=/$release bash scripts/render-ui-config.sh ui/public/config.json >/dev/null)
+	RELAYER_URL=$RELAYER_URL ARTIFACTS_BASE_URLS=$ARTIFACTS_BASE_URLS bash scripts/render-ui-config.sh ui/public/config.json >/dev/null)
 cat "$stage/ui/public/config.json"
 
 # Railway only accepts cache mounts with its own id scheme; the build does without.

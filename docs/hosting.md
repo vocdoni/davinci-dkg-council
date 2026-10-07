@@ -38,14 +38,23 @@ Policy for a production deployment:
   relationships), both CORS-enabled and both listed up front in the app's `artifactsBaseUrls`
   (architecture §6) so the app fails over by itself — no config change on the day a mirror dies.
   A `{release}` placeholder in an entry keeps one mirror layout valid across releases;
-- the canonical GitHub release made public counts as one mirror; the app's own origin serving
-  the files counts as another only if the app has a second copy elsewhere (otherwise one outage
-  takes both);
+- the canonical GitHub release counts as a mirror for Node clients, CI and scripts only: its
+  downloads redirect without CORS headers, so browsers cannot read it even once the repository
+  is public. The app's own origin serving the files counts as a browser mirror only if the app
+  has a second copy elsewhere (otherwise one outage takes both);
 - the files are ~78 MB per release and immutable: a dumb static bucket is enough.
 
-The current Sepolia rehearsal setup — app, the only artifact mirror *and* the only relayer on
-one Railway hobby project — is three single points of failure in one basket. Fine for
-rehearsals; never ship a real election that way.
+What runs today: every release is on the DAVINCI CDN
+(`https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/<release>/`, DigitalOcean
+Spaces, public), which the SDK and the scripts try first, and on the GitHub release second. The
+hosted apps list a copy baked into the app's own image (`/<release>/` on its origin) first, then
+the CDN, then the GitHub release. A browser can read the CDN only once the bucket's CORS rule is
+set (and the CDN cache purged); until then the app's own copy is the only one a browser can use,
+and a refused mirror just falls through to the next. The Sepolia rehearsal app still runs its only relayer on the same Railway hobby
+project as the app; the Gnosis production beta does too (its own project). Neither has a
+standby relayer or a second app copy yet: a single point of failure each, acceptable for a beta
+whose operators watch it, and the first thing to add before a deployment carries elections that
+cannot wait for a redeploy.
 
 ## A second app copy
 
