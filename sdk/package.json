@@ -32,7 +32,7 @@
   "dependencies": {
     "@noble/curves": "^1.9.0",
     "@noble/hashes": "^1.8.0",
-    "@scure/bip39": "^1.6.0",
+    "@scure/bip39": "^2.4.0",
     "poseidon-lite": "^0.3.0",
     "snarkjs": "0.7.6",
     "viem": "^2.21.55"
