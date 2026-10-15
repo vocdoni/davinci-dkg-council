@@ -9,8 +9,9 @@
 # Environment:
 #   COUNCIL_RELAYER_KEY_FILE  file holding the relayer's hot key (start only; read here, passed to
 #                             the relayer through its environment, never printed)
+#   COUNCIL_DEPLOYMENT        deployment record, default deployment.json next to this script
 #   COUNCIL_RUN_DIR           state directory (relayer state, token, logs), default ~/.davinci-gnosis/council-davinci
-#   COUNCIL_RPC_URL           comma-separated Gnosis RPCs, default publicnode, gnosischain.com, drpc
+#   COUNCIL_RPC_URL           comma-separated RPCs, default the record's rpcUrls
 #   COUNCIL_PORT              default 8797
 set -euo pipefail
 
@@ -18,9 +19,10 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(cd "$here/../.." && pwd)
 RUN_DIR=${COUNCIL_RUN_DIR:-$HOME/.davinci-gnosis/council-davinci}
 PORT=${COUNCIL_PORT:-8797}
-RPCS=${COUNCIL_RPC_URL:-https://gnosis-rpc.publicnode.com,https://rpc.gnosischain.com,https://gnosis.drpc.org}
-manager=$(jq -r .council.manager "$here/deployment.json")
-start_block=$(jq -r .council.deploymentBlock "$here/deployment.json")
+DEPLOYMENT=${COUNCIL_DEPLOYMENT:-$here/deployment.json}
+RPCS=${COUNCIL_RPC_URL:-$(jq -r '.rpcUrls | join(",")' "$DEPLOYMENT")}
+manager=$(jq -r .council.manager "$DEPLOYMENT")
+start_block=$(jq -r .council.deploymentBlock "$DEPLOYMENT")
 die() { echo "relayer: $*" >&2; exit 1; }
 
 case ${1:-} in

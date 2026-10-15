@@ -13,7 +13,8 @@
 # Environment (defaults in roundtrip.gnosis.ts): DAVINCI_ORGANIZER_KEY_FILE (required: the
 # process creator, funded), DAVINCI_SDK_DIR, DAVINCI_SEQUENCER_URL, DAVINCI_FILES_DIR,
 # DAVINCI_FILES_URL, DAVINCI_SDK_ARTIFACTS, COUNCIL_RELAYER_URL, COUNCIL_RUN_DIR, COUNCIL_RPC_URL,
-# COUNCIL_B_OPEN_AFTER_MIN (75), COUNCIL_RESUME (a secrets file of an earlier run: reuse its
+# COUNCIL_DEPLOYMENT (a record of another chain, see scripts/davinci-optimism), COUNCIL_RELAYER_TOKEN_FILE (optional against an open relayer),
+# COUNCIL_FINALITY_WAIT_MIN, COUNCIL_B_OPEN_AFTER_MIN (75), COUNCIL_RESUME (a secrets file of an earlier run: reuse its
 # ceremonies), COUNCIL_ARTIFACTS_DIR (the pinned Council circuit files).
 set -euo pipefail
 

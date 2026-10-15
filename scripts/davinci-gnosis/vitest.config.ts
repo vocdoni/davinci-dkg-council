@@ -53,8 +53,8 @@ export default {
     include: ['**/*.gnosis.ts'],
     fileParallelism: false,
     sequence: { concurrent: false },
-    // Ceremonies wait for Gnosis finality several times; a scheduled opening waits for its date.
-    testTimeout: 4 * 60 * 60_000,
+    // Ceremonies wait for finality several times (about 19 min on OP Mainnet); a scheduled opening waits for its date.
+    testTimeout: 6 * 60 * 60_000,
     hookTimeout: 30 * 60_000,
     bail: 1,
     disableConsoleIntercept: true,
