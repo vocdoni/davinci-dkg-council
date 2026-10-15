@@ -121,7 +121,7 @@ export function Loading({ label }: { label: string }) {
 }
 
 export const CONFIRMING_TEXT =
-  'Waiting for the network to confirm — usually about 4 minutes on Gnosis, 15–20 minutes on Sepolia. You can close this page; we pick up where you left off.';
+  'Waiting for the network to confirm — usually about 20 minutes on OP Mainnet, 4 minutes on Gnosis, 15–20 minutes on Sepolia. You can close this page; we pick up where you left off.';
 
 /**
  * A just-sent step (or a fresh deployment) is not confirmed by the network

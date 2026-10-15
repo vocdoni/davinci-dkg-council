@@ -2,13 +2,13 @@
  * Just-sent actions this device is waiting on.
  *
  * Every screen reads authenticated state at the finalized block (protocol §9.3), which trails the
- * head by about 15–20 minutes on Sepolia. An action the relayer already mined is invisible for
- * that long: a committee this device just created reads as unknown (the views revert
- * `UnknownCeremony()`), a list it just locked still reads as open. Each sent action is kept on its
- * ceremony record as a pending entry until the finalized state shows its effect, so the screens
- * show "waiting for the network to confirm" and keep its button off instead of an error or a
- * second, doomed attempt. The relayer's verdict on the transaction is checked too: a rejected one
- * is dropped and reported.
+ * head by about 17–23 minutes on OP Mainnet and 15–20 minutes on Sepolia. An action the relayer
+ * already mined is invisible for that long: a committee this device just created reads as unknown
+ * (the views revert `UnknownCeremony()`), a list it just locked still reads as open. Each sent
+ * action is kept on its ceremony record as a pending entry until the finalized state shows its
+ * effect, so the screens show "waiting for the network to confirm" and keep its button off instead
+ * of an error or a second, doomed attempt. The relayer's verdict on the transaction is checked too:
+ * a rejected one is dropped and reported.
  *
  * Display only. Every check before anything is signed or proven still runs on authenticated
  * state, and nothing here is ever read as proof that an action happened.
