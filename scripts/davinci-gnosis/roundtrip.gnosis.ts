@@ -1,7 +1,9 @@
 /**
- * DAVINCI + Council on Gnosis Chain, end to end with real proofs, against the TEST deployment in
- * deployment.json (Council v2 on the circuits-v1 development setup, a ProcessRegistry from the
- * unreleased davinci-contracts `council` branch). Every proof is real: Council dealings and
+ * DAVINCI + Council end to end with real proofs, on the chain of the deployment record (Gnosis by
+ * default: COUNCIL_DEPLOYMENT=scripts/davinci-optimism/deployment.json runs it on OP Mainnet;
+ * scripts/davinci-optimism/run.sh sets that). The Gnosis record is a TEST deployment (Council v2
+ * on the circuits-v1 development setup, a ProcessRegistry from the unreleased davinci-contracts
+ * `council` branch). Every proof is real: Council dealings and
  * partials (snarkjs), DAVINCI ballots (davinci-sdk, snarkjs) and the state transitions (a
  * davinci-sequencer `council` build proving on a davinci-zkvm prover).
  *
@@ -53,6 +55,7 @@ import {
 } from '@vocdoni/davinci-sdk';
 import { Wallet } from 'ethers';
 import { createPublicClient, defineChain, fallback, formatEther, http, type PublicClient, type TransactionReceipt } from 'viem';
+import * as knownChains from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Member, Organizer, type ActorHost } from '../../tests/src/actors.js';
 import { devCircuitRelease } from '../../tests/src/deploy.js';
@@ -64,7 +67,7 @@ const env = (name: string, fallbackValue?: string): string => {
   const v = process.env[name]?.trim();
   if (v) return v;
   if (fallbackValue !== undefined) return fallbackValue;
-  throw new Error(`${name} is required (run through scripts/davinci-gnosis/run.sh)`);
+  throw new Error(`${name} is required (run through scripts/davinci-gnosis/run.sh or scripts/davinci-optimism/run.sh)`);
 };
 const list = (raw: string): string[] =>
   raw
@@ -77,27 +80,48 @@ interface Deployment {
   council: { manager: Hex; deploymentBlock: number; circuitReleaseId: Hex };
   davinci: { processRegistry: Hex; deploymentBlock: number; councilAdapter: Hex; grace: { default: number } };
   rpcUrls: string[];
+  /** Names the default state directories (~/.davinci-<slug>); the chain name without spaces if absent. */
+  slug?: string;
+  /** Minutes to wait for the chain's finality (the authenticated reads' anchor); 15 if absent. */
+  finalityWaitMin?: number;
+  /** Default minutes between creating ceremony B and its scheduled opening; 75 if absent. */
+  bOpenAfterMin?: number;
 }
-const deployment = JSON.parse(readFileSync(path.join(HERE, 'deployment.json'), 'utf8')) as Deployment;
+const deployment = JSON.parse(
+  readFileSync(env('COUNCIL_DEPLOYMENT', path.join(HERE, 'deployment.json')), 'utf8'),
+) as Deployment;
+const known = Object.values(knownChains).find((c) => c.id === deployment.chainId);
+if (!known) throw new Error(`chain ${deployment.chainId} is not in viem/chains`);
+const CHAIN_NAME = known.name;
+const CURRENCY = known.nativeCurrency;
+const STATE_HOME = path.join(homedir(), `.davinci-${deployment.slug ?? CHAIN_NAME.toLowerCase().replace(/[^a-z0-9]/g, '')}`);
 const CHAIN_ID = BigInt(deployment.chainId);
 const MANAGER = deployment.council.manager.toLowerCase() as Hex;
 const REGISTRY = deployment.davinci.processRegistry.toLowerCase() as Hex;
 const ADAPTER = deployment.davinci.councilAdapter.toLowerCase() as Hex;
 const RPCS = list(env('COUNCIL_RPC_URL', deployment.rpcUrls.join(',')));
-const RUN_DIR = env('COUNCIL_RUN_DIR', path.join(homedir(), '.davinci-gnosis', 'council-davinci'));
+const RUN_DIR = env('COUNCIL_RUN_DIR', path.join(STATE_HOME, 'council-davinci'));
 const RELAYER_URL = env('COUNCIL_RELAYER_URL', 'http://127.0.0.1:8797');
-const RELAYER_TOKEN = readFileSync(env('COUNCIL_RELAYER_TOKEN_FILE', path.join(RUN_DIR, 'relayer.token')), 'utf8').trim();
+/**
+ * Optional: a hosted relayer in open mode takes no credentials from a script (no Origin header is
+ * sent, so its CORS list is not consulted); a restricted one needs a COUNCIL_API_TOKENS entry.
+ */
+const RELAYER_TOKEN_FILE = process.env.COUNCIL_RELAYER_TOKEN_FILE?.trim() || path.join(RUN_DIR, 'relayer.token');
+const RELAYER_TOKEN = existsSync(RELAYER_TOKEN_FILE) ? readFileSync(RELAYER_TOKEN_FILE, 'utf8').trim() : '';
+if (process.env.COUNCIL_RELAYER_TOKEN_FILE?.trim() && !RELAYER_TOKEN) throw new Error(`${RELAYER_TOKEN_FILE} is missing or empty`);
 const SEQUENCER_URL = env('DAVINCI_SEQUENCER_URL', 'http://127.0.0.1:9095');
-const FILES_DIR = env('DAVINCI_FILES_DIR', path.join(homedir(), '.davinci-gnosis', 'sequencer-council-test', 'files'));
+const FILES_DIR = env('DAVINCI_FILES_DIR', path.join(STATE_HOME, 'sequencer-council-test', 'files'));
 const FILES_URL = env('DAVINCI_FILES_URL', 'http://172.17.0.1:8099');
 const ARTIFACT_CACHE = env('DAVINCI_SDK_ARTIFACTS', path.join(homedir(), '.cache', 'davinci-sdk-e2e', 'artifacts'));
 const ORGANIZER_KEY_FILE = env('DAVINCI_ORGANIZER_KEY_FILE');
 /** Ceremony B opens this many minutes after its creation; process B ends 7 minutes before. */
-const B_OPEN_AFTER_MIN = Number(env('COUNCIL_B_OPEN_AFTER_MIN', '75'));
+const B_OPEN_AFTER_MIN = Number(env('COUNCIL_B_OPEN_AFTER_MIN', String(deployment.bOpenAfterMin ?? 75)));
 const B_END_BEFORE_OPEN_S = 420n;
 const RESUME = process.env.COUNCIL_RESUME?.trim();
 const POLL_MS = 6_000;
 const FINALITY_POLL_MS = 15_000;
+/** How long a step waits for an authenticated read to catch up with the chain's finality. */
+const FINALITY_WAIT_MS = Number(env('COUNCIL_FINALITY_WAIT_MIN', String(deployment.finalityWaitMin ?? 15))) * 60_000;
 
 const N = 3;
 const T = 2;
@@ -107,8 +131,8 @@ const SECRETS_OUT = path.join(RUN_DIR, `secrets-${STAMP}.json`);
 
 const chain = defineChain({
   id: deployment.chainId,
-  name: 'Gnosis',
-  nativeCurrency: { name: 'xDAI', symbol: 'XDAI', decimals: 18 },
+  name: CHAIN_NAME,
+  nativeCurrency: CURRENCY,
   rpcUrls: { default: { http: RPCS } },
 });
 
@@ -227,10 +251,15 @@ const client = createPublicClient({
   pollingInterval: POLL_MS,
 }) as PublicClient;
 const reader = new CouncilClient({ chainId: CHAIN_ID, manager: MANAGER, rpcUrls: RPCS });
-const relayer = new RelayerClient(RELAYER_URL, {
-  fetchFn: (input, init) =>
-    fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string>), authorization: `Bearer ${RELAYER_TOKEN}` } }),
-});
+const relayer = new RelayerClient(
+  RELAYER_URL,
+  RELAYER_TOKEN
+    ? {
+        fetchFn: (input, init) =>
+          fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string>), authorization: `Bearer ${RELAYER_TOKEN}` } }),
+      }
+    : {},
+);
 const release = devCircuitRelease();
 const prover = new SnarkjsProver({
   deal: { wasm: release.wasm.deal, zkey: release.zkey.deal },
@@ -442,7 +471,7 @@ async function decrypt(label: string, cer: Ceremony, rid: Hex, indexes: number[]
 // ─── DAVINCI ────────────────────────────────────────────────────────────────────────────────
 
 const network = {
-  name: 'gnosis (Council test registry)',
+  name: `${CHAIN_NAME} (Council registry)`,
   chainId: deployment.chainId,
   processRegistry: REGISTRY,
   startBlock: deployment.davinci.deploymentBlock,
@@ -644,7 +673,7 @@ async function collectEvents(sdk: DavinciSDK, p: Proc): Promise<void> {
 
 // ─── the run ────────────────────────────────────────────────────────────────────────────────
 
-describe.sequential('DAVINCI + Council on Gnosis (n=3, t=2, real proofs)', () => {
+describe.sequential(`DAVINCI + Council on ${CHAIN_NAME} (n=3, t=2, real proofs)`, () => {
   const orgKey = (() => {
     let k = readFileSync(ORGANIZER_KEY_FILE, 'utf8').trim();
     if (!k.startsWith('0x')) k = `0x${k}`;
@@ -688,7 +717,7 @@ describe.sequential('DAVINCI + Council on Gnosis (n=3, t=2, real proofs)', () =>
     writeRecord();
     log(`run record: ${RECORD_OUT}`);
     for (const [a, b] of Object.entries(record.balances)) {
-      log(`${a}: ${formatEther(BigInt(b.start))} -> ${formatEther(BigInt(b.end ?? b.start))} xDAI`);
+      log(`${a}: ${formatEther(BigInt(b.start))} -> ${formatEther(BigInt(b.end ?? b.start))} ${CURRENCY.symbol}`);
     }
   });
 
@@ -716,7 +745,7 @@ describe.sequential('DAVINCI + Council on Gnosis (n=3, t=2, real proofs)', () =>
       ]);
       for (const c of [A, B]) {
         // Authenticated reads pin a finalized block: wait until it shows the ceremony Live.
-        const deadline = Date.now() + 15 * 60_000;
+        const deadline = Date.now() + FINALITY_WAIT_MS;
         while ((await retrying('getCeremony', () => reader.getCeremony(c.cid))).phase !== 3 && Date.now() < deadline) {
           await sleep(FINALITY_POLL_MS);
         }
@@ -734,7 +763,7 @@ describe.sequential('DAVINCI + Council on Gnosis (n=3, t=2, real proofs)', () =>
         const census = new OffchainCensus();
         census.add(members);
         const created = await sdk.createProcess({
-          title: `Council on Gnosis, variant (${label})`,
+          title: `Council on ${CHAIN_NAME}, variant (${label})`,
           description: `davinci-sdk keyMode 'council', ceremony ${cer.name} (${cer.cid})`,
           census,
           maxVoters: 100,
@@ -856,7 +885,7 @@ describe.sequential('DAVINCI + Council on Gnosis (n=3, t=2, real proofs)', () =>
     // The committee's plaintexts, read back authenticated (pinned to a finalized block, so the
     // last combine may need a few minutes to be visible).
     for (const l of ['a', 'b'] as const) {
-      const deadline = Date.now() + 15 * 60_000;
+      const deadline = Date.now() + FINALITY_WAIT_MS;
       let pt = await retrying('getPlaintexts', () => reader.getPlaintexts(procs[l].rid));
       while (!pt.ready && Date.now() < deadline) {
         await sleep(FINALITY_POLL_MS);
