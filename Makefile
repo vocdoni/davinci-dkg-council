@@ -2,7 +2,7 @@
         circuits circuits-restore circuits-test fixtures vectors vectors-check ceremony ceremony-dry-run \
         solidity-build solidity-test solidity-gas \
         sdk sdk-test relayer relayer-test relayer-docker \
-        ui-dev ui-sepolia ui-gnosis ui-build ui-lint ui-test ui-config ui-docker \
+        ui-dev ui-sepolia ui-gnosis ui-optimism ui-build ui-lint ui-test ui-config ui-docker \
         e2e e2e-browser dev dev-process dev-settle dev-results \
         sepolia-deploy sepolia-run gnosis-deploy gnosis-run optimism-deploy deploy-test
 
@@ -117,6 +117,11 @@ ui-sepolia: ## Serve the app against config.sepolia.json (RELAYER_URL, ARTIFACTS
 # The Gnosis production beta (development circuit release): ui/public/config.gnosis.json.
 ui-gnosis: ## Serve the app against config.gnosis.json (RELAYER_URL, ARTIFACTS_URL)
 	VITE_CONFIG=/config.gnosis.json VITE_RELAYER_URL=$(RELAYER_URL) VITE_ARTIFACTS_URL=$(ARTIFACTS_URL) \
+		$(PNPM) --filter ./ui run dev
+
+# OP Mainnet (development circuit release): ui/public/config.optimism.json.
+ui-optimism: ## Serve the app against config.optimism.json (RELAYER_URL, ARTIFACTS_URL)
+	VITE_CONFIG=/config.optimism.json VITE_RELAYER_URL=$(RELAYER_URL) VITE_ARTIFACTS_URL=$(ARTIFACTS_URL) \
 		$(PNPM) --filter ./ui run dev
 
 ui-build: ## Production build of the app into ui/dist

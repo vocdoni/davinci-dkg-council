@@ -572,6 +572,15 @@ OP's L1 data fee, which forge does not show. The re-check reads code hashes as k
 COUNCIL_KEY_FILE=path/to/key ALLOW_DEV_SETUP=true ETHERSCAN_API_KEY_FILE=path/to/etherscan-key make optimism-deploy
 ```
 
+The app's OP config is `ui/public/config.optimism.json` (`make ui-optimism`); its manager, deployment
+block and registry are placeholders until the deployment. Its two browser RPCs must agree on the
+finalized block, or the SDK refuses: on 2026-10-15 `optimism.gateway.tenderly.co` and
+`optimism.drpc.org` agreed in 55 of 60 samples over ten minutes, while `mainnet.optimism.io`
+answered from backends one finalization step apart and agreed with either in only 36 to 39 of
+60. publicnode refuses state older than about 600 blocks, so it cannot serve a finalized anchor.
+OP's finalized head trailed the head by 500 to 700 blocks (17 to 23 min), the wait before every
+authenticated read of a fresh transaction.
+
 ## Rehearsal ceremony
 
 `scripts/sepolia/run.sh` (`make sepolia-run`) drives one `n = 3, t = 2` ceremony against the
