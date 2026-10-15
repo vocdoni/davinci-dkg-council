@@ -1,0 +1,52 @@
+{
+  "chainId": 10,
+  "protocolVersion": 2,
+  "circuitRelease": {
+    "tag": "circuits-v1",
+    "circuitReleaseId": "0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301",
+    "developmentSetup": true,
+    "allowDevSetup": true
+  },
+  "deployer": "0x5eb38f2d16ceaabff6a63c17505a14b45624f537",
+  "deploymentBlock": 158245395,
+  "contracts": {
+    "DealVerifier": {
+      "address": "0x59e0a418c4be3be985ec42453ec760c7c41a8830",
+      "codehash": "0x11846f7e14acc5efe8e7c97ebc1af97a6fab6350e631aba333715e7cb0cc9c1f",
+      "tx": "0xd1d0e6e02fb679313a74f5efe7be9e1810ce5b726f6e11db1e0d8bd0f9bc0a5f",
+      "block": 158245393,
+      "gasUsed": 3384996,
+      "effectiveGasPrice": 2376
+    },
+    "PartialVerifier": {
+      "address": "0xa62dc55f304357bb4e33780e6b1e3751a1350b36",
+      "codehash": "0x8599caa2240444a17eea76d829f019a7e5844a183f469f05effeea41d867a177",
+      "tx": "0x9b9d7fe19accb23a46403d4800f44ffbb6b24a8416d671ddc1723b56bf682fcd",
+      "block": 158245394,
+      "gasUsed": 2667240,
+      "effectiveGasPrice": 2377
+    },
+    "CouncilManager": {
+      "address": "0x281b84dee6305083cc719187e4a2737d61b4396e",
+      "codehash": "0x105f47753f99fa56d0787d1e6bc716a21e485bd5d2f2e9c8a9e13f55cafc226e",
+      "tx": "0xef0fb8a1477b3a484db57f63c344d5264aaefa2a20d7897bba1ff5a06f0b1910",
+      "block": 158245395,
+      "gasUsed": 7625161,
+      "effectiveGasPrice": 2374
+    },
+    "CouncilViews": {
+      "address": "0x9adfa11caa872dd179d04deccb0abff6212d6be1",
+      "codehash": "0xbed9e9837a36be1170260fb963887f1b5dc9344e87c7f9afa4f60a61ed345b86",
+      "createdBy": "CouncilManager constructor (CREATE nonce 1)",
+      "tx": "0xef0fb8a1477b3a484db57f63c344d5264aaefa2a20d7897bba1ff5a06f0b1910",
+      "block": 158245395
+    },
+    "CouncilOps": {
+      "address": "0xb96fb1f4901c30f0f110449191824585c7108e6c",
+      "codehash": "0x09d25cd5b5eb40f0cf4f7b60b4129bbbd375c218f6c92b459f4c12b13c1f6c80",
+      "createdBy": "CouncilManager constructor (CREATE nonce 2)",
+      "tx": "0xef0fb8a1477b3a484db57f63c344d5264aaefa2a20d7897bba1ff5a06f0b1910",
+      "block": 158245395
+    }
+  }
+}

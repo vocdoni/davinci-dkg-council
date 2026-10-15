@@ -1,7 +1,7 @@
 {
   "chainId": 10,
-  "manager": "0x0000000000000000000000000000000000000000",
-  "deploymentBlock": 0,
+  "manager": "0x281b84dee6305083cc719187e4a2737d61b4396e",
+  "deploymentBlock": 158245395,
   "rpcUrls": [
     "https://optimism.gateway.tenderly.co",
     "https://optimism.drpc.org"
@@ -13,8 +13,7 @@
     "https://github.com/vocdoni/davinci-dkg-council/releases/download/{release}"
   ],
   "davinci": {
-    "_TODO": "placeholders until the OP deployment: scripts/railway-deploy-ui.sh takes the manager and deploymentBlock from scripts/optimism/deployment.json and the relayer URL from its service; set the registry to the new OP DAVINCI ProcessRegistry (DAVINCI_REGISTRY or a commit); until then the Elections connection is off",
-    "registry": "0x0000000000000000000000000000000000000000",
+    "registry": "0x64d41ad49009204e8dacc153fc98a5ee14cb6916",
     "electionsOrigins": ["https://elections.davinci.vote"]
   },
   "devMode": false

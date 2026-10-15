@@ -2,9 +2,10 @@
 
 | Network | Circuit release | CouncilManager | Deployment block | Status |
 |---|---|---|---:|---|
+| OP Mainnet (10) | `circuits-v1` (development setup) | [`0x281b84dee6305083cc719187e4a2737d61b4396e`](https://optimistic.etherscan.io/address/0x281b84dee6305083cc719187e4a2737d61b4396e) | 158,245,395 | **current production** since 2026-10-15, development setup by the owner's decision (`ALLOW_DEV_SETUP=true`); the requester is the OP DAVINCI registry's `CouncilAdapter` ([below](#op-mainnet)) |
 | Sepolia (11155111) | `circuits-v1` (development setup) | [`0x77e4d62f60568d5a315052063115391aac828e6b`](https://sepolia.etherscan.io/address/0x77e4d62f60568d5a315052063115391aac828e6b) | 11,857,219 | **current**; rehearsals only |
 | Sepolia (11155111) | `circuits-v1` (development setup) | [`0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070`](https://sepolia.etherscan.io/address/0x57ef5e2bc28fa120f1e5cb6dfe1b096ea06c3070) | 11,856,029 | superseded on 2026-10-06: its affine finalize needs 17.24M gas at `n = t = 16` under Glamsterdam ([below](#superseded-first-deployment)) |
-| Gnosis (100) | `circuits-v1` (development setup) | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | 48,627,018 | **production beta** since 2026-10-07, on the development setup the owner accepted for the beta (`ALLOW_DEV_SETUP=true`); hosted app and relayer ([below](#gnosis-chain-production-beta)) |
+| Gnosis (100) | `circuits-v1` (development setup) | [`0x2f5b110864cbad4017fe8ac59111812278f5f71f`](https://gnosisscan.io/address/0x2f5b110864cbad4017fe8ac59111812278f5f71f) | 48,627,018 | superseded by OP Mainnet on 2026-10-15 (to be retired); **production beta** since 2026-10-07, on the development setup the owner accepted for the beta (`ALLOW_DEV_SETUP=true`); hosted app and relayer ([below](#gnosis-chain-production-beta)) |
 
 The Gnosis manager is the **production beta**: real committees and DAVINCI elections may use it,
 on `circuits-v1`, a development phase 2 (see [Circuit release](#circuit-release)) that the owner
@@ -29,6 +30,58 @@ Both deployments have a public app and relayer on Railway, one project each
 The circuit files are on the DAVINCI CDN,
 `https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/circuits-v1/` (the six pinned files
 and `release.json`), and on the `circuits-v1` GitHub release.
+
+## OP Mainnet
+
+> **Development setup.** Like the Gnosis production beta, this manager is bound to
+> `circuits-v1`, whose phase 2 had one contributor, and was deployed with `ALLOW_DEV_SETUP=true`
+> by the owner's decision: whoever holds that setup's toxic waste can forge dealings and partial
+> decryptions. A deployment without that trade-off needs the multi-party ceremony release and a
+> new manager.
+
+Deployed on 2026-10-15 from a dedicated deployer key,
+[`0x5eb38f2D16CEaabFF6a63C17505a14b45624f537`](https://optimistic.etherscan.io/address/0x5eb38f2D16CEaabFF6a63C17505a14b45624f537),
+with `ALLOW_DEV_SETUP=true scripts/optimism/deploy.sh`, in blocks 158,245,393 to 158,245,395, after
+a rehearsal of the same script on an anvil fork of OP. `scripts/optimism/deployment.json` is the
+record. OP runs no state gas (EIP-8037), so the gas equals Gnosis's.
+
+| Contract | Address | EXTCODEHASH | Creation tx | Gas |
+|---|---|---|---|---:|
+| DealVerifier | [`0x59e0a418c4be3be985ec42453ec760c7c41a8830`](https://optimistic.etherscan.io/address/0x59e0a418c4be3be985ec42453ec760c7c41a8830) | `0x11846f7e14acc5efe8e7c97ebc1af97a6fab6350e631aba333715e7cb0cc9c1f` | `0xd1d0e6e02fb679313a74f5efe7be9e1810ce5b726f6e11db1e0d8bd0f9bc0a5f` | 3,384,996 |
+| PartialVerifier | [`0xa62dc55f304357bb4e33780e6b1e3751a1350b36`](https://optimistic.etherscan.io/address/0xa62dc55f304357bb4e33780e6b1e3751a1350b36) | `0x8599caa2240444a17eea76d829f019a7e5844a183f469f05effeea41d867a177` | `0x9b9d7fe19accb23a46403d4800f44ffbb6b24a8416d671ddc1723b56bf682fcd` | 2,667,240 |
+| CouncilManager | [`0x281b84dee6305083cc719187e4a2737d61b4396e`](https://optimistic.etherscan.io/address/0x281b84dee6305083cc719187e4a2737d61b4396e) | `0x105f47753f99fa56d0787d1e6bc716a21e485bd5d2f2e9c8a9e13f55cafc226e` | `0xef0fb8a1477b3a484db57f63c344d5264aaefa2a20d7897bba1ff5a06f0b1910` | 7,625,161 |
+| CouncilViews | [`0x9adfa11caa872dd179d04deccb0abff6212d6be1`](https://optimistic.etherscan.io/address/0x9adfa11caa872dd179d04deccb0abff6212d6be1) | `0xbed9e9837a36be1170260fb963887f1b5dc9344e87c7f9afa4f60a61ed345b86` | created by the manager's constructor (CREATE nonce 1) | – |
+| CouncilOps | [`0xb96fb1f4901c30f0f110449191824585c7108e6c`](https://optimistic.etherscan.io/address/0xb96fb1f4901c30f0f110449191824585c7108e6c) | `0x09d25cd5b5eb40f0cf4f7b60b4129bbbd375c218f6c92b459f4c12b13c1f6c80` | created by the manager's constructor (CREATE nonce 2) | – |
+
+- **Release pins.** `circuitReleaseId()` is
+  `0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301` (`circuits-v1`) and
+  `protocolVersion()` is 2. Both verifier code hashes equal the `CouncilRelease.sol` pins
+  (`Deploy.s.sol` checked them before it deployed the manager, `deploy.sh` re-read them from
+  chain as keccak256 of `eth_getCode`); CouncilViews and CouncilOps carry the same code as on
+  Gnosis, and the manager's runtime equals Gnosis's with its immutables masked.
+- **DAVINCI.** The OP DAVINCI ProcessRegistry
+  [`0x64d41aD49009204E8dAcc153Fc98a5Ee14cB6916`](https://optimistic.etherscan.io/address/0x64d41aD49009204E8dAcc153Fc98a5Ee14cB6916)
+  (block 158,245,426) created its `CouncilAdapter`
+  [`0xa5A1e4B204976709EB545Af0189211c41e20193d`](https://optimistic.etherscan.io/address/0xa5A1e4B204976709EB545Af0189211c41e20193d),
+  bound to this manager. `ui/public/config.optimism.json` pins that registry for the DAVINCI
+  Elections pairing. No test adapter was deployed.
+- **Source verification.** All five contracts have an exact match (creation and runtime) on
+  Sourcify; not yet verified on Optimistic Etherscan.
+- **Cost.** 13,677,397 gas at 2,374 to 2,377 wei per gas (0.000000032 ETH) plus 0.00000058 ETH of
+  OP L1 data fee, which forge does not show.
+- **App and relayer.** Not hosted yet: the Railway services `council-optimism-ui` and
+  `council-optimism-relayer` follow the Gnosis ones with `config.optimism.json`, a new relayer hot
+  key, `COUNCIL_STATE_GAS=false` and an explicit daily budget.
+- **Browser RPCs.** `config.optimism.json` reads through `optimism.gateway.tenderly.co` and
+  `optimism.drpc.org`. The SDK reads authenticated state at a finalized block both providers
+  agree on and refuses when they disagree. On 2026-10-15 `mainnet.optimism.io` answered from
+  backends one finalization step (179 blocks) apart and agreed with either of the others in only
+  36 to 39 of 60 samples over ten minutes; Tenderly and dRPC agreed in 55 of 60. With those two
+  the ceremony screen of `make ui-optimism` made 63 RPC calls in a minute against this manager,
+  with no error. dRPC's free plan refuses ranged `eth_getLogs` (the label scan moves on to
+  Tenderly) and rate-limits bursts; publicnode refuses state older than about 600 blocks, so it
+  cannot serve a finalized anchor at all. OP's finalized head trails the head by 500 to 700
+  blocks (17 to 23 min), the wait before an authenticated read sees a fresh transaction.
 
 ## Gnosis Chain (production beta)
 
@@ -572,14 +625,8 @@ OP's L1 data fee, which forge does not show. The re-check reads code hashes as k
 COUNCIL_KEY_FILE=path/to/key ALLOW_DEV_SETUP=true ETHERSCAN_API_KEY_FILE=path/to/etherscan-key make optimism-deploy
 ```
 
-The app's OP config is `ui/public/config.optimism.json` (`make ui-optimism`); its manager, deployment
-block and registry are placeholders until the deployment. Its two browser RPCs must agree on the
-finalized block, or the SDK refuses: on 2026-10-15 `optimism.gateway.tenderly.co` and
-`optimism.drpc.org` agreed in 55 of 60 samples over ten minutes, while `mainnet.optimism.io`
-answered from backends one finalization step apart and agreed with either in only 36 to 39 of
-60. publicnode refuses state older than about 600 blocks, so it cannot serve a finalized anchor.
-OP's finalized head trailed the head by 500 to 700 blocks (17 to 23 min), the wait before every
-authenticated read of a fresh transaction.
+The app's OP config is `ui/public/config.optimism.json` (`make ui-optimism`); see
+[OP Mainnet](#op-mainnet) for its browser RPCs.
 
 ## Rehearsal ceremony
 

@@ -186,7 +186,7 @@ describe('waiting copy matches the counters (P1-1, P1-4)', () => {
 });
 
 describe('waiting for the network to confirm (never a failure)', () => {
-  const CONFIRMING = /Waiting for the network to confirm — usually about 4 minutes on Gnosis/;
+  const CONFIRMING = /Waiting for the network to confirm — usually about 20 minutes on OP Mainnet, 4 minutes on Gnosis/;
 
   it('a not-yet-finalized deployment shows the confirming note and keeps polling', async () => {
     const f = makeFixture();
