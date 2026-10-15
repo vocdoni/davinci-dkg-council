@@ -8,11 +8,11 @@
 # and CouncilOps (nonce 2, no getter); both are located from the manager's address, checked byte
 # for byte against the local build and recorded.
 #
-# Not run directly: scripts/sepolia/deploy.sh and scripts/gnosis/deploy.sh set the network
-# defaults below and exec this file.
+# Not run directly: scripts/sepolia/deploy.sh, scripts/gnosis/deploy.sh and
+# scripts/optimism/deploy.sh set the network defaults below and exec this file.
 #
 # Environment (the network wrapper sets the defaults):
-#   NETWORK                  label for messages (sepolia, gnosis)
+#   NETWORK                  label for messages (sepolia, gnosis, optimism)
 #   COUNCIL_KEY_FILE         file holding the funded deployer key (required). Read at runtime and
 #                            handed to forge through the environment only; never printed.
 #   RPC_URL                  one RPC endpoint; when unset, the first of RPC_URLS (space separated)
@@ -169,6 +169,9 @@ unset key
 
 # Re-check the deployment from chain state alone.
 call() { "$CAST" call "$MANAGER" "$1" --rpc-url "$RPC_URL"; }
+# keccak256 of eth_getCode, not `cast codehash`: that one needs eth_getProof, which some public
+# endpoints refuse (mainnet.optimism.io at any block, rpc.gnosischain.com past a recent window).
+codehash() { "$CAST" keccak "$("$CAST" code "$1" --rpc-url "$RPC_URL")"; }
 deal=$("$CAST" parse-bytes32-address "$(call 'dealVerifier()')")
 partial=$("$CAST" parse-bytes32-address "$(call 'partialVerifier()')")
 views=$("$CAST" parse-bytes32-address "$(call 'views()')")
@@ -189,14 +192,14 @@ expected_runtime() {
         .out += $code[.at * 2:$r.start * 2] + ($imm | ltrimstr("0x")) | .at = $r.start + $r.length)
     | .out + $code[.at * 2:] | "0x" + .' "$contracts/out/$1.sol/$1.json"
 }
-views_hash=$("$CAST" codehash "$views" --rpc-url "$RPC_URL")
-ops_hash=$("$CAST" codehash "$ops" --rpc-url "$RPC_URL")
+views_hash=$(codehash "$views")
+ops_hash=$(codehash "$ops")
 [[ $views_hash == "$("$CAST" keccak "$(expected_runtime CouncilViews)")" ]] ||
   die "CouncilViews at $views is not the local build's code"
 [[ $ops_hash == "$("$CAST" keccak "$(expected_runtime CouncilOps "$release_id")")" ]] ||
   die "no CouncilOps of the local build at $ops (the manager's second CREATE)"
-deal_hash=$("$CAST" codehash "$deal" --rpc-url "$RPC_URL")
-partial_hash=$("$CAST" codehash "$partial" --rpc-url "$RPC_URL")
+deal_hash=$(codehash "$deal")
+partial_hash=$(codehash "$partial")
 [[ $deal_hash == "$deal_pin" ]] || die "DealVerifier codehash $deal_hash != pin $deal_pin"
 [[ $partial_hash == "$partial_pin" ]] || die "PartialVerifier codehash $partial_hash != pin $partial_pin"
 if [[ -n $adapter ]]; then
@@ -224,7 +227,7 @@ partial_tx=$(creation_of "$partial")
 adapter_record=null
 if [[ -n $adapter ]]; then
   adapter_record=$(jq -n --arg address "$adapter" --arg registry "$registry" \
-    --arg codehash "$("$CAST" codehash "$adapter" --rpc-url "$RPC_URL")" \
+    --arg codehash "$(codehash "$adapter")" \
     --argjson tx "$(receipt_of "$adapter_run" "$adapter")" \
     '{address: $address, codehash: $codehash, registry: ($registry | ascii_downcase), testOnly: true} + $tx')
 fi
@@ -235,7 +238,7 @@ jq -n \
   --arg deployer "$(jq -r '.transactions[0].transaction.from' "$manager_run")" \
   --arg manager "$MANAGER" --arg views "$views" --arg deal "$deal" --arg partial "$partial" \
   --arg dealHash "$deal_hash" --arg partialHash "$partial_hash" \
-  --arg managerHash "$("$CAST" codehash "$MANAGER" --rpc-url "$RPC_URL")" \
+  --arg managerHash "$(codehash "$MANAGER")" \
   --arg viewsHash "$views_hash" --arg ops "$ops" --arg opsHash "$ops_hash" \
   --argjson dealTx "$deal_tx" \
   --argjson partialTx "$partial_tx" \

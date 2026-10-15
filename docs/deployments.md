@@ -558,6 +558,20 @@ COUNCIL_KEY_FILE=path/to/key ALLOW_DEV_SETUP=true ETHERSCAN_API_KEY_FILE=path/to
 MANAGER=0x… TEST_ADAPTER=true ALLOW_DEV_SETUP=true COUNCIL_KEY_FILE=path/to/tester-key make gnosis-deploy
 ```
 
+`scripts/optimism/deploy.sh` (`make optimism-deploy`) is the same script for OP Mainnet (chain 10),
+defaulting to the first of publicnode, dRPC and `mainnet.optimism.io` that serves chain 10, writing
+`scripts/optimism/deployment.json` and deploying no test adapter: the requester is the DAVINCI
+ProcessRegistry's `CouncilAdapter`. Chain 10 is not a test chain, so `circuits-v1` needs
+`ALLOW_DEV_SETUP=true`, which the owner accepted for OP as for the Gnosis production beta. OP
+prices no state gas: leave `COUNCIL_STATE_GAS` unset or `false`. Gas matches Gnosis (13.68M for the
+two verifiers and the manager in an OP fork rehearsal on 2026-10-15); every transaction also pays
+OP's L1 data fee, which forge does not show. The re-check reads code hashes as keccak256 of
+`eth_getCode`, since `mainnet.optimism.io` answers no `eth_getProof`.
+
+```bash
+COUNCIL_KEY_FILE=path/to/key ALLOW_DEV_SETUP=true ETHERSCAN_API_KEY_FILE=path/to/etherscan-key make optimism-deploy
+```
+
 ## Rehearsal ceremony
 
 `scripts/sepolia/run.sh` (`make sepolia-run`) drives one `n = 3, t = 2` ceremony against the

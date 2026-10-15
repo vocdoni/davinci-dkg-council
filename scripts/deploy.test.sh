@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # The deployment policy end to end on throwaway Anvil chains (audit H-01): the network deploy
-# scripts against an Anvil that claims chain 100 (Gnosis) or 11155111 (Sepolia).
+# scripts against an Anvil that claims chain 100 (Gnosis), 10 (OP Mainnet) or 11155111 (Sepolia).
 #   1. chain 100, DEV release, no ALLOW_DEV_SETUP: scripts/gnosis/deploy.sh refuses, and so does
 #      Deploy.s.sol on its own (forge script --broadcast, the shell pre-check bypassed); the
 #      deployer's nonce stays 0: nothing was broadcast.
 #   2. chain 100, ALLOW_DEV_SETUP=true: deploys, warns loudly, records the override.
-#   3. chain 11155111: scripts/sepolia/deploy.sh deploys the DEV release (a test chain) with its
+#   3. chain 10: scripts/optimism/deploy.sh refuses the DEV release without ALLOW_DEV_SETUP and
+#      deploys it with the override, no test adapter.
+#   4. chain 11155111: scripts/sepolia/deploy.sh deploys the DEV release (a test chain) with its
 #      test adapter, no override.
 # A ceremony release (DEVELOPMENT_SETUP = false) deploys in case 1 instead.
 #
@@ -85,6 +87,25 @@ else
   jq -e '.chainId == 100 and .circuitRelease.developmentSetup == false and (.circuitRelease | has("allowDevSetup") | not)' \
     "$tmp/gnosis.json" >/dev/null || fail "unexpected record: $(cat "$tmp/gnosis.json")"
 fi
+
+port3=$((port + 2))
+anvil_on 10 "$port3"
+if [[ $dev == true ]]; then
+  echo "[deploy.test] chain 10 (OP Mainnet), DEV release, no override: refused"
+  if env "${common[@]}" RPC_URL="http://127.0.0.1:$port3" DEPLOYMENT_OUT="$tmp/optimism.json" COUNCIL_OPTIMISM_STATE="$tmp/state" \
+    bash "$root/scripts/optimism/deploy.sh" >"$tmp/out5" 2>&1; then
+    cat "$tmp/out5"
+    fail "scripts/optimism/deploy.sh deployed a DEVELOPMENT_SETUP release on chain 10"
+  fi
+  grep -q "DEVELOPMENT_SETUP release" "$tmp/out5" || { cat "$tmp/out5"; fail "unexpected refusal"; }
+  [[ $("$CAST" nonce "$deployer" --rpc-url "http://127.0.0.1:$port3") == 0 ]] || fail "a transaction was broadcast on chain 10"
+fi
+echo "[deploy.test] chain 10 (OP Mainnet), ALLOW_DEV_SETUP=true: deployed, no test adapter"
+env "${common[@]}" RPC_URL="http://127.0.0.1:$port3" DEPLOYMENT_OUT="$tmp/optimism.json" COUNCIL_OPTIMISM_STATE="$tmp/state" ALLOW_DEV_SETUP=true \
+  bash "$root/scripts/optimism/deploy.sh" >"$tmp/out6" 2>&1 || { cat "$tmp/out6"; fail "the OP deploy did not deploy"; }
+jq -e --argjson dev "$dev" '.chainId == 10 and .circuitRelease.developmentSetup == $dev
+  and (.circuitRelease.allowDevSetup // false) == $dev and (.contracts | has("MockCouncilAdapter") | not)' \
+  "$tmp/optimism.json" >/dev/null || fail "unexpected record: $(cat "$tmp/optimism.json")"
 
 port2=$((port + 1))
 anvil_on 11155111 "$port2"

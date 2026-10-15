@@ -4,7 +4,7 @@
         sdk sdk-test relayer relayer-test relayer-docker \
         ui-dev ui-sepolia ui-gnosis ui-build ui-lint ui-test ui-config ui-docker \
         e2e e2e-browser dev dev-process dev-settle dev-results \
-        sepolia-deploy sepolia-run gnosis-deploy gnosis-run deploy-test
+        sepolia-deploy sepolia-run gnosis-deploy gnosis-run optimism-deploy deploy-test
 
 # pnpm 10 without a global install.
 PNPM ?= npx -y pnpm@10
@@ -173,5 +173,8 @@ gnosis-deploy: ## Deploy verifiers + manager to Gnosis (COUNCIL_KEY_FILE; a DEV 
 gnosis-run: ## Rehearsal ceremonies A-E against scripts/gnosis/deployment.json (local relayer, test adapter)
 	bash scripts/gnosis/run.sh
 
-deploy-test: ## The deploy scripts' release policy on throwaway Anvil chains (100, 11155111)
+optimism-deploy: ## Deploy verifiers + manager to OP Mainnet (COUNCIL_KEY_FILE; a DEV release needs ALLOW_DEV_SETUP=true)
+	bash scripts/optimism/deploy.sh
+
+deploy-test: ## The deploy scripts' release policy on throwaway Anvil chains (100, 10, 11155111)
 	bash scripts/deploy.test.sh
