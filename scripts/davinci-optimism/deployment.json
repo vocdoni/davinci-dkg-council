@@ -1,0 +1,33 @@
+{
+  "note": "PRODUCTION: Council v2 (circuits-v1 development setup) and the DAVINCI registry v0.0.51 on OP Mainnet, L1-blob mode. The round trip spends real ETH.",
+  "slug": "optimism",
+  "finalityWaitMin": 45,
+  "bOpenAfterMin": 150,
+  "chainId": 10,
+  "council": {
+    "manager": "0x281b84dee6305083cc719187e4a2737d61b4396e",
+    "views": "0x9ADfa11caA872dD179d04DeccB0ABFf6212d6bE1",
+    "ops": "0xB96FB1f4901c30F0F110449191824585c7108e6C",
+    "deploymentBlock": 158245395,
+    "circuitReleaseId": "0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301"
+  },
+  "davinci": {
+    "processRegistry": "0x64d41aD49009204E8dAcc153Fc98a5Ee14cB6916",
+    "deploymentBlock": 158245426,
+    "councilAdapter": "0xa5A1e4B204976709EB545Af0189211c41e20193d",
+    "dkgAdapter": "0x0c1E7120FaBf95fDe294839A78780334d27cfCff",
+    "dkgManager": "0x9e799a1d22710056e62c849e3ffe19dd01db2d41",
+    "ziskVerifier": "0x35ad4cbc4c77a2bc69b07e68f2535da5c6d07ab7",
+    "contractsRelease": "v0.0.51",
+    "pins": {
+      "batchProgramVK": "0xe39e460085ecddecf365649a61183a71c0fe778aa9c06fd2aa1a6c43cddb988b",
+      "resultsProgramVK": "0x394694558f39d0b2da0bbb09322333a0f567ee8d16bea2f354543a086587d167",
+      "rootCVadcopFinal": "0x6b2490fba336fb00f0c8719a961de309a8db6f43a9bfb7575ca5f014d609b265",
+      "ballotVKHash": "0xbf1e6590bb1ba883d601c4d7d1c6fa2722a78590716874019db6d68fc776bb0e",
+      "ziskVerifierCodeHash": "0xadab570d3e3a4c172d0c75e5aef5d06098b94d70a9c8ff76af239a90fdcadcc1"
+    },
+    "grace": { "default": 300, "floor": 240, "ceil": 600, "maxTotal": 1800, "noticeMin": 60 }
+  },
+  "rpcUrls": ["https://mainnet.optimism.io", "https://optimism.drpc.org"],
+  "beaconUrls": ["https://ethereum-beacon-api.publicnode.com"]
+}
