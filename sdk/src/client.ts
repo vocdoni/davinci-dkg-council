@@ -60,10 +60,11 @@ export interface CouncilClientOptions {
   /**
    * Extra re-samples of the finalized block when providers disagree (a
    * finality step reaches independent providers a few seconds apart).
-   * Agreement stays exact; default 5.
+   * Agreement stays exact; default 12 (a minute with the default delay: on OP
+   * Mainnet, Tenderly and dRPC were seen disagreeing for up to 40 s at a step).
    */
   finalityRetries?: number;
-  /** Delay between those re-samples in ms; default 2000. */
+  /** Delay between those re-samples in ms; default 5000. */
   finalityRetryDelayMs?: number;
 }
 
@@ -136,8 +137,8 @@ export class CouncilClient {
   constructor(options: CouncilClientOptions) {
     this.chainId = options.chainId;
     this.manager = options.manager;
-    this.finalityRetries = options.finalityRetries ?? 5;
-    this.finalityRetryDelayMs = options.finalityRetryDelayMs ?? 2000;
+    this.finalityRetries = options.finalityRetries ?? 12;
+    this.finalityRetryDelayMs = options.finalityRetryDelayMs ?? 5000;
     // NaN or Infinity would re-sample a persistent disagreement forever.
     if (!Number.isInteger(this.finalityRetries) || this.finalityRetries < 0) {
       throw new Error('council client: finalityRetries must be a non-negative integer');
