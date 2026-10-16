@@ -859,7 +859,10 @@ Public-surface rules, enforced by the implementation:
   duplicates after normalization (scheme/host lowercased, trailing slash dropped); a single URL
   is accepted only with an explicit `devMode` flag, and `devMode` itself is refused unless the
   chain id is a local one (31337/1337). Every provider's reported chain id must equal the
-  pinned deployment's.
+  pinned deployment's. At a finality step independent providers pick up the new finalized block
+  seconds apart, so `finalizedAnchor` re-samples (default 5 times, 2 s apart; `finalityRetries`,
+  `finalityRetryDelayMs`) before refusing a disagreement. Agreement stays exact (same number and
+  hash), and a provider error is not retried.
 - Recovery verification: `CouncilClient.verifyRestoredIdentity` checks a restored root against
   chain state; `kit` exports `kitEntryIdentity(root, entry)` and
   `rehearseEntry(root, entry, expected?)` for the §5.3 rehearsal flow.

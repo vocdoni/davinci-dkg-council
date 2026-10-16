@@ -717,8 +717,59 @@ describe('chain client (authenticated reads)', () => {
 
   it('refuses when providers disagree on the finalized block', async () => {
     const other = stub({ getBlock: async () => ({ hash: `0x${'dd'.repeat(32)}`, number: 100n }) });
-    const client = new CouncilClient({ chainId: 31337n, manager: MANAGER, clients: [stub(), other] });
+    const client = new CouncilClient({
+      chainId: 31337n,
+      manager: MANAGER,
+      clients: [stub(), other],
+      finalityRetryDelayMs: 0,
+    });
     await expect(client.finalizedAnchor()).rejects.toThrow(/disagree on the finalized block/);
+  });
+
+  describe('finality step re-sampling', () => {
+    const mk = (clients: PublicClient[]) =>
+      new CouncilClient({ chainId: 31337n, manager: MANAGER, clients, finalityRetries: 3, finalityRetryDelayMs: 0 });
+    const counted = (get: (n: number) => unknown) => {
+      const st = { calls: 0 };
+      const c = stub({
+        getBlock: async () => {
+          const v = get(st.calls++);
+          if (v instanceof Error) throw v;
+          return v;
+        },
+      });
+      return { st, c };
+    };
+
+    it('returns the agreed anchor when providers converge on the second read', async () => {
+      const behind = counted((n) => (n === 0 ? { hash: `0x${'aa'.repeat(32)}`, number: 99n } : block));
+      const ahead = counted(() => block);
+      const anchor = await mk([behind.c, ahead.c]).finalizedAnchor();
+      expect(anchor).toEqual({ blockNumber: 100n, blockHash: block.hash });
+      expect(behind.st.calls).toBe(2);
+    });
+
+    it('throws after the configured attempts on a persistent number disagreement', async () => {
+      const a = counted(() => ({ hash: block.hash, number: 99n }));
+      const b = counted(() => block);
+      await expect(mk([a.c, b.c]).finalizedAnchor()).rejects.toThrow(/disagree on the finalized block/);
+      expect(a.st.calls).toBe(4);
+      expect(b.st.calls).toBe(4);
+    });
+
+    it('throws on a persistent hash disagreement at the same number', async () => {
+      const a = counted(() => ({ hash: `0x${'dd'.repeat(32)}`, number: 100n }));
+      const b = counted(() => block);
+      await expect(mk([a.c, b.c]).finalizedAnchor()).rejects.toThrow(/disagree on the finalized block/);
+      expect(a.st.calls).toBe(4);
+    });
+
+    it('does not retry when a provider errors', async () => {
+      const bad = counted(() => new Error('rpc down'));
+      const ok = counted(() => block);
+      await expect(mk([bad.c, ok.c]).finalizedAnchor()).rejects.toThrow(/rpc down/);
+      expect(bad.st.calls).toBe(1);
+    });
   });
 
   it('refuses when providers disagree on state', async () => {
