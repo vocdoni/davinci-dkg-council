@@ -57,6 +57,14 @@ export interface CouncilClientOptions {
   devMode?: boolean;
   /** Preconstructed clients (tests); overrides rpcUrls. */
   clients?: PublicClient[];
+  /**
+   * Extra re-samples of the finalized block when providers disagree (a
+   * finality step reaches independent providers a few seconds apart).
+   * Agreement stays exact; default 5.
+   */
+  finalityRetries?: number;
+  /** Delay between those re-samples in ms; default 2000. */
+  finalityRetryDelayMs?: number;
 }
 
 export interface FinalizedAnchor {
@@ -119,6 +127,8 @@ export class CouncilClient {
   readonly chainId: bigint;
   readonly manager: Hex;
   private readonly clients: PublicClient[];
+  private readonly finalityRetries: number;
+  private readonly finalityRetryDelayMs: number;
   private chainChecked: Promise<void> | undefined;
   /** Anchors this instance issued (or re-validated) — see `authenticatedRead`. */
   private readonly issuedAnchors = new WeakSet<FinalizedAnchor>();
@@ -126,6 +136,8 @@ export class CouncilClient {
   constructor(options: CouncilClientOptions) {
     this.chainId = options.chainId;
     this.manager = options.manager;
+    this.finalityRetries = options.finalityRetries ?? 5;
+    this.finalityRetryDelayMs = options.finalityRetryDelayMs ?? 2000;
     if (options.rpcUrls && !options.clients) {
       const normalized = options.rpcUrls.map(normalizeRpcUrl);
       if (new Set(normalized).size !== normalized.length) {
@@ -165,15 +177,23 @@ export class CouncilClient {
   /** The finalized block all providers agree on (§9.3 item 1). */
   async finalizedAnchor(): Promise<FinalizedAnchor> {
     await this.verifyChain();
-    const blocks = await Promise.all(this.clients.map((c) => c.getBlock({ blockTag: 'finalized' })));
-    const first = blocks[0];
-    if (!first) throw new Error('council client: no finalized block');
-    for (const b of blocks) {
-      if (b.hash !== first.hash || b.number !== first.number) {
+    let anchor: FinalizedAnchor;
+    for (let attempt = 0; ; attempt++) {
+      const blocks = await Promise.all(this.clients.map((c) => c.getBlock({ blockTag: 'finalized' })));
+      const first = blocks[0];
+      if (!first) throw new Error('council client: no finalized block');
+      const { hash, number } = first;
+      if (number === null || hash === null) throw new Error('council client: finalized block is pending');
+      if (blocks.every((b) => b.hash === hash && b.number === number)) {
+        anchor = { blockNumber: number, blockHash: hash as Hex };
+        break;
+      }
+      // Providers pick up a finality step seconds apart: re-sample before refusing.
+      if (attempt >= this.finalityRetries) {
         throw new Error('council client: RPC providers disagree on the finalized block — refusing');
       }
+      if (this.finalityRetryDelayMs > 0) await new Promise((r) => setTimeout(r, this.finalityRetryDelayMs));
     }
-    const anchor: FinalizedAnchor = { blockNumber: first.number, blockHash: first.hash as Hex };
     this.issuedAnchors.add(anchor);
     return anchor;
   }
