@@ -6,6 +6,9 @@
 #
 #   DAVINCI_ORGANIZER_KEY_FILE=... COUNCIL_RELAYER_URL=https://... DAVINCI_SEQUENCER_URL=... \
 #     DAVINCI_FILES_DIR=... DAVINCI_FILES_URL=... scripts/davinci-optimism/run.sh
+#
+# A production sequencer downloads censuses from public hosts only: set DAVINCI_FILES_S3 (e.g.
+# s3://davinci-assets/council-rt) and DAVINCI_FILES_URL to that bucket's public URL.
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 export COUNCIL_DEPLOYMENT=${COUNCIL_DEPLOYMENT:-$here/deployment.json}
