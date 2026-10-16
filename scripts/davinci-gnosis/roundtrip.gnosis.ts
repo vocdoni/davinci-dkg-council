@@ -26,6 +26,7 @@
  * Markdown) holds addresses, transaction hashes, states and timings only.
  */
 
+import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -112,6 +113,13 @@ if (process.env.COUNCIL_RELAYER_TOKEN_FILE?.trim() && !RELAYER_TOKEN) throw new 
 const SEQUENCER_URL = env('DAVINCI_SEQUENCER_URL', 'http://127.0.0.1:9095');
 const FILES_DIR = env('DAVINCI_FILES_DIR', path.join(STATE_HOME, 'sequencer-council-test', 'files'));
 const FILES_URL = env('DAVINCI_FILES_URL', 'http://172.17.0.1:8099');
+/**
+ * Optional: an s3:// prefix (s3cmd, config DAVINCI_FILES_S3CFG) each file is also put to, public, so a
+ * sequencer that refuses private census hosts (a production node) can fetch it; FILES_URL is then
+ * that bucket's public URL.
+ */
+const FILES_S3 = process.env.DAVINCI_FILES_S3?.trim();
+const FILES_S3CFG = env('DAVINCI_FILES_S3CFG', path.join(homedir(), 'do-tor1.s3cfg'));
 const ARTIFACT_CACHE = env('DAVINCI_SDK_ARTIFACTS', path.join(homedir(), '.cache', 'davinci-sdk-e2e', 'artifacts'));
 const ORGANIZER_KEY_FILE = env('DAVINCI_ORGANIZER_KEY_FILE');
 /** Ceremony B opens this many minutes after its creation; process B ends 7 minutes before. */
@@ -478,13 +486,16 @@ const network = {
   rpcUrls: RPCS,
 };
 
-/** Files on disk, served at FILES_URL to this host and to the test sequencer (private hosts allowed on both). */
+/** Files on disk, served at FILES_URL (a local server, or the DAVINCI_FILES_S3 bucket). */
 const uploader: Uploader = {
   upload: async ({ data, sha256 }) => {
     const name = `${sha256.slice(2)}.json`;
     mkdirSync(FILES_DIR, { recursive: true });
     writeFileSync(path.join(FILES_DIR, `${name}.tmp`), data);
     renameSync(path.join(FILES_DIR, `${name}.tmp`), path.join(FILES_DIR, name));
+    if (FILES_S3) {
+      execFileSync('s3cmd', ['-c', FILES_S3CFG, 'put', '--acl-public', '--mime-type=application/json', path.join(FILES_DIR, name), `${FILES_S3}/${name}`], { stdio: 'ignore' });
+    }
     return `${FILES_URL}/${name}`;
   },
 };
