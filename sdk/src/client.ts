@@ -138,6 +138,13 @@ export class CouncilClient {
     this.manager = options.manager;
     this.finalityRetries = options.finalityRetries ?? 5;
     this.finalityRetryDelayMs = options.finalityRetryDelayMs ?? 2000;
+    // NaN or Infinity would re-sample a persistent disagreement forever.
+    if (!Number.isInteger(this.finalityRetries) || this.finalityRetries < 0) {
+      throw new Error('council client: finalityRetries must be a non-negative integer');
+    }
+    if (!Number.isFinite(this.finalityRetryDelayMs) || this.finalityRetryDelayMs < 0) {
+      throw new Error('council client: finalityRetryDelayMs must be a finite non-negative number');
+    }
     if (options.rpcUrls && !options.clients) {
       const normalized = options.rpcUrls.map(normalizeRpcUrl);
       if (new Set(normalized).size !== normalized.length) {

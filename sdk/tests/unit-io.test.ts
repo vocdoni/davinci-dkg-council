@@ -741,6 +741,12 @@ describe('chain client (authenticated reads)', () => {
       return { st, c };
     };
 
+    it('refuses retry settings that could re-sample forever', () => {
+      for (const bad of [{ finalityRetries: Number.NaN }, { finalityRetries: Infinity }, { finalityRetries: -1 }, { finalityRetries: 2.5 }, { finalityRetryDelayMs: Number.NaN }, { finalityRetryDelayMs: -1 }]) {
+        expect(() => new CouncilClient({ chainId: 31337n, manager: MANAGER, clients: [stub({}), stub({})], ...bad })).toThrow(/finalityRetr/);
+      }
+    });
+
     it('returns the agreed anchor when providers converge on the second read', async () => {
       const behind = counted((n) => (n === 0 ? { hash: `0x${'aa'.repeat(32)}`, number: 99n } : block));
       const ahead = counted(() => block);
