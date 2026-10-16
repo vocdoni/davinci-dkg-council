@@ -101,6 +101,12 @@ const MANAGER = deployment.council.manager.toLowerCase() as Hex;
 const REGISTRY = deployment.davinci.processRegistry.toLowerCase() as Hex;
 const ADAPTER = deployment.davinci.councilAdapter.toLowerCase() as Hex;
 const RPCS = list(env('COUNCIL_RPC_URL', deployment.rpcUrls.join(',')));
+/**
+ * The DAVINCI side (SDK provider, registry reads, process creation) may use other endpoints than the
+ * Council's authenticated reads, e.g. a keyed RPC whose `finalized` view lags (fine for DAVINCI, refused by
+ * the Council client's agreement check) or none of dRPC's free tier, which refuses batches of over 3.
+ */
+const DAVINCI_RPCS = list(env('DAVINCI_RPC_URL', RPCS.join(',')));
 const RUN_DIR = env('COUNCIL_RUN_DIR', path.join(STATE_HOME, 'council-davinci'));
 const RELAYER_URL = env('COUNCIL_RELAYER_URL', 'http://127.0.0.1:8797');
 /**
@@ -483,7 +489,7 @@ const network = {
   chainId: deployment.chainId,
   processRegistry: REGISTRY,
   startBlock: deployment.davinci.deploymentBlock,
-  rpcUrls: RPCS,
+  rpcUrls: DAVINCI_RPCS,
 };
 
 /** Files on disk, served at FILES_URL (a local server, or the DAVINCI_FILES_S3 bucket). */
@@ -690,7 +696,7 @@ describe.sequential(`DAVINCI + Council on ${CHAIN_NAME} (n=3, t=2, real proofs)`
     if (!k.startsWith('0x')) k = `0x${k}`;
     return k;
   })();
-  const provider = new FailoverRpcProvider(RPCS, deployment.chainId);
+  const provider = new FailoverRpcProvider(DAVINCI_RPCS, deployment.chainId);
   const orgWallet = new Wallet(orgKey, provider);
   const creator = orgWallet.address.toLowerCase() as Hex;
   let sdk: DavinciSDK;
