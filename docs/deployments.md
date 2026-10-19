@@ -59,12 +59,16 @@ record. OP runs no state gas (EIP-8037), so the gas equals Gnosis's.
   (`Deploy.s.sol` checked them before it deployed the manager, `deploy.sh` re-read them from
   chain as keccak256 of `eth_getCode`); CouncilViews and CouncilOps carry the same code as on
   Gnosis, and the manager's runtime equals Gnosis's with its immutables masked.
-- **DAVINCI.** The OP DAVINCI ProcessRegistry
+- **DAVINCI.** The OP DAVINCI ProcessRegistry the Council serves is
+  [`0x6F500A3e3A161EcB3C19A034bFB6a6Ac3b71abE6`](https://optimistic.etherscan.io/address/0x6F500A3e3A161EcB3C19A034bFB6a6Ac3b71abE6)
+  (block 158,414,417, davinci-contracts v0.0.53, protocol v5 pre-production). Its `CouncilAdapter`
+  is [`0xC2f51d01E16b61d75eAD2e5b88d139739067af17`](https://optimistic.etherscan.io/address/0xC2f51d01E16b61d75eAD2e5b88d139739067af17).
+  `ui/public/config.optimism.json` pins that registry for the DAVINCI Elections pairing.
+  Retired: the v0.0.51 registry
   [`0x64d41aD49009204E8dAcc153Fc98a5Ee14cB6916`](https://optimistic.etherscan.io/address/0x64d41aD49009204E8dAcc153Fc98a5Ee14cB6916)
-  (block 158,245,426) created its `CouncilAdapter`
-  [`0xa5A1e4B204976709EB545Af0189211c41e20193d`](https://optimistic.etherscan.io/address/0xa5A1e4B204976709EB545Af0189211c41e20193d),
-  bound to this manager. `ui/public/config.optimism.json` pins that registry for the DAVINCI
-  Elections pairing. No test adapter was deployed.
+  (block 158,245,426) and its `CouncilAdapter`
+  [`0xa5A1e4B204976709EB545Af0189211c41e20193d`](https://optimistic.etherscan.io/address/0xa5A1e4B204976709EB545Af0189211c41e20193d);
+  the app no longer points at them. No test adapter was deployed.
 - **Source verification.** All five contracts have an exact match (creation and runtime) on
   Sourcify; not yet verified on Optimistic Etherscan.
 - **Cost.** 13,677,397 gas at 2,374 to 2,377 wei per gas (0.000000032 ETH) plus 0.00000058 ETH of

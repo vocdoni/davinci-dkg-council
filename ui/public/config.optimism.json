@@ -13,7 +13,7 @@
     "https://github.com/vocdoni/davinci-dkg-council/releases/download/{release}"
   ],
   "davinci": {
-    "registry": "0x64d41ad49009204e8dacc153fc98a5ee14cb6916",
+    "registry": "0x6f500a3e3a161ecb3c19a034bfb6a6ac3b71abe6",
     "electionsOrigins": ["https://elections.davinci.vote"]
   },
   "devMode": false
