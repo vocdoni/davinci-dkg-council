@@ -1,5 +1,5 @@
 {
-  "note": "PRODUCTION: Council v2 (circuits-v1 development setup) and the DAVINCI registry v0.0.53 on OP Mainnet, L1-blob mode. The round trip spends real ETH.",
+  "note": "PRODUCTION: Council v2 (circuits-v1 development setup) and the DAVINCI registry v0.0.55 on OP Mainnet, L1-blob mode. The round trip spends real ETH.",
   "slug": "optimism",
   "finalityWaitMin": 45,
   "bOpenAfterMin": 150,
@@ -12,18 +12,18 @@
     "circuitReleaseId": "0x071a01deb1e9b5e5e1da302df14be234c5ee5b91603d7f0437852dbf1c665301"
   },
   "davinci": {
-    "processRegistry": "0x6F500A3e3A161EcB3C19A034bFB6a6Ac3b71abE6",
-    "deploymentBlock": 158414417,
-    "councilAdapter": "0xC2f51d01E16b61d75eAD2e5b88d139739067af17",
-    "dkgAdapter": "0x51aB0BB6A455e7f027f3b09b8F1Ea0634806f390",
-    "dkgManager": "0x9e799a1d22710056e62c849e3ffe19dd01db2d41",
+    "processRegistry": "0xc916F985CbCdbEb25A0EE6950361cf7Dd9Fbe35a",
+    "deploymentBlock": 158592889,
+    "councilAdapter": "0x798dD4fE9DE224ffD7bF1081FD8D0C273a6e8860",
+    "dkgAdapter": "0xdb2C3653d59e9693ea3186AE4d4A34b3379A68f7",
+    "dkgManager": "0x401381a9711b473baf8757404b5514537a5216d7",
     "ziskVerifier": "0x35ad4cbc4c77a2bc69b07e68f2535da5c6d07ab7",
-    "contractsRelease": "v0.0.53",
+    "contractsRelease": "v0.0.55",
     "pins": {
-      "batchProgramVK": "0x1e4a74a1c6fb1cd1874d80895e1e075930837955efb4a135539016f7cdead2a8",
-      "resultsProgramVK": "0xde55d751582e510bf378d4eec0d98ee3fa5817a50b77bc0e5ce560035e29e4e9",
+      "batchProgramVK": "0x4b1a527e284af96fa0c3543e9e9b18746a6494edd99c309e58d96a804e3041dc",
+      "resultsProgramVK": "0xce964acdd53329fc49ede57f5ea288f044950e136be119287fd0021390689dc4",
       "rootCVadcopFinal": "0x6b2490fba336fb00f0c8719a961de309a8db6f43a9bfb7575ca5f014d609b265",
-      "ballotVKHash": "0x7caffddcd7ea38439cbb45789b810d8eafceca65cff93dbeaae409b2bf64e219",
+      "ballotVKHash": "0x67e8e6b47ea32cf144d6e72886f02b95ed068b157f9d4ccc8e97f335858e4963",
       "ziskVerifierCodeHash": "0xadab570d3e3a4c172d0c75e5aef5d06098b94d70a9c8ff76af239a90fdcadcc1"
     },
     "grace": { "default": 300, "floor": 240, "ceil": 600, "maxTotal": 1800, "noticeMin": 60 }

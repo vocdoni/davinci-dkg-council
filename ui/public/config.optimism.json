@@ -6,14 +6,14 @@
     "https://optimism.gateway.tenderly.co",
     "https://optimism.drpc.org"
   ],
-  "relayerUrl": "https://council-optimism-relayer-production.up.railway.app",
+  "relayerUrl": "https://council-relayer-production-1fe9.up.railway.app",
   "artifactsBaseUrls": [
-    "https://council-optimism-ui-production.up.railway.app/{release}",
+    "https://council-ui-production-46b5.up.railway.app/{release}",
     "https://davinci-assets.fra1.cdn.digitaloceanspaces.com/council/{release}",
     "https://github.com/vocdoni/davinci-dkg-council/releases/download/{release}"
   ],
   "davinci": {
-    "registry": "0x6f500a3e3a161ecb3c19a034bfb6a6ac3b71abe6",
+    "registry": "0xc916f985cbcdbeb25a0ee6950361cf7dd9fbe35a",
     "electionsOrigins": ["https://elections.davinci.vote"]
   },
   "devMode": false

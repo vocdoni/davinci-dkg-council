@@ -60,22 +60,26 @@ record. OP runs no state gas (EIP-8037), so the gas equals Gnosis's.
   chain as keccak256 of `eth_getCode`); CouncilViews and CouncilOps carry the same code as on
   Gnosis, and the manager's runtime equals Gnosis's with its immutables masked.
 - **DAVINCI.** The OP DAVINCI ProcessRegistry the Council serves is
-  [`0x6F500A3e3A161EcB3C19A034bFB6a6Ac3b71abE6`](https://optimistic.etherscan.io/address/0x6F500A3e3A161EcB3C19A034bFB6a6Ac3b71abE6)
-  (block 158,414,417, davinci-contracts v0.0.53, protocol v5 pre-production). Its `CouncilAdapter`
-  is [`0xC2f51d01E16b61d75eAD2e5b88d139739067af17`](https://optimistic.etherscan.io/address/0xC2f51d01E16b61d75eAD2e5b88d139739067af17).
+  [`0xc916F985CbCdbEb25A0EE6950361cf7Dd9Fbe35a`](https://optimistic.etherscan.io/address/0xc916F985CbCdbEb25A0EE6950361cf7Dd9Fbe35a)
+  (block 158,592,889, davinci-contracts v0.0.55, deployed on 2026-10-23). Its `CouncilAdapter`
+  is [`0x798dD4fE9DE224ffD7bF1081FD8D0C273a6e8860`](https://optimistic.etherscan.io/address/0x798dD4fE9DE224ffD7bF1081FD8D0C273a6e8860).
   `ui/public/config.optimism.json` pins that registry for the DAVINCI Elections pairing.
-  Retired: the v0.0.51 registry
+  Retired: the registries
+  [`0x02D6c284234B4CE75faB3085cF3f1ba4b7262B97`](https://optimistic.etherscan.io/address/0x02D6c284234B4CE75faB3085cF3f1ba4b7262B97)
+  (block 158,487,281, `CouncilAdapter` `0xe07BE522a8fE9d1cf85DCA5Eefbe663055D35127`),
+  [`0x6F500A3e3A161EcB3C19A034bFB6a6Ac3b71abE6`](https://optimistic.etherscan.io/address/0x6F500A3e3A161EcB3C19A034bFB6a6Ac3b71abE6)
+  (block 158,414,417, `CouncilAdapter` `0xC2f51d01E16b61d75eAD2e5b88d139739067af17`) and
   [`0x64d41aD49009204E8dAcc153Fc98a5Ee14cB6916`](https://optimistic.etherscan.io/address/0x64d41aD49009204E8dAcc153Fc98a5Ee14cB6916)
-  (block 158,245,426) and its `CouncilAdapter`
-  [`0xa5A1e4B204976709EB545Af0189211c41e20193d`](https://optimistic.etherscan.io/address/0xa5A1e4B204976709EB545Af0189211c41e20193d);
+  (block 158,245,426, `CouncilAdapter` `0xa5A1e4B204976709EB545Af0189211c41e20193d`);
   the app no longer points at them. No test adapter was deployed.
 - **Source verification.** All five contracts have an exact match (creation and runtime) on
   Sourcify; not yet verified on Optimistic Etherscan.
 - **Cost.** 13,677,397 gas at 2,374 to 2,377 wei per gas (0.000000032 ETH) plus 0.00000058 ETH of
   OP L1 data fee, which forge does not show.
-- **App and relayer.** Not hosted yet: the Railway services `council-optimism-ui` and
-  `council-optimism-relayer` follow the Gnosis ones with `config.optimism.json`, a new relayer hot
-  key, `COUNCIL_STATE_GAS=false` and an explicit daily budget.
+- **App and relayer.** Hosted on Railway: the services `council-ui` (https://council-ui-production-46b5.up.railway.app) and
+  `council-relayer` (https://council-relayer-production-1fe9.up.railway.app) run `config.optimism.json`, the relayer hot key
+  `0xBEd88793036e984BB4a7C682406aEdC4061f7808`, `COUNCIL_STATE_GAS=false`, a daily budget of 0.0005 ETH
+  and a balance alert at the same value.
 - **Browser RPCs.** `config.optimism.json` reads through `optimism.gateway.tenderly.co` and
   `optimism.drpc.org`. The SDK reads authenticated state at a finalized block both providers
   agree on and refuses when they disagree. On 2026-10-15 `mainnet.optimism.io` answered from
